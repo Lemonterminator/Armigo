@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+*.pyo
+.pytest_cache/
+.ruff_cache/
+.venv/
+*.blend1
+results/stage2/demos/*.npz
+results/real_ref/*.png
+uv-cache/

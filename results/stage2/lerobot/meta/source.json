@@ -1,0 +1,19 @@
+{
+  "source": "isaac-sim",
+  "privileged": {
+    "phase": "per-frame expert phase, index into phases",
+    "phases": [
+      "rest",
+      "approach",
+      "grasp",
+      "lift",
+      "show_move",
+      "show_hold",
+      "handoff",
+      "place",
+      "return"
+    ],
+    "defect_px": "estimated defect visibility score",
+    "brick_px": "orange brick pixels in top_rgb_v2"
+  }
+}
