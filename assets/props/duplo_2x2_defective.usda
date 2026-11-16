@@ -67,9 +67,9 @@ def Xform "Brick" (
         prepend apiSchemas = ["PhysicsMaterialAPI"]
     )
     {
-        float physics:dynamicFriction = 0.7
-        float physics:restitution = 0.05
-        float physics:staticFriction = 0.8
+        float physics:dynamicFriction = 1.4
+        float physics:restitution = 0
+        float physics:staticFriction = 1.6
     }
 
     def Cube "Defect_0" (

@@ -1,4 +1,14 @@
-"""Stage 2 Verification: DifferentialIK + FixedJoint grasp + presentation_search + expert_place + LeRobot export."""
+"""Stage 2 Experiment: Pure-physics DifferentialIK + slow pinch grasp + ContactSensor + LeRobot export.
+
+Sequence:
+1. Open gripper (0.85 rad) -> hover directly above brick (z = 0.095 m)
+2. Descend vertically to brick pinch height (z = 0.011 m, tol < 4 mm)
+3. Pause 0.4 s to settle
+4. Slowly close gripper onto the 31.8 mm brick under PhysX friction + contact sensing
+5. Verify real physical grasp (dual-jaw contact force + gripper blocked by brick width)
+6. Lift to z = 0.14 m and verify brick remains held between jaws (no air-gap weld)
+7. Present defect face -> transport over pink plate -> open jaws -> drop under gravity -> return
+"""
 
 from __future__ import annotations
 
@@ -10,9 +20,9 @@ from pathlib import Path
 
 from isaaclab.app import add_launcher_args, launch_simulation
 
-parser = argparse.ArgumentParser(description="Stage 2 Isaac Lab expert pick-inspect-place episode generator.")
+parser = argparse.ArgumentParser(description="Stage 2 Isaac Lab pure-physics pick-inspect-place experiment.")
 add_launcher_args(parser)
-args_cli = parser.parse_args()
+args_cli = parser.parse_args([])
 args_cli.enable_cameras = True
 args_cli.visualizer = []
 
@@ -26,7 +36,7 @@ from isaaclab.actuators import ImplicitActuatorCfg
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
 from isaaclab.controllers import DifferentialIKController, DifferentialIKControllerCfg
 from isaaclab.scene import InteractiveSceneCfg
-from isaaclab.sensors import CameraCfg
+from isaaclab.sensors import CameraCfg, ContactSensorCfg
 from isaaclab.utils import configclass
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -38,8 +48,8 @@ OUT_DIR = ROOT / "results" / "stage2"
 DEMO_DIR = OUT_DIR / "demos"
 
 FPS = 30
-PHYSICS_HZ = 120
-SUBSTEPS = PHYSICS_HZ // FPS  # 4 steps @ 120 Hz per 30 Hz recorded frame
+PHYSICS_HZ = 240
+SUBSTEPS = PHYSICS_HZ // FPS  # 8 physics substeps @ 240 Hz per 30 Hz video frame
 BOWL_R = 0.10
 PHASES = ("rest", "approach", "grasp", "lift", "show_move", "show_hold", "handoff", "place", "return")
 JOINTS = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper")
@@ -71,10 +81,10 @@ CAMERA_SHAPES = {
 }
 HANDOFF_Q = np.array([0.0, 0.2, -0.9, 1.5, 0.0], dtype=np.float64)
 REST_U = np.array([4.1, -98.7, 99.3, -98.2, 24.1, 33.7], dtype=np.float64)
-OPEN_G = 1.25
-CLOSED_G = -0.17
-# Offset from gripper link origin to jaw pinch midpoint in gripper local frame
-TCP_OFFSET_LOCAL = (0.004, 0.0, -0.098)
+OPEN_G = 0.85   # ~71 mm jaw gap (> 2.2x brick width, clears brick cleanly on descent)
+HOLD_G = -0.15  # commanded target past 31.8 mm brick contact (~0.17 rad) for firm clamping force
+# Biased +6 mm toward moving jaw at open/mid gap so fixed_jaw clears brick -X edge by ~8.4 mm on descent
+TCP_OFFSET_LOCAL = (0.0135, 0.0, -0.0905)
 
 
 def normalized_to_rad(u: np.ndarray) -> np.ndarray:
@@ -138,6 +148,7 @@ class Stage2SceneCfg(InteractiveSceneCfg):
 		spawn=sim_utils.CuboidCfg(
 			size=(1.6, 1.6, 0.04),
 			collision_props=sim_utils.UsdPhysicsCollisionCfg(),
+			physics_material=sim_utils.RigidBodyMaterialCfg(static_friction=1.0, dynamic_friction=0.9, restitution=0.0),
 			visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.58, 0.58, 0.58), roughness=0.9),
 		),
 		init_state=AssetBaseCfg.InitialStateCfg(pos=(0.25, 0.0, -0.02)),
@@ -153,12 +164,19 @@ class Stage2SceneCfg(InteractiveSceneCfg):
 	)
 	robot = ArticulationCfg(
 		prim_path="{ENV_REGEX_NS}/Robot",
-		spawn=sim_utils.UsdFileCfg(usd_path=str(USD_ASSETS / "so101_usd" / "so101_physx.usda")),
+		spawn=sim_utils.UsdFileCfg(
+			usd_path=str(USD_ASSETS / "so101_usd" / "so101_physx.usda"),
+			activate_contact_sensors=True,
+			articulation_props=sim_utils.PhysxArticulationRootPropertiesCfg(
+				solver_position_iteration_count=32,
+				solver_velocity_iteration_count=8,
+			),
+		),
 		actuators={
 			"sts3215": ImplicitActuatorCfg(
 				joint_names_expr=[".*"],
-				stiffness=500.0,
-				damping=40.0,
+				stiffness=450.0,
+				damping=35.0,
 				effort_limit_sim=2.94,
 			)
 		},
@@ -171,15 +189,35 @@ class Stage2SceneCfg(InteractiveSceneCfg):
 	pink_plate = RigidObjectCfg(
 		prim_path="{ENV_REGEX_NS}/PinkPlate",
 		spawn=sim_utils.UsdFileCfg(usd_path=str(USD_ASSETS / "props" / "pink_plate.usda")),
-		init_state=RigidObjectCfg.InitialStateCfg(pos=(0.27, -0.18, 0.0)),
+		init_state=RigidObjectCfg.InitialStateCfg(pos=(0.26, -0.18, 0.0)),
 	)
 	brick = RigidObjectCfg(
 		prim_path="{ENV_REGEX_NS}/Brick",
-		spawn=sim_utils.UsdFileCfg(usd_path=str(USD_ASSETS / "props" / "duplo_2x2_defective.usda")),
+		spawn=sim_utils.UsdFileCfg(
+			usd_path=str(USD_ASSETS / "props" / "duplo_2x2_defective.usda"),
+			activate_contact_sensors=True,
+			rigid_props=sim_utils.PhysxRigidBodyPropertiesCfg(
+				solver_position_iteration_count=32,
+				solver_velocity_iteration_count=8,
+				linear_damping=0.4,
+				angular_damping=0.4,
+				max_depenetration_velocity=1.0,
+			),
+		),
 		init_state=RigidObjectCfg.InitialStateCfg(
 			pos=(0.26, 0.01, 0.0096),
-			rot=(0.0, 0.0, math.sin(math.radians(12.5)), math.cos(math.radians(12.5))),
+			rot=(0.0, 0.0, math.sin(math.radians(10.0)), math.cos(math.radians(10.0))),
 		),
+	)
+	contact_fixed = ContactSensorCfg(
+		prim_path="{ENV_REGEX_NS}/Robot/Geometry/base/shoulder/upper_arm/lower_arm/wrist/gripper",
+		filter_prim_paths_expr=["{ENV_REGEX_NS}/Brick"],
+		update_period=0.0,
+	)
+	contact_moving = ContactSensorCfg(
+		prim_path="{ENV_REGEX_NS}/Robot/Geometry/base/shoulder/upper_arm/lower_arm/wrist/gripper/moving_jaw_so101_v1",
+		filter_prim_paths_expr=["{ENV_REGEX_NS}/Brick"],
+		update_period=0.0,
 	)
 	top_cam = CameraCfg(
 		prim_path="{ENV_REGEX_NS}/TopCamera",
@@ -205,7 +243,7 @@ class Stage2SceneCfg(InteractiveSceneCfg):
 		width=640,
 		data_types=["rgb"],
 		spawn=sim_utils.PinholeCameraCfg(focal_length=18.0, horizontal_aperture=20.955, clipping_range=(0.05, 10.0)),
-		offset=CameraCfg.OffsetCfg(pos=(0.72, -0.32, 0.34), rot=(0.0, 0.0, 0.0, 1.0), convention="opengl"),
+		offset=CameraCfg.OffsetCfg(pos=(0.62, -0.28, 0.28), rot=(0.0, 0.0, 0.0, 1.0), convention="opengl"),
 	)
 
 
@@ -216,8 +254,8 @@ def configure_cameras(cfg: Stage2SceneCfg, top_cam: dict) -> None:
 	cfg.top_cam.offset.pos = (float(top_cam["x"]), float(top_cam["y"]), float(top_cam["height"]))
 	cfg.top_cam.offset.rot = top_quat
 
-	eye = np.array([0.72, -0.32, 0.34])
-	target = np.array([0.24, 0.02, 0.06])
+	eye = np.array([0.62, -0.28, 0.28])
+	target = np.array([0.25, -0.02, 0.05])
 	fwd = target - eye
 	fwd /= np.linalg.norm(fwd)
 	r_f = np.cross(fwd, np.array([0.0, 0.0, 1.0]))
@@ -238,12 +276,10 @@ def main() -> None:
 	cfg = Stage2SceneCfg(num_envs=1, env_spacing=2.0)
 	configure_cameras(cfg, top_cam)
 
-	sim_cfg = sim_utils.SimulationCfg(dt=1.0 / PHYSICS_HZ, device="cuda:0")
+	sim_cfg = sim_utils.SimulationCfg(dt=1.0 / PHYSICS_HZ, render_interval=SUBSTEPS, device="cuda:0")
 	with launch_simulation(sim_cfg, args_cli):
 		import isaaclab.utils.math as math_utils
-		import omni.usd
 		from isaaclab.scene import InteractiveScene
-		from pxr import Gf, UsdPhysics
 
 		sim = sim_utils.SimulationContext(sim_cfg)
 		scene = InteractiveScene(cfg)
@@ -251,7 +287,8 @@ def main() -> None:
 
 		robot = scene["robot"]
 		brick = scene["brick"]
-		stage = omni.usd.get_context().get_stage()
+		c_fixed = scene["contact_fixed"]
+		c_moving = scene["contact_moving"]
 
 		joint_names = list(robot.joint_names)
 		j_idx = {n: i for i, n in enumerate(joint_names)}
@@ -270,8 +307,8 @@ def main() -> None:
 			command_type="pose",
 			use_relative_mode=False,
 			ik_method="dls",
-			ik_params={"lambda_val": 0.03},
-			orientation_weight=(1.0, 1.0, 0.25),
+			ik_params={"lambda_val": 0.01},
+			orientation_weight=(0.15, 0.15, 0.05),
 		)
 		ik_ctrl = DifferentialIKController(ik_cfg, num_envs=1, device=robot.device)
 
@@ -284,7 +321,7 @@ def main() -> None:
 		robot.write_joint_position_to_sim_index(position=q_init)
 		robot.write_joint_velocity_to_sim_index(velocity=torch.zeros_like(q_init))
 		robot.actuators.target_command.set_position_index(value=q_init)
-		for _ in range(15):
+		for _ in range(24):
 			scene.write_data_to_sim()
 			sim.step()
 			scene.update(sim.get_physics_dt())
@@ -307,7 +344,11 @@ def main() -> None:
 			q_arm = robot.data.joint_pos.torch[:, arm_ids]
 			return tcp_pos_b, tcp_quat_b, jac_b, q_arm
 
-		# Recorders
+		def jaw_forces() -> tuple[float, float]:
+			f_fix = float(torch.linalg.norm(c_fixed.data.force_matrix_w.torch[0, 0, 0]).cpu())
+			f_mov = float(torch.linalg.norm(c_moving.data.force_matrix_w.torch[0, 0, 0]).cpu())
+			return f_fix, f_mov
+
 		frames_state: list[np.ndarray] = []
 		frames_action: list[np.ndarray] = []
 		frames_phase: list[int] = []
@@ -317,18 +358,15 @@ def main() -> None:
 		frames_wrist: list[np.ndarray] = []
 		frames_defect_px: list[int] = []
 		frames_brick_px: list[int] = []
-		keyframes: dict[str, np.ndarray] = {}
+		snapshots: dict[str, np.ndarray] = {}
 
-		fj_prim_path = "/World/GraspJoint"
-		attached = False
 		max_lift_z = 0.0
 		cam_pos_np = np.array([top_cam["x"], top_cam["y"], top_cam["height"]], dtype=np.float64)
 		_, _, z_opengl_top = camera_axes_from_pose(top_cam)
 		cam_fwd_np = -z_opengl_top
 
-		def record_frame(q_cmd_ordered: np.ndarray, phase_name: str) -> None:
+		def record_frame(q_cmd_ordered: np.ndarray, phase_name: str, snap_tag: str | None = None) -> None:
 			nonlocal max_lift_z
-			# Read current joint state & brick state
 			q_curr = robot.data.joint_pos.torch[0].cpu().numpy()
 			q_curr_j = np.array([q_curr[j_idx[n]] for n in JOINTS], dtype=np.float64)
 			q_cmd_j = np.array([q_cmd_ordered[j_idx[n]] for n in JOINTS], dtype=np.float64)
@@ -346,13 +384,11 @@ def main() -> None:
 			z_w, valid = depth_plane_to_height(top_cam, top_depth_full)
 			top_depth_c = layered_height_image(z_w[y0 : y0 + h, x0 : x0 + w], valid[y0 : y0 + h, x0 : x0 + w])
 
-			# Estimate defect normal cosine & visible brick pixels via color segmentation in cropped RGB
 			hsv = cv2.cvtColor(top_rgb_c, cv2.COLOR_RGB2HSV)
 			orange_mask = (hsv[..., 0] < 22) & (hsv[..., 1] > 110) & (hsv[..., 2] > 90)
 			b_px = int(orange_mask.sum())
 			rot_b = Rotation.from_quat(b_quat_xyzw).as_matrix()
-			defect_normal_w = rot_b[:, 0]  # face 0 (+X)
-			cos_d = view_cosine(defect_normal_w, b_pos, cam_pos_np)
+			cos_d = view_cosine(rot_b[:, 0], b_pos, cam_pos_np)
 			d_px = int(max(cos_d, 0.0) * 60) if b_px > 20 else 0
 
 			frames_state.append(rad_to_normalized(q_curr_j))
@@ -365,18 +401,18 @@ def main() -> None:
 			frames_defect_px.append(d_px)
 			frames_brick_px.append(b_px)
 
-			if phase_name in ("grasp", "lift", "show_hold", "place"):
-				if phase_name == "place" and attached:
-					pass
-				else:
-					panel = np.hstack([
-						cv2.resize(top_rgb_c, (480, 390)),
-						cv2.resize(front_rgb, (520, 390)),
-						cv2.resize(wrist_rgb, (520, 390)),
-					])
-					keyframes[phase_name] = panel
+			if snap_tag is not None:
+				panel = np.hstack([
+					cv2.resize(top_rgb_c, (480, 390)),
+					cv2.resize(front_rgb, (520, 390)),
+					cv2.resize(wrist_rgb, (520, 390)),
+				])
+				cv2.putText(panel, snap_tag, (16, 34), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (220, 30, 30), 2)
+				snapshots[snap_tag] = panel
 
-		def step_joint_target(target_ordered: np.ndarray, secs: float, phase_name: str, settle: float = 0.0) -> None:
+		def step_joint_target(
+			target_ordered: np.ndarray, secs: float, phase_name: str, snap_tag: str | None = None
+		) -> None:
 			n_frames = max(2, round(secs * FPS))
 			start_j = robot.data.joint_pos.torch[0].cpu().numpy()
 			for k in range(n_frames):
@@ -389,161 +425,175 @@ def main() -> None:
 					scene.write_data_to_sim()
 					sim.step()
 					scene.update(sim.get_physics_dt())
-				record_frame(q_cmd, phase_name)
-			for _ in range(round(settle * FPS)):
-				t_cmd = torch.tensor(target_ordered[None, :], device=robot.device, dtype=torch.float32)
-				robot.actuators.target_command.set_position_index(value=t_cmd)
-				for _ in range(SUBSTEPS):
-					scene.write_data_to_sim()
-					sim.step()
-					scene.update(sim.get_physics_dt())
-				record_frame(target_ordered, phase_name)
+				tag = snap_tag if (snap_tag and k == n_frames - 1) else None
+				record_frame(q_cmd, phase_name, snap_tag=tag)
 
 		def step_ik_pose(
-			target_pos: np.ndarray, yaw_rad: float, gripper_cmd: float, max_secs: float, phase_name: str, tol: float = 0.008
+			target_pos: np.ndarray,
+			yaw_rad: float,
+			gripper_cmd: float,
+			max_secs: float,
+			phase_name: str,
+			tol: float = 0.004,
+			max_vel_rad_s: float = 1.2,
+			snap_tag: str | None = None,
 		) -> float:
-			"""Drive TCP via closed-loop DifferentialIKController until within ``tol`` or ``max_secs``."""
+			"""Move smoothly via velocity-limited DifferentialIK (integrating ``q_cmd``) until within ``tol``."""
 			max_frames = max(4, round(max_secs * FPS))
-			quat_des = Rotation.from_euler("z", yaw_rad).as_quat()  # xyzw
+			quat_des = Rotation.from_euler("z", yaw_rad).as_quat()
 			cmd = torch.tensor([[*target_pos, *quat_des]], device=robot.device, dtype=torch.float32)
 			target_t = torch.tensor(target_pos, device=robot.device, dtype=torch.float32)
+			max_step = max_vel_rad_s / PHYSICS_HZ
+			q_cmd_arm = robot.data.joint_pos.torch[:, arm_ids].clone()
 			err_m = 1.0
 			for k in range(max_frames):
-				tcp_p, tcp_q, jac_b, q_arm = get_tcp_and_jac()
-				ik_ctrl.set_command(cmd, ee_pos=tcp_p, ee_quat=tcp_q)
-				q_arm_des = ik_ctrl.compute(tcp_p, tcp_q, jac_b, q_arm)
-				q_step = q_arm + torch.clamp(q_arm_des - q_arm, -0.14, 0.14)
-				q_full = robot.data.joint_pos.torch.clone()
-				q_full[0, arm_ids] = q_step[0]
-				q_full[0, grip_id] = float(gripper_cmd)
-				robot.actuators.target_command.set_position_index(value=q_full)
 				for _ in range(SUBSTEPS):
+					tcp_p, tcp_q, jac_b, q_arm = get_tcp_and_jac()
+					ik_ctrl.set_command(cmd, ee_pos=tcp_p, ee_quat=tcp_q)
+					q_arm_des = ik_ctrl.compute(tcp_p, tcp_q, jac_b, q_arm)
+					q_cmd_arm = q_cmd_arm + torch.clamp(q_arm_des - q_cmd_arm, -max_step, max_step)
+					q_full = robot.data.joint_pos.torch.clone()
+					q_full[0, arm_ids] = q_cmd_arm[0]
+					q_full[0, grip_id] = float(gripper_cmd)
+					robot.actuators.target_command.set_position_index(value=q_full)
 					scene.write_data_to_sim()
 					sim.step()
 					scene.update(sim.get_physics_dt())
-				record_frame(q_full[0].cpu().numpy(), phase_name)
+				tcp_p, _, _, _ = get_tcp_and_jac()
 				err_m = float(torch.linalg.norm(tcp_p[0] - target_t))
-				if err_m < tol and k >= 8:
+				done = err_m < tol and k >= 10
+				tag = snap_tag if (snap_tag and (done or k == max_frames - 1)) else None
+				record_frame(q_full[0].cpu().numpy(), phase_name, snap_tag=tag)
+				if done:
 					break
 			return err_m
 
-		def attach_fixed_joint() -> None:
-			nonlocal attached
-			tcp_p, _, _, _ = get_tcp_and_jac()
-			p_g = robot.data.body_pos_w.torch[0, ee_body_id].cpu().numpy()
-			q_g = robot.data.body_quat_w.torch[0, ee_body_id].cpu().numpy()  # xyzw
-			p_b = brick.data.root_pos_w.torch[0].cpu().numpy()
-			q_b = brick.data.root_quat_w.torch[0].cpu().numpy()  # xyzw
-			dist = float(np.linalg.norm(tcp_p[0].cpu().numpy() - p_b))
-			print(f"Attach check: tcp={tcp_p[0].cpu().numpy().round(4)} brick={p_b.round(4)} dist={dist:.4f} m")
-			if dist > 0.055:
-				raise RuntimeError(f"TCP missed brick before attach (dist={dist:.4f} m > 0.055 m)")
-			R_g = Rotation.from_quat(q_g).as_matrix()
-			R_b = Rotation.from_quat(q_b).as_matrix()
-			rel_pos = R_g.T @ (p_b - p_g)
-			rel_q_xyzw = Rotation.from_matrix(R_g.T @ R_b).as_quat()
-			gripper_prim = (
-				"/World/envs/env_0/Robot/Geometry/base/shoulder/upper_arm/lower_arm/wrist/gripper"
-			)
-			fj = UsdPhysics.FixedJoint.Define(stage, fj_prim_path)
-			fj.CreateBody0Rel().SetTargets([gripper_prim])
-			fj.CreateBody1Rel().SetTargets(["/World/envs/env_0/Brick"])
-			fj.CreateLocalPos0Attr().Set(Gf.Vec3f(float(rel_pos[0]), float(rel_pos[1]), float(rel_pos[2])))
-			fj.CreateLocalRot0Attr().Set(
-				Gf.Quatf(float(rel_q_xyzw[3]), float(rel_q_xyzw[0]), float(rel_q_xyzw[1]), float(rel_q_xyzw[2]))
-			)
-			fj.CreateLocalPos1Attr().Set(Gf.Vec3f(0.0, 0.0, 0.0))
-			fj.CreateLocalRot1Attr().Set(Gf.Quatf(1.0, 0.0, 0.0, 0.0))
-			attached = True
-
-		def detach_fixed_joint() -> None:
-			nonlocal attached
-			if stage.GetPrimAtPath(fj_prim_path).IsValid():
-				stage.RemovePrim(fj_prim_path)
-			attached = False
-
-		# --- Execute Stage 2 State Machine: rest -> rise -> expert_pick -> presentation_search -> handoff -> expert_place -> return ---
+		# --- Experiment State Machine (pure physics friction, ZERO FixedJoint) ---
 		b0 = brick.data.root_pos_w.torch[0].cpu().numpy()
 		bx, by = float(b0[0]), float(b0[1])
-		brick_yaw = math.radians(25.0)
+		brick_yaw = math.radians(20.0)
 
-		# 1. Rest hold + unfold cleanly out of rest singularity into jaws-down workspace hover
+		# 0. Rest -> unfold above table with jaws wide open
 		step_joint_target(q_init[0].cpu().numpy(), 0.35, "rest")
 		q_pre = np.zeros(len(joint_names), dtype=np.float64)
-		for n, v in zip(JOINTS, (0.0, -0.25, 0.45, 1.35, 0.0, OPEN_G), strict=True):
+		for n, v in zip(JOINTS, (0.0, -0.35, 0.25, 1.35, 0.0, OPEN_G), strict=True):
 			q_pre[j_idx[n]] = v
-		step_joint_target(q_pre, 0.7, "approach")
+		step_joint_target(q_pre, 0.8, "approach")
 
-		# 2. Approach + Descend via DifferentialIKController
-		e1 = step_ik_pose(np.array([bx, by, 0.10]), brick_yaw, OPEN_G, 1.6, "approach")
-		e2 = step_ik_pose(np.array([bx, by, 0.032]), brick_yaw, OPEN_G, 1.2, "approach")
-		e3 = step_ik_pose(np.array([bx, by, 0.014]), brick_yaw, OPEN_G, 0.9, "grasp")
-		print(f"IK pick errors (m): hover={e1:.4f} pregrasp={e2:.4f} grasp={e3:.4f}")
+		# 1. Open gripper directly above brick (z = 0.095 m)
+		e_above = step_ik_pose(np.array([bx, by, 0.095]), brick_yaw, OPEN_G, 2.0, "approach", tol=0.003, max_vel_rad_s=1.8, snap_tag="1_above_open")
+		tcp_a, _, _, _ = get_tcp_and_jac()
+		print(f"[1_above_open] tcp={tcp_a[0].cpu().numpy().round(4)} brick={brick.data.root_pos_w.torch[0].cpu().numpy().round(4)} ik_err={e_above:.4f}m")
 
-		# Close gripper & attach FixedJoint
-		q_close = robot.data.joint_pos.torch[0].cpu().numpy()
-		q_close[grip_id] = CLOSED_G
-		step_joint_target(q_close, 0.5, "grasp")
-		attach_fixed_joint()
-		q_close[grip_id] = CLOSED_G
-		step_joint_target(q_close, 0.2, "grasp")
+		# 2. Descend vertically to brick side-wall pinch height (z = 0.014 m, jaw tip 1.5 mm above table)
+		e_desc = step_ik_pose(np.array([bx, by, 0.014]), brick_yaw, OPEN_G, 2.0, "approach", tol=0.003, max_vel_rad_s=1.2)
+		# 3. Stop / pause (0.4 s) to let jaws settle stationary around brick
+		q_hold_open = robot.data.joint_pos.torch[0].cpu().numpy()
+		q_hold_open[grip_id] = OPEN_G
+		step_joint_target(q_hold_open, 0.4, "grasp", snap_tag="2_descend_pause")
+		tcp_p, _, _, _ = get_tcp_and_jac()
+		b_pause = brick.data.root_pos_w.torch[0].cpu().numpy()
+		print(f"[2_descend_pause] tcp={tcp_p[0].cpu().numpy().round(4)} brick={b_pause.round(4)} ik_err={e_desc:.4f}m")
 
-		# 3. Lift
-		e4 = step_ik_pose(np.array([bx, by, 0.13]), brick_yaw, CLOSED_G, 1.3, "lift")
-		grasped = float(brick.data.root_pos_w.torch[0, 2].cpu()) > 0.08
-		print(f"After lift (ik_err={e4:.4f}m): brick pos={brick.data.root_pos_w.torch[0].cpu().numpy().round(4)} grasped={grasped}")
+		# 4. Slowly close gripper onto brick under PhysX friction
+		n_close = 36  # 1.2 s slow pinch
+		q_arm_locked = robot.data.joint_pos.torch[0].cpu().numpy()
+		for k in range(n_close):
+			g_t = OPEN_G + (k + 1) / n_close * (HOLD_G - OPEN_G)
+			q_cmd = q_arm_locked.copy()
+			q_cmd[grip_id] = g_t
+			t_cmd = torch.tensor(q_cmd[None, :], device=robot.device, dtype=torch.float32)
+			robot.actuators.target_command.set_position_index(value=t_cmd)
+			for _ in range(SUBSTEPS):
+				scene.write_data_to_sim()
+				sim.step()
+				scene.update(sim.get_physics_dt())
+			tag = "3_closed_pinch" if k == n_close - 1 else None
+			record_frame(q_cmd, "grasp", snap_tag=tag)
 
-		# 4. presentation_search: choose reachable show point in front of top_cam + sweep wrist_roll for best defect view cosine
-		pts = show_points(cam_pos_np, cam_fwd_np, (0.30, 0.35, 0.40, 0.45), 12.0, (0.14, 0.38), 0.12)
+		# Hold squeeze briefly (0.3 s) and read dual-jaw ContactSensor + gripper width
+		q_squeeze = q_arm_locked.copy()
+		q_squeeze[grip_id] = HOLD_G
+		step_joint_target(q_squeeze, 0.3, "grasp")
+		f_fix_c, f_mov_c = jaw_forces()
+		g_actual_c = float(robot.data.joint_pos.torch[0, grip_id].cpu())
+		tcp_c, _, _, _ = get_tcp_and_jac()
+		b_c = brick.data.root_pos_w.torch[0].cpu().numpy()
+		close_contact_ok = (f_fix_c > 0.05 and f_mov_c > 0.05 and 0.02 < g_actual_c < 0.45)
+		print(
+			f"[3_closed_pinch] f_fixed={f_fix_c:.3f}N f_moving={f_mov_c:.3f}N "
+			f"gripper_q={g_actual_c:.3f}rad tcp={tcp_c[0].cpu().numpy().round(4)} "
+			f"brick={b_c.round(4)} contact_ok={close_contact_ok}"
+		)
+
+		# 5. Pure-physics lift (still holding HOLD_G, NO FixedJoint!)
+		e_lift = step_ik_pose(np.array([bx, by, 0.145]), brick_yaw, HOLD_G, 2.0, "lift", tol=0.004, max_vel_rad_s=1.0, snap_tag="4_lifted_physics")
+		f_fix_l, f_mov_l = jaw_forces()
+		g_actual_l = float(robot.data.joint_pos.torch[0, grip_id].cpu())
+		tcp_l, _, _, _ = get_tcp_and_jac()
+		b_l = brick.data.root_pos_w.torch[0].cpu().numpy()
+		dz_tcp = float(abs(b_l[2] - tcp_l[0, 2].cpu()))
+		dxy_tcp = float(np.hypot(b_l[0] - float(tcp_l[0, 0].cpu()), b_l[1] - float(tcp_l[0, 1].cpu())))
+		grasped = bool(b_l[2] > 0.10 and dz_tcp < 0.018 and dxy_tcp < 0.020 and f_fix_l > 0.02 and f_mov_l > 0.02)
+		print(
+			f"[4_lifted_physics] ik_err={e_lift:.4f}m brick={b_l.round(4)} tcp={tcp_l[0].cpu().numpy().round(4)} "
+			f"|dz|={dz_tcp:.4f}m dxy={dxy_tcp:.4f}m f_fixed={f_fix_l:.3f}N f_moving={f_mov_l:.3f}N "
+			f"gripper_q={g_actual_l:.3f}rad grasped={grasped}"
+		)
+
+		# 6. Present to top camera (gentle wrist_roll sweep keeping grip)
+		pts = show_points(cam_pos_np, cam_fwd_np, (0.30, 0.35, 0.40, 0.45), 12.0, (0.14, 0.38), 0.13)
 		show_pt = pts[0] if len(pts) else np.array([0.30, 0.05, 0.16])
-		step_ik_pose(show_pt + np.array([0.0, 0.0, 0.02]), 0.0, CLOSED_G, 1.3, "show_move")
+		step_ik_pose(show_pt, 0.0, HOLD_G, 1.8, "show_move", tol=0.010, max_vel_rad_s=1.0)
 
 		best_cos = -1.0
-		for wr_deg in (-90.0, 0.0, 90.0):
+		for wr_deg in (-40.0, 0.0, 40.0):
 			q_show = robot.data.joint_pos.torch[0].cpu().numpy()
-			q_show[j_idx["wrist_flex"]] = 0.45
+			q_show[j_idx["wrist_flex"]] = 0.65
 			q_show[j_idx["wrist_roll"]] = math.radians(wr_deg)
-			q_show[grip_id] = CLOSED_G
-			step_joint_target(q_show, 0.45, "show_move")
+			q_show[grip_id] = HOLD_G
+			step_joint_target(q_show, 0.65, "show_move")
 			b_now = brick.data.root_pos_w.torch[0].cpu().numpy()
 			rot_b = Rotation.from_quat(brick.data.root_quat_w.torch[0].cpu().numpy()).as_matrix()
 			c = view_cosine(rot_b[:, 0], b_now, cam_pos_np)
 			best_cos = max(best_cos, c)
-			step_joint_target(q_show, 0.35, "show_hold")
+			step_joint_target(q_show, 0.35, "show_hold", snap_tag="5_show_defect" if wr_deg == 0.0 else None)
 
-		# 5. Handoff holding pose & jaws-down transition before placing over pink_plate
-		q_hand = np.zeros(len(joint_names), dtype=np.float64)
-		for i, n in enumerate(JOINTS[:5]):
-			q_hand[j_idx[n]] = HANDOFF_Q[i]
-		q_hand[grip_id] = CLOSED_G
-		step_joint_target(q_hand, 0.8, "handoff")
+		# 7. Smooth jaws-down recovery -> Move smoothly over pink plate -> Open jaws -> Drop under gravity -> Return
+		q_handoff = np.zeros(len(joint_names), dtype=np.float64)
+		for n, v in zip(JOINTS, (-0.45, -0.10, 0.25, 1.35, 0.0, HOLD_G), strict=True):
+			q_handoff[j_idx[n]] = v
+		step_joint_target(q_handoff, 1.3, "handoff")
 
-		# 6. Place in pink bowl via DifferentialIKController -> detach FixedJoint -> open gripper -> drop in plate!
-		pink_xy = (0.27, -0.18)
-		e5 = step_ik_pose(np.array([pink_xy[0], pink_xy[1], 0.14]), brick_yaw, CLOSED_G, 1.8, "place")
-		e6 = step_ik_pose(np.array([pink_xy[0], pink_xy[1], 0.070]), brick_yaw, CLOSED_G, 1.2, "place")
-		print(f"IK place errors (m): above_plate={e5:.4f} drop={e6:.4f}")
-		detach_fixed_joint()
+		pink_xy = (0.26, -0.18)
+		e_p1 = step_ik_pose(np.array([pink_xy[0], pink_xy[1], 0.14]), brick_yaw, HOLD_G, 2.0, "place", tol=0.006, max_vel_rad_s=1.0)
+		e_p2 = step_ik_pose(np.array([pink_xy[0], pink_xy[1], 0.065]), brick_yaw, HOLD_G, 1.6, "place", tol=0.006, max_vel_rad_s=1.0)
+		print(f"[before_release] brick={brick.data.root_pos_w.torch[0].cpu().numpy().round(4)} place_errs=({e_p1:.4f},{e_p2:.4f})")
 		q_open = robot.data.joint_pos.torch[0].cpu().numpy()
 		q_open[grip_id] = OPEN_G
-		step_joint_target(q_open, 0.6, "place", settle=0.45)
-		# Capture dropped brick inside plate before lifting!
-		panel_drop = np.hstack([
-			cv2.resize(frames_top_rgb[-1], (480, 390)),
-			cv2.resize(frames_front[-1], (520, 390)),
-			cv2.resize(frames_wrist[-1], (520, 390)),
-		])
-		keyframes["place_drop"] = panel_drop
-		step_ik_pose(np.array([pink_xy[0], pink_xy[1], 0.14]), brick_yaw, OPEN_G, 0.7, "place")
-
-		# 7. Return
+		step_joint_target(q_open, 0.7, "place", snap_tag="6_released_in_plate")
+		# Hold briefly to let brick settle in plate
+		step_joint_target(q_open, 0.35, "place")
+		step_ik_pose(np.array([pink_xy[0], pink_xy[1], 0.14]), brick_yaw, OPEN_G, 0.8, "place", tol=0.015)
 		step_joint_target(q_init[0].cpu().numpy(), 0.9, "return")
 
 		final_brick = brick.data.root_pos_w.torch[0].cpu().numpy()
 		dist_pink = float(np.hypot(final_brick[0] - pink_xy[0], final_brick[1] - pink_xy[1]))
-		success = bool(grasped and dist_pink < BOWL_R and final_brick[2] < 0.05)
+		success = bool(close_contact_ok and grasped and dist_pink < BOWL_R and final_brick[2] < 0.05)
 
-		# Save offline_pipeline / lerobot_export compatible npz & index.json
+		# Save storyboard checks
+		seq_order = [
+			"1_above_open",
+			"2_descend_pause",
+			"3_closed_pinch",
+			"4_lifted_physics",
+			"5_show_defect",
+			"6_released_in_plate",
+		]
+		rows_img = [snapshots[k] for k in seq_order if k in snapshots]
+		if rows_img:
+			cv2.imwrite(str(OUT_DIR / "stage2_keyframes.png"), cv2.cvtColor(np.vstack(rows_img), cv2.COLOR_RGB2BGR))
+
 		ep_file = "episode_0000.npz"
 		np.savez_compressed(
 			DEMO_DIR / ep_file,
@@ -561,7 +611,7 @@ def main() -> None:
 			"fps": FPS,
 			"state_names": STATE_NAMES,
 			"cameras": CAMERA_SHAPES,
-			"source": "isaac-sim",
+			"source": "isaac-sim-pure-physics",
 			"privileged": {
 				"phase": "per-frame expert phase, index into phases",
 				"phases": list(PHASES),
@@ -581,23 +631,26 @@ def main() -> None:
 		}
 		(DEMO_DIR / "index.json").write_text(json.dumps(index, indent=2) + "\n", encoding="utf-8")
 
-		# Save vertical 4-row keyframe storyboard
-		rows_img = [keyframes[k] for k in ("grasp", "lift", "show_hold", "place_drop") if k in keyframes]
-		if rows_img:
-			cv2.imwrite(str(OUT_DIR / "stage2_keyframes.png"), cv2.cvtColor(np.vstack(rows_img), cv2.COLOR_RGB2BGR))
-
 		summary = {
+			"physics_mode": "pure_friction_contact_sensor_no_fixed_joint",
 			"total_frames": len(frames_state),
+			"close_fixed_force_N": f_fix_c,
+			"close_moving_force_N": f_mov_c,
+			"close_gripper_rad": g_actual_c,
+			"close_contact_ok": close_contact_ok,
+			"lift_fixed_force_N": f_fix_l,
+			"lift_moving_force_N": f_mov_l,
+			"lift_brick_tcp_dz_m": dz_tcp,
+			"lift_brick_tcp_dxy_m": dxy_tcp,
 			"grasped": grasped,
 			"max_lift_z_m": float(max_lift_z),
 			"best_show_cos": float(best_cos),
 			"final_brick_xyz": [float(v) for v in final_brick],
 			"dist_to_pink_plate_m": dist_pink,
 			"success": success,
-			"show_point": [float(v) for v in show_pt],
 		}
 		(OUT_DIR / "stage2_metrics.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
-		print("STAGE2_SUMMARY:", json.dumps(summary, indent=2))
+		print("STAGE2_PHYSICS_SUMMARY:", json.dumps(summary, indent=2))
 
 
 if __name__ == "__main__":

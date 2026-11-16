@@ -5,6 +5,6 @@ __pycache__/
 .ruff_cache/
 .venv/
 *.blend1
-results/stage2/demos/*.npz
+results/stage2/demos/
 results/real_ref/*.png
 uv-cache/

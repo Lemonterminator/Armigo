@@ -1,5 +1,5 @@
 {
-  "source": "isaac-sim",
+  "source": "isaac-sim-pure-physics",
   "privileged": {
     "phase": "per-frame expert phase, index into phases",
     "phases": [

@@ -128,5 +128,17 @@ over "so101"
             }
         }
     }
+
+    over "Physics"
+    {
+        over "PhysicsMaterial_1" (
+            prepend apiSchemas = ["PhysicsMaterialAPI"]
+        )
+        {
+            float physics:dynamicFriction = 1.6
+            float physics:restitution = 0
+            float physics:staticFriction = 1.8
+        }
+    }
 }
 

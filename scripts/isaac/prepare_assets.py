@@ -88,13 +88,13 @@ def build_obj_prop_usd(
 	mat_prim = UsdShade.Material(stage.GetPrimAtPath(f"/{prim_name}/Looks/{prim_name}_mat"))
 	UsdShade.MaterialBindingAPI.Apply(geom_prim.GetPrim()).Bind(mat_prim)
 
-	# Physics material
+	# Physics material (zero bounce, high friction)
 	pmat_path = f"/{prim_name}/PhysicsMaterial"
 	UsdShade.Material.Define(stage, pmat_path)
 	pmat = UsdPhysics.MaterialAPI.Apply(stage.GetPrimAtPath(pmat_path))
 	pmat.CreateStaticFrictionAttr(float(static_friction))
 	pmat.CreateDynamicFrictionAttr(float(dynamic_friction))
-	pmat.CreateRestitutionAttr(0.05)
+	pmat.CreateRestitutionAttr(0.0)
 	UsdShade.MaterialBindingAPI.Apply(geom_prim.GetPrim()).Bind(
 		UsdShade.Material(stage.GetPrimAtPath(pmat_path)),
 		materialPurpose="physics",
@@ -161,6 +161,13 @@ def build_so101_physx_usd() -> Path:
 		drv.CreateDampingAttr(10.0)
 		drv.CreateMaxForceAttr(2.94)
 
+	# Upgrade gripper PhysicsMaterial_1 to high-grip elastomer pad friction for pure-physics pinch
+	gp_mat = stage.OverridePrim("/so101/Physics/PhysicsMaterial_1")
+	pm = UsdPhysics.MaterialAPI.Apply(gp_mat)
+	pm.CreateStaticFrictionAttr(1.8)
+	pm.CreateDynamicFrictionAttr(1.6)
+	pm.CreateRestitutionAttr(0.0)
+
 	# Attach wrist_cam matching so101.xml camera_mount pose + fovy=61
 	cam_mount = "/so101/Geometry/base/shoulder/upper_arm/lower_arm/wrist/gripper/camera_mount"
 	cam_path = f"{cam_mount}/wrist_cam"
@@ -223,8 +230,8 @@ def main() -> None:
 		"Brick",
 		rgb=(0.82, 0.24, 0.04),
 		mass=0.025,
-		static_friction=0.8,
-		dynamic_friction=0.7,
+		static_friction=1.6,
+		dynamic_friction=1.4,
 		approx="convexHull",
 		roughness=0.20,
 		rigid_body=True,
@@ -236,8 +243,8 @@ def main() -> None:
 		"Brick",
 		rgb=(0.82, 0.24, 0.04),
 		mass=0.025,
-		static_friction=0.8,
-		dynamic_friction=0.7,
+		static_friction=1.6,
+		dynamic_friction=1.4,
 		approx="convexHull",
 		roughness=0.20,
 		rigid_body=True,
