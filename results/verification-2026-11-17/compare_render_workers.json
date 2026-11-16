@@ -1,0 +1,72 @@
+{
+  "passed": true,
+  "bitwise_equal": false,
+  "rgb_atol": 1,
+  "errors": [],
+  "differences": [
+    {
+      "file": "sim_0000_v00.npz",
+      "key": "front",
+      "changed": 49,
+      "total": 52531200,
+      "max_abs": 1
+    },
+    {
+      "file": "sim_0000_v00.npz",
+      "key": "top_rgb_v2",
+      "changed": 7,
+      "total": 36421632,
+      "max_abs": 1
+    },
+    {
+      "file": "sim_0000_v00.npz",
+      "key": "wrist",
+      "changed": 158,
+      "total": 52531200,
+      "max_abs": 1
+    },
+    {
+      "file": "sim_0001_v00.npz",
+      "key": "front",
+      "changed": 2793,
+      "total": 57139200,
+      "max_abs": 1
+    },
+    {
+      "file": "sim_0001_v00.npz",
+      "key": "top_rgb_v2",
+      "changed": 45,
+      "total": 39616512,
+      "max_abs": 1
+    },
+    {
+      "file": "sim_0001_v00.npz",
+      "key": "wrist",
+      "changed": 296,
+      "total": 57139200,
+      "max_abs": 1
+    },
+    {
+      "file": "sim_0002_v00.npz",
+      "key": "front",
+      "changed": 2,
+      "total": 59904000,
+      "max_abs": 1
+    },
+    {
+      "file": "sim_0002_v00.npz",
+      "key": "top_rgb_v2",
+      "changed": 1,
+      "total": 41533440,
+      "max_abs": 1
+    },
+    {
+      "file": "sim_0002_v00.npz",
+      "key": "wrist",
+      "changed": 389,
+      "total": 59904000,
+      "max_abs": 1
+    }
+  ],
+  "files_checked": 7
+}

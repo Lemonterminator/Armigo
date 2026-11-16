@@ -1,0 +1,84 @@
+== A. Cell.__init__ breakdown (episode 0 layout), ms ==
+  scene_xml(layout)                                               0.291 ms
+  write_marker_textures (files exist)                             0.029 ms
+  path.write_text(xml)                                            0.140 ms
+  MjModel.from_xml_path (repeat, same file)                      43.191 ms   (first call here 49.0 ms)
+  MjData(model)                                                   0.294 ms
+  GLContext() = glfw.create_window                                8.239 ms   (mean 49.480)
+  make_current (first)                                            0.043 ms   (mean 0.059)
+  MjrContext(model)                                              40.583 ms   (mean 41.953)
+  MjvScene(maxgeom=10000)                                        10.098 ms   (mean 12.946)
+  MjrContext.free                                                 0.014 ms   (mean 0.017)
+  GLContext.free = destroy_window                                 2.961 ms   (mean 3.259)
+  mujoco.Renderer(model,480,640) total                           59.247 ms   close 3.504 ms
+  geom list comprehensions in __init__                            0.087 ms   (ngeom=208, nv=12, nq=13, nmesh=22)
+== B. raw MuJoCo C calls on this model, resting state (brick on table) ==
+  mj_kinematics                                                    1.60 us
+  mj_comPos                                                        0.31 us
+  mj_jacSite                                                       0.57 us
+  mj_forward (resting)                                             9.49 us
+  m.joint('wrist_roll')  (named accessor)                          0.50 us
+  m.joint(j).dofadr[0]                                             0.67 us
+  mj_name2id(BODY)                                                 0.35 us
+  np.linalg.solve 6x6                                              5.02 us
+    of which 1e-4*np.eye(6)                                        1.22 us
+  np.cross(3-vector, 3-vector)                                     8.94 us
+  np.vstack of two 3x4                                             2.06 us
+  np.linalg.norm(3-vector)                                         0.74 us
+  np.clip(4-vector)                                                1.54 us
+  d.qpos[list] = q (fancy assign)                                  1.47 us
+== C. ik(): Python version vs hoisted version, per call and per iteration ==
+  hover target, 200 iterations
+  ik (baseline) per call                                        6398.98 us  = 31.99 us/iter
+  ik_fast (hoisted) per call                                    3390.49 us  = 16.95 us/iter, max|dq| vs baseline 1.776e-15
+  MuJoCo C per iteration (kin+comPos+jacSite, incl. binding)       4.26 us
+  -> C share of a baseline iteration 13.3 %, Python/NumPy overhead 86.7 %
+== D. best_roll: 181 x jaw_direction ==
+  result baseline (2.1896167133333333, 1.0)  fast (2.1896167133333333, 1.0)
+  best_roll (baseline) per call                                 4928.85 us  = 27.23 us/sample
+  best_roll_fast per call                                       1826.42 us  = 10.09 us/sample
+  C in baseline: 181 x (mj_kinematics + mj_forward)             2858.37 us
+  C needed: 181 x mj_kinematics + 1 mj_forward                   471.45 us
+== E. physics stepping: run the pick, time mj_step vs the Python around it ==
+  pick phase: 223 frames, held=True
+  Cell.step per frame (16 substeps)                              472.51 us  of which mj_step C 471.43 us (99.8 %)
+  mj_step per substep                                             29.46 us
+  update_grasp per frame (pick phase average)                     37.40 us
+  run() bookkeeping per frame (copies, rad_to_normalized x2)      14.67 us
+  mj_forward (brick held, jaw contacts)                          131.91 us
+  mj_kinematics                                                    2.84 us
+  Cell.place_held (baseline)                                     143.11 us
+  place_held_fast (brick adr hoisted)                            141.27 us
+  update_grasp while holding (baseline)                          147.18 us
+  update_grasp_fast while holding                                144.24 us
+  m.joint('brick') accessor                                        0.92 us
+  ncon while held: 16, nefc 102
+== F. Cell.visibility line by line (state: brick held at the lift pose) ==
+  renderer.update_scene (all groups)                               4.42 us
+  renderer.render() segmentation 640x480, total                 5372.93 us
+    glfw make_context_current (already current)                   28.75 us
+    mjr_render (GL draw)                                          38.64 us
+    mjr_readPixels 640x480                                        98.07 us
+    mjr_readPixels crop 512x416                                   75.43 us
+    Renderer.render Python post-processing (replica)            5472.76 us  scene.ngeom=39
+      of which the 3 list comps over scene.geoms                  30.99 us
+  seg[...,1] == mujoco.mjtObj.mjOBJ_GEOM   (enum object)      114198.67 us  <-- THE hotspot
+  seg[...,1] == int(mjOBJ_GEOM)                                   97.79 us
+  dtype of the enum comparison result: bool; np.asarray(enum).dtype = object
+  np.where(mask, seg[...,0], -1)                                 192.52 us
+  np.isin(geom, defect_geoms).sum()                              219.46 us
+  np.isin(geom, brick_geoms).sum()                               224.53 us
+  count_nonzero(lut[geom]) (boolean LUT) x1                      351.75 us
+  Cell.visibility baseline (2 renders)                        251340.70 us  {'defect': 186, 'brick': 1368, 'defect_full': 234, 'brick_full': 1581}
+  fixes.visibility_int                                         14786.07 us  {'defect': 186, 'brick': 1368, 'defect_full': 234, 'brick_full': 1581}
+  fixes.visibility_lut                                         15121.30 us  {'defect': 186, 'brick': 1368, 'defect_full': 234, 'brick_full': 1581}
+  fixes.visibility_raw                                          3983.22 us  {'defect': 186, 'brick': 1368, 'defect_full': 234, 'brick_full': 1581}
+== G. ik_held per call / iteration and presentation_search totals ==
+  ik_held baseline per call                                     3060.10 us  120 iters = 25.50 us/iter
+  ik_held_fast per call                                         2343.94 us  max|dq| 0.000e+00, derr 0.000e+00
+  MuJoCo C per ik_held iteration (kin+comPos+jac)                  4.69 us
+  Cell.robot_min_z                                                13.32 us
+  Cell.defect_normal                                              20.81 us
+  presentation_search with baseline visibility   :   10747.3 ms, poses=46, best score=67.223
+  presentation_search with visibility_int        :     650.1 ms, poses=46, best score=67.223
+  presentation_search with visibility_raw        :     305.4 ms, poses=46, best score=67.223

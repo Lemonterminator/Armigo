@@ -1,0 +1,52 @@
+{
+  "joint_names": [
+    "shoulder_pan",
+    "shoulder_lift",
+    "elbow_flex",
+    "wrist_flex",
+    "wrist_roll",
+    "gripper"
+  ],
+  "q_rad_frame_3217": [
+    -0.06519418198930602,
+    1.4457694216162544,
+    -1.6295570762553708,
+    0.9473474803672212,
+    1.3951554728636388,
+    0.915615480014801
+  ],
+  "K_isaac": [
+    [
+      612.4744262695312,
+      0.0,
+      320.0
+    ],
+    [
+      0.0,
+      612.4744262695312,
+      240.0
+    ],
+    [
+      0.0,
+      0.0,
+      1.0
+    ]
+  ],
+  "focal_diff_px": 6.103515625e-05,
+  "arm_silhouette_iou_frame_3217": null,
+  "sim_arm_mask_px": 16606,
+  "real_arm_mask_px": null,
+  "grasp_reproj_median_vs_real_px": 12.508319260171964,
+  "grasp_reproj_mean_vs_real_px": 15.492454371144662,
+  "grasp_reproj_max_vs_mujoco_px": 8.547859102404603e-05,
+  "wrist_rgb_shape": [
+    480,
+    640,
+    3
+  ],
+  "wrist_rgb_mean": [
+    229.905361328125,
+    229.08358072916667,
+    223.47320963541668
+  ]
+}

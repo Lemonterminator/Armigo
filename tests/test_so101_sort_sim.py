@@ -1,13 +1,10 @@
-"""Tests for simulation visual mesh asset replacement in scripts/sim/so101_sort_sim.py."""
+"""Tests for the MuJoCo cell scene: visual mesh assets replace the primitive geometry, collision stays hidden."""
 
 from __future__ import annotations
 
-import sys
 import xml.etree.ElementTree as ET
-from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts" / "sim"))
-import so101_sort_sim as sim
+from digital_twin_armigo import mujoco_cell as sim
 
 
 def _make_layout(brick_size: tuple[float, float, float] = sim.DUPLO_2X2) -> sim.Layout:

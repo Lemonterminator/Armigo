@@ -1,0 +1,253 @@
+[
+  {
+    "label": "sim_baseline",
+    "seconds": 25.527474500006065,
+    "returncode": 0,
+    "command": [
+      "E:\\il\\v\\Scripts\\python.exe",
+      "C:\\Users\\Jiang\\AppData\\Local\\Temp\\claude\\cfc6378ac91412cf\\94b28ae0-0a02-42e3-9bb5-e60d7ce00e76\\scratchpad\\baseline\\scripts\\sim\\so101_sort_sim.py",
+      "--menagerie",
+      "C:\\Users\\Jiang\\AppData\\Local\\Temp\\claude\\cfc6378ac91412cf\\94b28ae0-0a02-42e3-9bb5-e60d7ce00e76\\scratchpad\\baseline\\assets\\so101_mjcf",
+      "simulate",
+      "--camera",
+      "E:\\digital_twin_armigo\\config\\sim\\top_camera_joint.json",
+      "--prior",
+      "E:\\digital_twin_armigo\\config\\sim\\prior_grasp.json",
+      "--out",
+      "E:\\digital_twin_armigo\\results\\verification-2026-11-17\\data\\sim_baseline",
+      "--episodes",
+      "3",
+      "--seed",
+      "0",
+      "--workers",
+      "1"
+    ]
+  },
+  {
+    "label": "sim_current",
+    "seconds": 3.808749199961312,
+    "returncode": 0,
+    "command": [
+      "E:\\il\\v\\Scripts\\python.exe",
+      "E:\\digital_twin_armigo\\scripts\\sim\\so101_sort_sim.py",
+      "--menagerie",
+      "E:\\digital_twin_armigo\\assets\\so101_mjcf",
+      "simulate",
+      "--camera",
+      "E:\\digital_twin_armigo\\config\\sim\\top_camera_joint.json",
+      "--prior",
+      "E:\\digital_twin_armigo\\config\\sim\\prior_grasp.json",
+      "--out",
+      "E:\\digital_twin_armigo\\results\\verification-2026-11-17\\data\\sim_current",
+      "--episodes",
+      "3",
+      "--seed",
+      "0",
+      "--workers",
+      "1"
+    ]
+  },
+  {
+    "label": "sim_workers2",
+    "seconds": 3.2064707999816164,
+    "returncode": 0,
+    "command": [
+      "E:\\il\\v\\Scripts\\python.exe",
+      "E:\\digital_twin_armigo\\scripts\\sim\\so101_sort_sim.py",
+      "--menagerie",
+      "E:\\digital_twin_armigo\\assets\\so101_mjcf",
+      "simulate",
+      "--camera",
+      "E:\\digital_twin_armigo\\config\\sim\\top_camera_joint.json",
+      "--prior",
+      "E:\\digital_twin_armigo\\config\\sim\\prior_grasp.json",
+      "--out",
+      "E:\\digital_twin_armigo\\results\\verification-2026-11-17\\data\\sim_workers2",
+      "--episodes",
+      "3",
+      "--seed",
+      "0",
+      "--workers",
+      "2"
+    ]
+  },
+  {
+    "label": "render_baseline",
+    "seconds": 22.73773340001935,
+    "returncode": 0,
+    "command": [
+      "E:\\il\\v\\Scripts\\python.exe",
+      "C:\\Users\\Jiang\\AppData\\Local\\Temp\\claude\\cfc6378ac91412cf\\94b28ae0-0a02-42e3-9bb5-e60d7ce00e76\\scratchpad\\baseline\\scripts\\sim\\so101_sort_sim.py",
+      "--menagerie",
+      "C:\\Users\\Jiang\\AppData\\Local\\Temp\\claude\\cfc6378ac91412cf\\94b28ae0-0a02-42e3-9bb5-e60d7ce00e76\\scratchpad\\baseline\\assets\\so101_mjcf",
+      "render",
+      "--camera",
+      "E:\\digital_twin_armigo\\config\\sim\\top_camera_joint.json",
+      "--sim",
+      "E:\\digital_twin_armigo\\results\\verification-2026-11-17\\data\\sim_baseline",
+      "--out",
+      "E:\\digital_twin_armigo\\results\\verification-2026-11-17\\data\\render_baseline",
+      "--views",
+      "1",
+      "--seed",
+      "1",
+      "--stride",
+      "10",
+      "--workers",
+      "1"
+    ]
+  },
+  {
+    "label": "render_baseline_repeat",
+    "seconds": 22.685088000027463,
+    "returncode": 0,
+    "command": [
+      "E:\\il\\v\\Scripts\\python.exe",
+      "C:\\Users\\Jiang\\AppData\\Local\\Temp\\claude\\cfc6378ac91412cf\\94b28ae0-0a02-42e3-9bb5-e60d7ce00e76\\scratchpad\\baseline\\scripts\\sim\\so101_sort_sim.py",
+      "--menagerie",
+      "C:\\Users\\Jiang\\AppData\\Local\\Temp\\claude\\cfc6378ac91412cf\\94b28ae0-0a02-42e3-9bb5-e60d7ce00e76\\scratchpad\\baseline\\assets\\so101_mjcf",
+      "render",
+      "--camera",
+      "E:\\digital_twin_armigo\\config\\sim\\top_camera_joint.json",
+      "--sim",
+      "E:\\digital_twin_armigo\\results\\verification-2026-11-17\\data\\sim_baseline",
+      "--out",
+      "E:\\digital_twin_armigo\\results\\verification-2026-11-17\\data\\render_baseline_repeat",
+      "--views",
+      "1",
+      "--seed",
+      "1",
+      "--stride",
+      "10",
+      "--workers",
+      "1"
+    ]
+  },
+  {
+    "label": "render_current",
+    "seconds": 7.742048199987039,
+    "returncode": 0,
+    "command": [
+      "E:\\il\\v\\Scripts\\python.exe",
+      "E:\\digital_twin_armigo\\scripts\\sim\\so101_sort_sim.py",
+      "--menagerie",
+      "E:\\digital_twin_armigo\\assets\\so101_mjcf",
+      "render",
+      "--camera",
+      "E:\\digital_twin_armigo\\config\\sim\\top_camera_joint.json",
+      "--sim",
+      "E:\\digital_twin_armigo\\results\\verification-2026-11-17\\data\\sim_baseline",
+      "--out",
+      "E:\\digital_twin_armigo\\results\\verification-2026-11-17\\data\\render_current",
+      "--views",
+      "1",
+      "--seed",
+      "1",
+      "--stride",
+      "10",
+      "--workers",
+      "1"
+    ]
+  },
+  {
+    "label": "render_workers2",
+    "seconds": 5.744403599994257,
+    "returncode": 0,
+    "command": [
+      "E:\\il\\v\\Scripts\\python.exe",
+      "E:\\digital_twin_armigo\\scripts\\sim\\so101_sort_sim.py",
+      "--menagerie",
+      "E:\\digital_twin_armigo\\assets\\so101_mjcf",
+      "render",
+      "--camera",
+      "E:\\digital_twin_armigo\\config\\sim\\top_camera_joint.json",
+      "--sim",
+      "E:\\digital_twin_armigo\\results\\verification-2026-11-17\\data\\sim_baseline",
+      "--out",
+      "E:\\digital_twin_armigo\\results\\verification-2026-11-17\\data\\render_workers2",
+      "--views",
+      "1",
+      "--seed",
+      "1",
+      "--stride",
+      "10",
+      "--workers",
+      "2"
+    ]
+  },
+  {
+    "label": "compare_simulation",
+    "seconds": 0.1844425000017509,
+    "returncode": 0,
+    "command": [
+      "E:\\il\\v\\Scripts\\python.exe",
+      "E:\\digital_twin_armigo\\scripts\\sim\\compare_outputs.py",
+      "E:\\digital_twin_armigo\\results\\verification-2026-11-17\\data\\sim_baseline",
+      "E:\\digital_twin_armigo\\results\\verification-2026-11-17\\data\\sim_current",
+      "--rgb-atol",
+      "0",
+      "--report",
+      "E:\\digital_twin_armigo\\results\\verification-2026-11-17\\compare_simulation.json"
+    ]
+  },
+  {
+    "label": "compare_simulation_workers",
+    "seconds": 0.181964399991557,
+    "returncode": 0,
+    "command": [
+      "E:\\il\\v\\Scripts\\python.exe",
+      "E:\\digital_twin_armigo\\scripts\\sim\\compare_outputs.py",
+      "E:\\digital_twin_armigo\\results\\verification-2026-11-17\\data\\sim_current",
+      "E:\\digital_twin_armigo\\results\\verification-2026-11-17\\data\\sim_workers2",
+      "--rgb-atol",
+      "0",
+      "--report",
+      "E:\\digital_twin_armigo\\results\\verification-2026-11-17\\compare_simulation_workers.json"
+    ]
+  },
+  {
+    "label": "compare_render_repeat",
+    "seconds": 2.5588933999533765,
+    "returncode": 0,
+    "command": [
+      "E:\\il\\v\\Scripts\\python.exe",
+      "E:\\digital_twin_armigo\\scripts\\sim\\compare_outputs.py",
+      "E:\\digital_twin_armigo\\results\\verification-2026-11-17\\data\\render_baseline",
+      "E:\\digital_twin_armigo\\results\\verification-2026-11-17\\data\\render_baseline_repeat",
+      "--rgb-atol",
+      "1",
+      "--report",
+      "E:\\digital_twin_armigo\\results\\verification-2026-11-17\\compare_render_repeat.json"
+    ]
+  },
+  {
+    "label": "compare_render",
+    "seconds": 2.549489099998027,
+    "returncode": 0,
+    "command": [
+      "E:\\il\\v\\Scripts\\python.exe",
+      "E:\\digital_twin_armigo\\scripts\\sim\\compare_outputs.py",
+      "E:\\digital_twin_armigo\\results\\verification-2026-11-17\\data\\render_baseline",
+      "E:\\digital_twin_armigo\\results\\verification-2026-11-17\\data\\render_current",
+      "--rgb-atol",
+      "1",
+      "--report",
+      "E:\\digital_twin_armigo\\results\\verification-2026-11-17\\compare_render.json"
+    ]
+  },
+  {
+    "label": "compare_render_workers",
+    "seconds": 2.5930159999988973,
+    "returncode": 0,
+    "command": [
+      "E:\\il\\v\\Scripts\\python.exe",
+      "E:\\digital_twin_armigo\\scripts\\sim\\compare_outputs.py",
+      "E:\\digital_twin_armigo\\results\\verification-2026-11-17\\data\\render_current",
+      "E:\\digital_twin_armigo\\results\\verification-2026-11-17\\data\\render_workers2",
+      "--rgb-atol",
+      "1",
+      "--report",
+      "E:\\digital_twin_armigo\\results\\verification-2026-11-17\\compare_render_workers.json"
+    ]
+  }
+]

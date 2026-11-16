@@ -11,6 +11,22 @@ dependencies = [
 	"numpy>=1.26",
 ]
 
+[project.optional-dependencies]
+# MuJoCo cell (simulate / render); marker textures need OpenCV.
+mujoco = [
+	"mujoco>=3.2",
+	"opencv-python>=4.9",
+]
+# fit-camera / layout-prior against the real sort-depth-v2 recordings.
+calibration = [
+	"av>=12",
+	"pyarrow>=15",
+	"scipy>=1.11",
+]
+
+[project.scripts]
+armigo-sim = "digital_twin_armigo.mujoco_cell.cli:main"
+
 [dependency-groups]
 dev = [
 	"pytest>=8.0",

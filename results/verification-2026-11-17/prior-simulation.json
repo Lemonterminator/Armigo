@@ -1,0 +1,8 @@
+{
+  "passed": true,
+  "bitwise_equal": true,
+  "rgb_atol": 0,
+  "errors": [],
+  "differences": [],
+  "files_checked": 6
+}

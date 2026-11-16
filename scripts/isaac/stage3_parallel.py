@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import sys
 import time
 from pathlib import Path
 
@@ -19,12 +20,10 @@ args_cli.enable_cameras = True
 args_cli.visualizer = []
 
 import cv2
-import numpy as np
-import torch
-from scipy.spatial.transform import Rotation
-
 import isaaclab.envs.mdp as mdp
 import isaaclab.sim as sim_utils
+import numpy as np
+import torch
 from isaaclab.actuators import ImplicitActuatorCfg
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
 from isaaclab.envs import ManagerBasedEnvCfg
@@ -35,13 +34,16 @@ from isaaclab.managers import SceneEntityCfg
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sensors import CameraCfg
 from isaaclab.utils import configclass
+from scipy.spatial.transform import Rotation
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "src"))
+from digital_twin_armigo.camera import opengl_axes
+from digital_twin_armigo.constants import TOP_CROP, TOP_FULL
+
 USD_ASSETS = ROOT / "assets"
 OUT_DIR = ROOT / "results" / "stage3"
 
-TOP_FULL = (640, 480)
-TOP_CROP = (96, 0, 512, 416)
 BRICK_COLORS = [
 	(0.75, 0.05, 0.05),
 	(0.85, 0.65, 0.02),
@@ -50,16 +52,6 @@ BRICK_COLORS = [
 	(0.20, 0.65, 0.08),
 	(0.35, 0.08, 0.58),
 ]
-
-
-def camera_axes_from_pose(cam: dict) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-	t, p = math.radians(cam["tilt_deg"]), math.radians(cam["yaw_deg"])
-	forward = np.array([math.sin(t) * math.cos(p), math.sin(t) * math.sin(p), -math.cos(t)])
-	up = np.array([math.cos(t) * math.cos(p), math.cos(t) * math.sin(p), math.sin(t)])
-	right = np.cross(forward, up)
-	r = math.radians(cam["roll_deg"])
-	right, up = math.cos(r) * right + math.sin(r) * up, -math.sin(r) * right + math.cos(r) * up
-	return right, up, -forward
 
 
 @configclass
@@ -217,7 +209,7 @@ class ParallelCellEnvCfg(ManagerBasedEnvCfg):
 def main() -> None:
 	OUT_DIR.mkdir(parents=True, exist_ok=True)
 	top_cam = json.loads((ROOT / "config" / "sim" / "top_camera_joint.json").read_text())["camera"]
-	right, up, z_opengl = camera_axes_from_pose(top_cam)
+	right, up, z_opengl = opengl_axes(top_cam)
 	top_quat = tuple(float(v) for v in Rotation.from_matrix(np.column_stack([right, up, z_opengl])).as_quat())
 
 	env_cfg = ParallelCellEnvCfg()

@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import sys
 from pathlib import Path
 
 from isaaclab.app import add_launcher_args, launch_simulation
@@ -16,96 +17,26 @@ args_cli.enable_cameras = True
 args_cli.visualizer = []
 
 import cv2
+import isaaclab.sim as sim_utils
 import numpy as np
 import torch
-from scipy.spatial.transform import Rotation
-
-import isaaclab.sim as sim_utils
-from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
 from isaaclab.actuators import ImplicitActuatorCfg
+from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sensors import CameraCfg
 from isaaclab.utils import configclass
+from scipy.spatial.transform import Rotation
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "src"))
+from digital_twin_armigo.camera import as_pose, opengl_axes, project
+from digital_twin_armigo.constants import COARSE_MAX_M, JOINTS, TOP_CROP, TOP_FULL
+from digital_twin_armigo.depth import depth_plane_to_height, layered_height_image
+from digital_twin_armigo.joints import normalized_to_rad
+
 USD_ASSETS = ROOT / "assets"
 OUT_DIR = ROOT / "results" / "stage1"
 REAL_DIR = ROOT / "results" / "real_ref"
-
-# Constants matching scripts/sim/so101_sort_sim.py
-JOINTS = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper")
-CALIBRATION = {
-	"shoulder_pan": (1267, 3200),
-	"shoulder_lift": (894, 3251),
-	"elbow_flex": (849, 3045),
-	"wrist_flex": (788, 3115),
-	"wrist_roll": (2040, 3961),
-	"gripper": (2041, 3508),
-}
-OFFSETS_DEG = {"shoulder_lift": 1.5816, "elbow_flex": -4.6851, "wrist_flex": -1.3997}
-TICKS_PER_DEG = 4096 / 360
-GRIPPER_RAD = (-0.17453, 1.74533)
-
-TOP_FULL = (640, 480)
-TOP_CROP = (96, 0, 512, 416)
-FINE_MAX_M = 0.04
-COARSE_MAX_M = 0.30
-
-
-def normalized_to_rad(u: np.ndarray) -> np.ndarray:
-	u = np.asarray(u, dtype=np.float64)
-	out = np.empty(6, dtype=np.float64)
-	for i, name in enumerate(JOINTS[:5]):
-		lo, hi = CALIBRATION[name]
-		deg = u[i] / 100.0 * (hi - lo) / 2.0 / TICKS_PER_DEG + OFFSETS_DEG.get(name, 0.0)
-		out[i] = math.radians(deg)
-	out[5] = GRIPPER_RAD[0] + np.clip(u[5], 0.0, 100.0) / 100.0 * (GRIPPER_RAD[1] - GRIPPER_RAD[0])
-	return out
-
-
-def camera_axes_from_pose(cam: dict) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-	"""Return (right, up, neg_forward_z_opengl) unit vectors in world frame."""
-	t, p = math.radians(cam["tilt_deg"]), math.radians(cam["yaw_deg"])
-	forward = np.array([math.sin(t) * math.cos(p), math.sin(t) * math.sin(p), -math.cos(t)])
-	up = np.array([math.cos(t) * math.cos(p), math.cos(t) * math.sin(p), math.sin(t)])
-	right = np.cross(forward, up)
-	r = math.radians(cam["roll_deg"])
-	right, up = math.cos(r) * right + math.sin(r) * up, -math.sin(r) * right + math.cos(r) * up
-	z_opengl = -forward  # OpenGL camera looks along -Z, +X right, +Y up
-	return right, up, z_opengl
-
-
-def mujoco_project(cam: dict, points: np.ndarray) -> np.ndarray:
-	right, up, z_opengl = camera_axes_from_pose(cam)
-	forward = -z_opengl
-	rel = points - np.array([cam["x"], cam["y"], cam["height"]])
-	x, y, z = rel @ right, rel @ up, rel @ forward
-	u = TOP_FULL[0] / 2.0 + cam["focal_px"] * x / z
-	v = TOP_FULL[1] / 2.0 - cam["focal_px"] * y / z
-	return np.stack([u, v], axis=-1)
-
-
-def layered_height_image(height_m: np.ndarray, valid: np.ndarray) -> np.ndarray:
-	h = np.clip(np.where(valid, height_m, 0.0), 0.0, None)
-	out = np.empty((*h.shape, 3), np.uint8)
-	out[..., 0] = np.rint(255.0 * np.minimum(h / FINE_MAX_M, 1.0))
-	out[..., 1] = np.rint(255.0 * np.minimum(h / COARSE_MAX_M, 1.0))
-	out[..., 2] = np.where(valid, 255, 0)
-	out[~valid, :2] = 0
-	return out
-
-
-def depth_plane_to_height(cam: dict, depth: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-	"""Convert camera distance_to_image_plane (H, W) into world height z above table."""
-	right, up, z_opengl = camera_axes_from_pose(cam)
-	forward = -z_opengl
-	hgt, wid = depth.shape
-	u, v = np.meshgrid(np.arange(wid) + 0.5, np.arange(hgt) + 0.5)
-	f = cam["focal_px"]
-	ray = ((u - wid / 2.0) / f)[..., None] * right + (-(v - hgt / 2.0) / f)[..., None] * up + forward
-	valid = np.isfinite(depth) & (depth > 0.05) & (depth < 5.0)
-	world_z = cam["height"] + ray[..., 2] * np.where(valid, depth, 0.0)
-	return world_z, valid
 
 
 @configclass
@@ -192,7 +123,7 @@ class CellSceneCfg(InteractiveSceneCfg):
 
 
 def build_scene_cfg(top_cam: dict, ep2_prior: dict, brick_xy: tuple[float, float]) -> CellSceneCfg:
-	right, up, z_opengl = camera_axes_from_pose(top_cam)
+	right, up, z_opengl = opengl_axes(top_cam)
 	rot_mat = np.column_stack([right, up, z_opengl])
 	top_quat_xyzw = tuple(float(v) for v in Rotation.from_matrix(rot_mat).as_quat())
 	# Isaac PinholeCameraCfg: fx = width * focal_length / horizontal_aperture
@@ -320,7 +251,7 @@ def main() -> None:
 		u_isaac = K_isaac[0, 0] * (pts_cam[:, 0] / z_fwd) + K_isaac[0, 2]
 		v_isaac = K_isaac[1, 1] * (-pts_cam[:, 1] / z_fwd) + K_isaac[1, 2]
 		uv_isaac = np.stack([u_isaac, v_isaac], axis=-1)
-		uv_mj = mujoco_project(top_cam, pts_3d)
+		uv_mj, _ = project(as_pose(top_cam), pts_3d, TOP_FULL)
 
 		err_real_px = np.linalg.norm(uv_isaac - img_real, axis=1)
 		err_mj_px = np.linalg.norm(uv_isaac - uv_mj, axis=1)

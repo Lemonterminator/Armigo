@@ -1,0 +1,22 @@
+{
+  "physics_mode": "pure_friction_contact_sensor_no_fixed_joint",
+  "total_frames": 595,
+  "close_fixed_force_N": 47.51873779296875,
+  "close_moving_force_N": 47.368896484375,
+  "close_gripper_rad": 0.18625099956989288,
+  "close_contact_ok": true,
+  "lift_fixed_force_N": 47.380523681640625,
+  "lift_moving_force_N": 47.326988220214844,
+  "lift_brick_tcp_dz_m": 0.0027864277362823486,
+  "lift_brick_tcp_dxy_m": 0.004821835085749626,
+  "grasped": true,
+  "max_lift_z_m": 0.25871381163597107,
+  "best_show_cos": 0.5244405143578376,
+  "final_brick_xyz": [
+    0.3088652789592743,
+    -0.17867411673069,
+    0.019948486238718033
+  ],
+  "dist_to_pink_plate_m": 0.04888327419757843,
+  "success": true
+}

@@ -1,0 +1,138 @@
+WALL under cProfile: 32.50 s for 4 episodes
+===== sort by cumulative =====
+         2106486 function calls (2099098 primitive calls) in 32.164 seconds
+
+   Ordered by: cumulative time
+   List reduced from 698 to 70 due to restriction <70>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      186   27.647    0.149   29.567    0.159 so101_sort_sim.py:531(visibility)
+      372    1.332    0.004    1.732    0.005 renderer.py:132(render)
+     3383    0.889    0.000    0.889    0.000 {built-in method mujoco._functions.mj_step}
+        4    0.232    0.058    0.576    0.144 renderer.py:29(__init__)
+        4    0.000    0.000    0.344    0.086 __init__.py:23(__init__)
+        4    0.335    0.084    0.335    0.084 __init__.py:1262(create_window)
+     9961    0.075    0.000    0.243    0.000 numeric.py:1563(cross)
+        4    0.223    0.056    0.224    0.056 {built-in method mujoco._structs.from_xml_path}
+ 2423/459    0.002    0.000    0.204    0.000 so101_sort_sim.py:477(step)
+    42212    0.184    0.000    0.184    0.000 {method 'astype' of 'numpy.ndarray' objects}
+     2273    0.162    0.000    0.162    0.000 {built-in method mujoco._functions.mj_forward}
+    29883    0.039    0.000    0.152    0.000 numeric.py:1489(moveaxis)
+    16871    0.053    0.000    0.133    0.000 _linalg.py:374(solve)
+      744    0.003    0.000    0.108    0.000 _arraysetops_impl.py:958(isin)
+      744    0.080    0.000    0.104    0.000 _arraysetops_impl.py:806(_isin)
+    59766    0.060    0.000    0.095    0.000 numeric.py:1427(normalize_axis_tuple)
+      372    0.090    0.000    0.090    0.000 {built-in method mujoco._render.mjr_readPixels}
+      376    0.001    0.000    0.089    0.000 __init__.py:30(make_current)
+      376    0.088    0.000    0.088    0.000 __init__.py:2350(make_context_current)
+     2476    0.067    0.000    0.067    0.000 {method 'reduce' of 'numpy.ufunc' objects}
+      744    0.001    0.000    0.063    0.000 {method 'sum' of 'numpy.ndarray' objects}
+      744    0.000    0.000    0.063    0.000 _methods.py:47(_sum)
+    21638    0.021    0.000    0.044    0.000 _linalg.py:2615(norm)
+    19270    0.039    0.000    0.039    0.000 {built-in method mujoco._functions.mj_kinematics}
+      372    0.036    0.000    0.036    0.000 {built-in method mujoco._render.mjr_render}
+        9    0.000    0.000    0.035    0.004 __init__.py:1(<module>)
+     53/2    0.000    0.000    0.034    0.017 <frozen importlib._bootstrap>:1349(_find_and_load)
+     53/2    0.000    0.000    0.034    0.017 <frozen importlib._bootstrap>:1304(_find_and_load_unlocked)
+     53/2    0.000    0.000    0.033    0.016 <frozen importlib._bootstrap>:911(_load_unlocked)
+     21/2    0.000    0.000    0.033    0.016 <frozen importlib._bootstrap_external>:993(exec_module)
+    16871    0.015    0.000    0.033    0.000 _linalg.py:201(_commonType)
+    16939    0.008    0.000    0.032    0.000 fromnumeric.py:2245(clip)
+    103/4    0.000    0.000    0.032    0.008 <frozen importlib._bootstrap>:480(_call_with_frames_removed)
+     23/2    0.000    0.000    0.032    0.016 {built-in method builtins.exec}
+     9657    0.012    0.000    0.026    0.000 shape_base.py:218(vstack)
+    16943    0.005    0.000    0.024    0.000 fromnumeric.py:48(_wrapfunc)
+        8    0.000    0.000    0.023    0.003 __init__.py:33(free)
+        4    0.023    0.006    0.023    0.006 __init__.py:1274(destroy_window)
+    16871    0.017    0.000    0.023    0.000 _twodim_base_impl.py:178(eye)
+        4    0.000    0.000    0.020    0.005 _npyio_impl.py:681(savez_compressed)
+        4    0.000    0.000    0.020    0.005 _npyio_impl.py:756(_savez)
+      184    0.005    0.000    0.020    0.000 so101_sort_sim.py:559(defect_normal)
+     4966    0.012    0.000    0.019    0.000 so101_sort_sim.py:114(rad_to_normalized)
+        4    0.000    0.000    0.019    0.005 so101_sort_sim.py:399(write_marker_textures)
+   119532    0.012    0.000    0.017    0.000 numeric.py:1476(<genexpr>)
+    16935    0.004    0.000    0.016    0.000 {method 'clip' of 'numpy.ndarray' objects}
+        3    0.000    0.000    0.016    0.005 {built-in method builtins.__import__}
+      372    0.009    0.000    0.016    0.000 renderer.py:255(update_scene)
+        1    0.000    0.000    0.016    0.016 __init__.py:713(__getattr__)
+    33742    0.010    0.000    0.016    0.000 _linalg.py:163(_makearray)
+        1    0.000    0.000    0.015    0.015 __init__.py:68(bootstrap)
+      188    0.002    0.000    0.015    0.000 presentation.py:19(face_frame)
+       20    0.000    0.000    0.015    0.001 _format_impl.py:702(write_array)
+        4    0.000    0.000    0.015    0.004 <frozen importlib._bootstrap>:1390(_handle_fromlist)
+       40    0.000    0.000    0.014    0.000 __init__.py:1205(write)
+    72251    0.010    0.000    0.014    0.000 _linalg.py:168(isComplexType)
+200961/200954    0.014    0.000    0.014    0.000 {built-in method builtins.len}
+      724    0.003    0.000    0.013    0.000 so101_sort_sim.py:658(jaw_direction)
+    16871    0.006    0.000    0.012    0.000 _ufunc_config.py:472(__enter__)
+     9657    0.008    0.000    0.012    0.000 shape_base.py:78(atleast_2d)
+     11/7    0.000    0.000    0.012    0.002 <frozen importlib._bootstrap_external>:1299(exec_module)
+     11/7    0.002    0.000    0.012    0.002 {built-in method _imp.exec_dynamic}
+       24    0.000    0.000    0.012    0.000 __init__.py:73(import_module)
+       24    0.000    0.000    0.012    0.000 <frozen importlib._bootstrap>:1375(_gcd_import)
+    16939    0.012    0.000    0.012    0.000 _methods.py:96(_clip)
+    21638    0.011    0.000    0.011    0.000 {method 'dot' of 'numpy.ndarray' objects}
+       21    0.000    0.000    0.010    0.000 <frozen importlib._bootstrap_external>:1066(get_code)
+        4    0.009    0.002    0.009    0.002 __init__.py:805(init)
+   127950    0.009    0.000    0.009    0.000 {built-in method builtins.issubclass}
+       23    0.000    0.000    0.009    0.000 __init__.py:23(__load_extra_py_code_for_module)
+
+
+
+===== sort by tottime =====
+         2106486 function calls (2099098 primitive calls) in 32.164 seconds
+
+   Ordered by: internal time
+   List reduced from 698 to 50 due to restriction <50>
+
+   ncalls  tottime  percall  cumtime  percall filename:lineno(function)
+      186   27.647    0.149   29.567    0.159 so101_sort_sim.py:531(visibility)
+      372    1.332    0.004    1.732    0.005 renderer.py:132(render)
+     3383    0.889    0.000    0.889    0.000 {built-in method mujoco._functions.mj_step}
+        4    0.335    0.084    0.335    0.084 __init__.py:1262(create_window)
+        4    0.232    0.058    0.576    0.144 renderer.py:29(__init__)
+        4    0.223    0.056    0.224    0.056 {built-in method mujoco._structs.from_xml_path}
+    42212    0.184    0.000    0.184    0.000 {method 'astype' of 'numpy.ndarray' objects}
+     2273    0.162    0.000    0.162    0.000 {built-in method mujoco._functions.mj_forward}
+      372    0.090    0.000    0.090    0.000 {built-in method mujoco._render.mjr_readPixels}
+      376    0.088    0.000    0.088    0.000 __init__.py:2350(make_context_current)
+      744    0.080    0.000    0.104    0.000 _arraysetops_impl.py:806(_isin)
+     9961    0.075    0.000    0.243    0.000 numeric.py:1563(cross)
+     2476    0.067    0.000    0.067    0.000 {method 'reduce' of 'numpy.ufunc' objects}
+    59766    0.060    0.000    0.095    0.000 numeric.py:1427(normalize_axis_tuple)
+    16871    0.053    0.000    0.133    0.000 _linalg.py:374(solve)
+    29883    0.039    0.000    0.152    0.000 numeric.py:1489(moveaxis)
+    19270    0.039    0.000    0.039    0.000 {built-in method mujoco._functions.mj_kinematics}
+      372    0.036    0.000    0.036    0.000 {built-in method mujoco._render.mjr_render}
+        4    0.023    0.006    0.023    0.006 __init__.py:1274(destroy_window)
+    21638    0.021    0.000    0.044    0.000 _linalg.py:2615(norm)
+    16871    0.017    0.000    0.023    0.000 _twodim_base_impl.py:178(eye)
+    16871    0.015    0.000    0.033    0.000 _linalg.py:201(_commonType)
+200961/200954    0.014    0.000    0.014    0.000 {built-in method builtins.len}
+     9657    0.012    0.000    0.026    0.000 shape_base.py:218(vstack)
+     4966    0.012    0.000    0.019    0.000 so101_sort_sim.py:114(rad_to_normalized)
+    16939    0.012    0.000    0.012    0.000 _methods.py:96(_clip)
+   119532    0.012    0.000    0.017    0.000 numeric.py:1476(<genexpr>)
+    21638    0.011    0.000    0.011    0.000 {method 'dot' of 'numpy.ndarray' objects}
+    33742    0.010    0.000    0.016    0.000 _linalg.py:163(_makearray)
+    72251    0.010    0.000    0.014    0.000 _linalg.py:168(isComplexType)
+      372    0.009    0.000    0.016    0.000 renderer.py:255(update_scene)
+        4    0.009    0.002    0.009    0.002 __init__.py:805(init)
+   127950    0.009    0.000    0.009    0.000 {built-in method builtins.issubclass}
+    12012    0.008    0.000    0.008    0.000 {built-in method numpy.array}
+    16939    0.008    0.000    0.032    0.000 fromnumeric.py:2245(clip)
+    89713    0.008    0.000    0.008    0.000 {built-in method numpy.lib.array_utils.normalize_axis_index}
+     9649    0.008    0.000    0.008    0.000 {built-in method mujoco._functions.mj_jacSite}
+     7222    0.008    0.000    0.008    0.000 {built-in method mujoco._functions.mj_jac}
+     9657    0.008    0.000    0.012    0.000 shape_base.py:78(atleast_2d)
+       40    0.008    0.000    0.008    0.000 {method 'compress' of 'zlib.Compress' objects}
+    15943    0.008    0.000    0.008    0.000 {built-in method numpy.empty}
+    75174    0.008    0.000    0.008    0.000 {built-in method builtins.isinstance}
+       21    0.008    0.000    0.008    0.000 {built-in method _io.open_code}
+    17065    0.007    0.000    0.007    0.000 {built-in method mujoco._functions.mj_comPos}
+    83432    0.007    0.000    0.007    0.000 {built-in method numpy.asarray}
+       11    0.007    0.001    0.007    0.001 {built-in method _imp.create_dynamic}
+      188    0.007    0.000    0.007    0.000 {method 'write' of '_io.BufferedRandom' objects}
+    93589    0.007    0.000    0.007    0.000 {built-in method _operator.index}
+    16871    0.006    0.000    0.012    0.000 _ufunc_config.py:472(__enter__)
+    20812    0.006    0.000    0.006    0.000 {built-in method numpy.zeros}

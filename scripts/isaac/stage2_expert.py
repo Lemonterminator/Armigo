@@ -27,118 +27,46 @@ args_cli.enable_cameras = True
 args_cli.visualizer = []
 
 import cv2
+import isaaclab.sim as sim_utils
 import numpy as np
 import torch
-from scipy.spatial.transform import Rotation
-
-import isaaclab.sim as sim_utils
 from isaaclab.actuators import ImplicitActuatorCfg
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
 from isaaclab.controllers import DifferentialIKController, DifferentialIKControllerCfg
 from isaaclab.scene import InteractiveSceneCfg
 from isaaclab.sensors import CameraCfg, ContactSensorCfg
 from isaaclab.utils import configclass
+from scipy.spatial.transform import Rotation
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
-from digital_twin_armigo.presentation import show_points, view_cosine  # noqa: E402
+from digital_twin_armigo.camera import opengl_axes
+from digital_twin_armigo.constants import (
+	BOWL_R,
+	CAMERA_SHAPES,
+	FPS,
+	JOINTS,
+	PHASES,
+	REST_U,
+	STATE_NAMES,
+	TASKS,
+	TOP_CROP,
+	TOP_FULL,
+)
+from digital_twin_armigo.depth import depth_plane_to_height, layered_height_image
+from digital_twin_armigo.joints import normalized_to_rad, rad_to_normalized
+from digital_twin_armigo.presentation import show_points, view_cosine
 
 USD_ASSETS = ROOT / "assets"
 OUT_DIR = ROOT / "results" / "stage2"
 DEMO_DIR = OUT_DIR / "demos"
 
-FPS = 30
 PHYSICS_HZ = 240
 SUBSTEPS = PHYSICS_HZ // FPS  # 8 physics substeps @ 240 Hz per 30 Hz video frame
-BOWL_R = 0.10
-PHASES = ("rest", "approach", "grasp", "lift", "show_move", "show_hold", "handoff", "place", "return")
-JOINTS = ("shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll", "gripper")
-STATE_NAMES = [f"{j}.pos" for j in JOINTS]
-TASKS = {
-	"green": "Pick up the brick and place it in the green bowl.",
-	"pink": "Pick up the brick and place it in the pink bowl.",
-}
-CALIBRATION = {
-	"shoulder_pan": (1267, 3200),
-	"shoulder_lift": (894, 3251),
-	"elbow_flex": (849, 3045),
-	"wrist_flex": (788, 3115),
-	"wrist_roll": (2040, 3961),
-	"gripper": (2041, 3508),
-}
-OFFSETS_DEG = {"shoulder_lift": 1.5816, "elbow_flex": -4.6851, "wrist_flex": -1.3997}
-TICKS_PER_DEG = 4096 / 360
-GRIPPER_RAD = (-0.17453, 1.74533)
-TOP_FULL = (640, 480)
-TOP_CROP = (96, 0, 512, 416)
-FINE_MAX_M = 0.04
-COARSE_MAX_M = 0.30
-CAMERA_SHAPES = {
-	"front": [480, 640, 3],
-	"top_rgb_v2": [416, 512, 3],
-	"top_depth_v2": [416, 512, 3],
-	"wrist": [480, 640, 3],
-}
-HANDOFF_Q = np.array([0.0, 0.2, -0.9, 1.5, 0.0], dtype=np.float64)
-REST_U = np.array([4.1, -98.7, 99.3, -98.2, 24.1, 33.7], dtype=np.float64)
 OPEN_G = 0.85   # ~71 mm jaw gap (> 2.2x brick width, clears brick cleanly on descent)
 HOLD_G = -0.15  # commanded target past 31.8 mm brick contact (~0.17 rad) for firm clamping force
 # Biased +6 mm toward moving jaw at open/mid gap so fixed_jaw clears brick -X edge by ~8.4 mm on descent
 TCP_OFFSET_LOCAL = (0.0135, 0.0, -0.0905)
-
-
-def normalized_to_rad(u: np.ndarray) -> np.ndarray:
-	u = np.asarray(u, dtype=np.float64)
-	out = np.empty(6, dtype=np.float64)
-	for i, name in enumerate(JOINTS[:5]):
-		lo, hi = CALIBRATION[name]
-		deg = u[i] / 100.0 * (hi - lo) / 2.0 / TICKS_PER_DEG + OFFSETS_DEG.get(name, 0.0)
-		out[i] = math.radians(deg)
-	out[5] = GRIPPER_RAD[0] + np.clip(u[5], 0.0, 100.0) / 100.0 * (GRIPPER_RAD[1] - GRIPPER_RAD[0])
-	return out
-
-
-def rad_to_normalized(q: np.ndarray) -> np.ndarray:
-	q = np.asarray(q, dtype=np.float64)
-	out = np.empty(6, dtype=np.float64)
-	for i, name in enumerate(JOINTS[:5]):
-		lo, hi = CALIBRATION[name]
-		deg = math.degrees(q[i]) - OFFSETS_DEG.get(name, 0.0)
-		out[i] = deg * TICKS_PER_DEG * 2.0 / (hi - lo) * 100.0
-	out[5] = (q[5] - GRIPPER_RAD[0]) / (GRIPPER_RAD[1] - GRIPPER_RAD[0]) * 100.0
-	return out.astype(np.float32)
-
-
-def camera_axes_from_pose(cam: dict) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
-	t, p = math.radians(cam["tilt_deg"]), math.radians(cam["yaw_deg"])
-	forward = np.array([math.sin(t) * math.cos(p), math.sin(t) * math.sin(p), -math.cos(t)])
-	up = np.array([math.cos(t) * math.cos(p), math.cos(t) * math.sin(p), math.sin(t)])
-	right = np.cross(forward, up)
-	r = math.radians(cam["roll_deg"])
-	right, up = math.cos(r) * right + math.sin(r) * up, -math.sin(r) * right + math.cos(r) * up
-	return right, up, -forward
-
-
-def layered_height_image(height_m: np.ndarray, valid: np.ndarray) -> np.ndarray:
-	h = np.clip(np.where(valid, height_m, 0.0), 0.0, None)
-	out = np.empty((*h.shape, 3), np.uint8)
-	out[..., 0] = np.rint(255.0 * np.minimum(h / FINE_MAX_M, 1.0))
-	out[..., 1] = np.rint(255.0 * np.minimum(h / COARSE_MAX_M, 1.0))
-	out[..., 2] = np.where(valid, 255, 0)
-	out[~valid, :2] = 0
-	return out
-
-
-def depth_plane_to_height(cam: dict, depth: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-	right, up, z_opengl = camera_axes_from_pose(cam)
-	forward = -z_opengl
-	hgt, wid = depth.shape
-	u, v = np.meshgrid(np.arange(wid) + 0.5, np.arange(hgt) + 0.5)
-	f = cam["focal_px"]
-	ray = ((u - wid / 2.0) / f)[..., None] * right + (-(v - hgt / 2.0) / f)[..., None] * up + forward
-	valid = np.isfinite(depth) & (depth > 0.05) & (depth < 5.0)
-	world_z = cam["height"] + ray[..., 2] * np.where(valid, depth, 0.0)
-	return world_z, valid
 
 
 @configclass
@@ -248,7 +176,7 @@ class Stage2SceneCfg(InteractiveSceneCfg):
 
 
 def configure_cameras(cfg: Stage2SceneCfg, top_cam: dict) -> None:
-	right, up, z_opengl = camera_axes_from_pose(top_cam)
+	right, up, z_opengl = opengl_axes(top_cam)
 	top_quat = tuple(float(v) for v in Rotation.from_matrix(np.column_stack([right, up, z_opengl])).as_quat())
 	cfg.top_cam.spawn.focal_length = 20.955 * float(top_cam["focal_px"]) / TOP_FULL[0]
 	cfg.top_cam.offset.pos = (float(top_cam["x"]), float(top_cam["y"]), float(top_cam["height"]))
@@ -362,7 +290,7 @@ def main() -> None:
 
 		max_lift_z = 0.0
 		cam_pos_np = np.array([top_cam["x"], top_cam["y"], top_cam["height"]], dtype=np.float64)
-		_, _, z_opengl_top = camera_axes_from_pose(top_cam)
+		_, _, z_opengl_top = opengl_axes(top_cam)
 		cam_fwd_np = -z_opengl_top
 
 		def record_frame(q_cmd_ordered: np.ndarray, phase_name: str, snap_tag: str | None = None) -> None:
