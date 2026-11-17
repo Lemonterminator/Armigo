@@ -1,0 +1,163 @@
+{
+  "physics_mode": "pure_friction_contact_sensor_no_fixed_joint",
+  "evaluator_version": "v2-audited",
+  "physics_spec_version": "v1-nominal-assumed",
+  "physics_manifest": {
+    "config_path": "E:\\digital_twin_armigo\\config\\sim\\physics_params.json",
+    "config_sha256": "f45b5200933282fd452d15e334f44bf51ae3e4e38470232ad3dc21aa5e272eea",
+    "effective_spec": {
+      "version": "v1-nominal-assumed",
+      "provenance": "Assumed nominal literature/catalog specs (BrickLink ABS DUPLO weights, ABS friction, Feetech STS3215 1:345 12V/7.4V specs). Pending real-hardware scale and tribology measurement.",
+      "bricks": {
+        "2x2": {
+          "name": "2x2",
+          "size_m": [
+            0.0318,
+            0.0318,
+            0.0192
+          ],
+          "mass_kg": 0.007,
+          "static_friction": 0.4,
+          "dynamic_friction": 0.35,
+          "restitution": 0.05
+        },
+        "2x3": {
+          "name": "2x3",
+          "size_m": [
+            0.0477,
+            0.0318,
+            0.0192
+          ],
+          "mass_kg": 0.0096,
+          "static_friction": 0.4,
+          "dynamic_friction": 0.35,
+          "restitution": 0.05
+        },
+        "2x4": {
+          "name": "2x4",
+          "size_m": [
+            0.0636,
+            0.0318,
+            0.0192
+          ],
+          "mass_kg": 0.0135,
+          "static_friction": 0.4,
+          "dynamic_friction": 0.35,
+          "restitution": 0.05
+        }
+      },
+      "plate": {
+        "mass_kg": 0.12,
+        "static_friction": 0.55,
+        "dynamic_friction": 0.45,
+        "restitution": 0.05
+      },
+      "table": {
+        "static_friction": 0.45,
+        "dynamic_friction": 0.38,
+        "restitution": 0.05
+      },
+      "gripper_pad": {
+        "static_friction": 1.45,
+        "dynamic_friction": 1.25,
+        "restitution": 0.02
+      },
+      "arm_actuator": {
+        "stiffness": 180.0,
+        "damping": 12.0,
+        "effort_limit": 2.94,
+        "velocity_limit": 5.45,
+        "joint_damping": 0.6,
+        "frictionloss": 0.052,
+        "armature": 0.028
+      },
+      "gripper_actuator": {
+        "stiffness": 30.0,
+        "damping": 2.5,
+        "effort_limit": 0.55,
+        "velocity_limit": 5.45,
+        "joint_damping": 0.3,
+        "frictionloss": 0.03,
+        "armature": 0.015
+      }
+    }
+  },
+  "seed": 0,
+  "physics_hz": 240,
+  "control_fps": 30,
+  "backend": "ovphysx_no_cameras",
+  "brick_size": "2x2",
+  "brick_pose_init": [
+    0.26,
+    0.01,
+    20.0
+  ],
+  "clutter_per_bowl": 0,
+  "mass_scale": 1.0,
+  "friction_scale": 1.0,
+  "latency_frames": 0,
+  "backlash_deg": 0.0,
+  "sensor_noise": null,
+  "total_frames": 571,
+  "close_fixed_force_N": 5.73268985748291,
+  "close_moving_force_N": 5.710806846618652,
+  "close_gripper_rad": 0.22877974808216095,
+  "close_contact_ok": true,
+  "max_lift_z_m": 0.26008108258247375,
+  "best_show_cos": 0.7818211026723692,
+  "final_brick_xyz": [
+    0.277597039937973,
+    -0.19878487288951874,
+    0.01565948687493801
+  ],
+  "verdict": "SUCCESS",
+  "reason_codes": [],
+  "health": {
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "evidence_refs": {
+      "n_frames": 571,
+      "ref_frame": 117,
+      "slip_peak_frame": 402,
+      "release_obs_window": [
+        475,
+        565
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 90,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+    },
+    "evaluator_version": "v2-audited",
+    "terminal_ok": true,
+    "process_ok": true,
+    "success": true,
+    "failure_mode": "ok",
+    "grasped_ok": true,
+    "max_slip_pos_m": 1.5693101301053856e-05,
+    "max_slip_rot_deg": 0.04171763234908099,
+    "dual_contact_ratio": 1.0,
+    "mean_pinch_force_N": 9.293638466515093,
+    "max_pinch_force_N": 10.149926662445068,
+    "pinch_normal_peak_N": 11.694520473480225,
+    "pinch_tangential_peak_N": 2.969779908657074,
+    "pinch_impulse_Ns": 105.2298280392463,
+    "max_tracking_error_rad": 0.9225752353668213,
+    "tracking_error_ratio": 0.2119089316987741,
+    "max_tracking_lag_duration_s": 1.4666666666666666,
+    "max_stall_duration_s": 3.3333333333333335,
+    "torque_saturation_ratio": 0.4798598949211909,
+    "torque_evidence_source": "estimated_implicit_pd",
+    "unintended_collision_count": 0,
+    "max_unintended_force_N": 0.0,
+    "unintended_collision_impulse_Ns": 0.0,
+    "settled_in_bowl": true,
+    "settle_consecutive_frames": 90,
+    "final_dist_to_bowl_m": 0.02573960497082256,
+    "final_brick_speed_mps": 0.0002661912504249364,
+    "final_brick_ang_vel_rps": 0.003765805450823033
+  },
+  "success": true
+}

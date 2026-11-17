@@ -1,0 +1,468 @@
+{
+  "physics_spec_version": "v1-nominal-assumed",
+  "provenance": "Assumed nominal literature/catalog specs (BrickLink ABS DUPLO weights, ABS friction, Feetech STS3215 1:345 12V/7.4V specs). Pending real-hardware scale and tribology measurement.",
+  "mujoco_traj_sec": 0.3925198999932036,
+  "isaac_traj_sec": 31.276174300001003,
+  "experiments": {
+    "joint_tracking": {
+      "frames": 120,
+      "cross_engine": {
+        "qpos_rmse_rad": 0.007263012156157331,
+        "qpos_max_rad": 0.0882365504631728,
+        "tcp_pos_rmse_m": 0.00396233594592438,
+        "tcp_pos_max_m": 0.016002812185740133
+      }
+    },
+    "flick_slide": {
+      "strike_frame": 63,
+      "mujoco": {
+        "peak_speed_mps": 0.9852320028844663,
+        "final_displacement_m": 0.08565454132897621,
+        "final_xy": [
+          0.28666177431304335,
+          0.08139934147517787
+        ],
+        "final_yaw_deg": 51.58399602119394,
+        "stop_time_s": 0.1
+      },
+      "isaac": {
+        "peak_speed_mps": 0.6488797131859844,
+        "final_displacement_m": 0.07714087678233542,
+        "final_xy": [
+          0.2603009343147278,
+          0.07714035362005234
+        ],
+        "final_yaw_deg": 3.07283037901891,
+        "stop_time_s": 0.4
+      },
+      "cross_engine": {
+        "qpos_rmse_rad": 0.06436470757006231,
+        "qpos_max_rad": 0.5379917989495115,
+        "brick_pos_rmse_m": 0.03926290116053009,
+        "brick_pos_max_m": 0.07714095037242309,
+        "brick_yaw_rmse_rad": 0.6568183684717228,
+        "brick_yaw_max_rad": 0.8481382287262531
+      }
+    },
+    "spin_release": {
+      "release_frame": 158,
+      "mujoco": {
+        "release_xyz": [
+          0.31332465481722516,
+          -0.00015555731931753283,
+          0.2746313754725629
+        ],
+        "release_speed_mps": 0.015428629043604602,
+        "release_ang_vel_rad_s": 2.097992914506389,
+        "flight_time_s": 0.3,
+        "first_bounce_peak_z_m": 0.015808784295109003,
+        "slide_after_impact_m": 0.07262248107814606,
+        "final_xyz": [
+          0.4212915944143029,
+          0.009629327151382233,
+          0.009560725160155659
+        ],
+        "final_yaw_deg": -27.09178178676784
+      },
+      "isaac": {
+        "release_xyz": [
+          0.3089574873447418,
+          -4.326228372519836e-05,
+          0.2785647511482239
+        ],
+        "release_speed_mps": 0.03456234320754055,
+        "release_ang_vel_rad_s": 9.161666991529763,
+        "flight_time_s": 0.43333333333333335,
+        "first_bounce_peak_z_m": 0.01696944609284401,
+        "slide_after_impact_m": 0.007884190435754683,
+        "final_xyz": [
+          0.41328009963035583,
+          0.0358576662838459,
+          0.015900008380413055
+        ],
+        "final_yaw_deg": 25.590569680706178
+      },
+      "cross_engine": {
+        "qpos_rmse_rad": 0.01093342723647547,
+        "qpos_max_rad": 0.09210241455737667,
+        "brick_pos_rmse_m": 0.02568161326190524,
+        "brick_pos_max_m": 0.028168870542361855,
+        "brick_yaw_rmse_rad": 1.0288373301480684,
+        "brick_yaw_max_rad": 2.6653235566792475
+      }
+    },
+    "pick_place_matrix": [
+      {
+        "condition": {
+          "name": "baseline_2x2",
+          "brick_size": "2x2",
+          "brick_xy": [
+            0.26,
+            0.01
+          ],
+          "brick_yaw_deg": 20.0,
+          "defective": true,
+          "clutter_per_bowl": 0,
+          "mass_scale": 1.0,
+          "friction_scale": 1.0,
+          "latency_frames": 0,
+          "backlash_deg": 0.0
+        },
+        "mujoco": {
+          "success": false,
+          "failure_mode": "pick_miss",
+          "grasped_ok": false,
+          "max_slip_pos_m": 0.0,
+          "max_slip_rot_deg": 0.0,
+          "dual_contact_ratio": 0.976027397260274,
+          "mean_pinch_force_N": 7.229807154284977,
+          "max_pinch_force_N": 13.850995514464344,
+          "max_stall_duration_s": 0.4,
+          "torque_saturation_ratio": 0.06115107913669065,
+          "unintended_collision_count": 63,
+          "max_unintended_force_N": 102.46168492632114,
+          "settled_in_bowl": false,
+          "settle_consecutive_frames": 0,
+          "final_dist_to_bowl_m": 0.017514062678402043,
+          "final_brick_speed_mps": 0.01298414824111777
+        },
+        "isaac": {
+          "success": true,
+          "failure_mode": "ok",
+          "grasped_ok": true,
+          "max_slip_pos_m": 1.3043233774486611e-05,
+          "max_slip_rot_deg": 0.09828179054895372,
+          "dual_contact_ratio": 1.0,
+          "mean_pinch_force_N": 9.293638466515093,
+          "max_pinch_force_N": 10.149926662445068,
+          "max_stall_duration_s": 1.4666666666666666,
+          "torque_saturation_ratio": 0.21762589928057555,
+          "unintended_collision_count": 0,
+          "max_unintended_force_N": 0.0,
+          "settled_in_bowl": true,
+          "settle_consecutive_frames": 81,
+          "final_dist_to_bowl_m": 0.025739615845755223,
+          "final_brick_speed_mps": 0.0002654209368095887
+        }
+      },
+      {
+        "condition": {
+          "name": "brick_2x3",
+          "brick_size": "2x3",
+          "brick_xy": [
+            0.26,
+            0.01
+          ],
+          "brick_yaw_deg": 35.0,
+          "defective": true,
+          "clutter_per_bowl": 0,
+          "mass_scale": 1.0,
+          "friction_scale": 1.0,
+          "latency_frames": 0,
+          "backlash_deg": 0.0
+        },
+        "mujoco": {
+          "success": false,
+          "failure_mode": "pick_miss",
+          "grasped_ok": false,
+          "max_slip_pos_m": 0.0,
+          "max_slip_rot_deg": 0.0,
+          "dual_contact_ratio": 0.9794520547945206,
+          "mean_pinch_force_N": 7.2324132028308314,
+          "max_pinch_force_N": 12.773748842782545,
+          "max_stall_duration_s": 0.36666666666666664,
+          "torque_saturation_ratio": 0.03776978417266187,
+          "unintended_collision_count": 37,
+          "max_unintended_force_N": 102.6984190279808,
+          "settled_in_bowl": true,
+          "settle_consecutive_frames": 10,
+          "final_dist_to_bowl_m": 0.0062677601271399,
+          "final_brick_speed_mps": 4.767882580694634e-05
+        },
+        "isaac": {
+          "success": false,
+          "failure_mode": "pick_miss",
+          "grasped_ok": false,
+          "max_slip_pos_m": 0.0,
+          "max_slip_rot_deg": 0.0,
+          "dual_contact_ratio": 0.0031545741324921135,
+          "mean_pinch_force_N": 0.046470251633588824,
+          "max_pinch_force_N": 14.712994575500488,
+          "max_stall_duration_s": 1.4,
+          "torque_saturation_ratio": 0.1863799283154122,
+          "unintended_collision_count": 0,
+          "max_unintended_force_N": 0.0,
+          "settled_in_bowl": false,
+          "settle_consecutive_frames": 0,
+          "final_dist_to_bowl_m": 0.18596143264299375,
+          "final_brick_speed_mps": 9.073096798316997e-05
+        }
+      },
+      {
+        "condition": {
+          "name": "brick_2x4",
+          "brick_size": "2x4",
+          "brick_xy": [
+            0.26,
+            0.01
+          ],
+          "brick_yaw_deg": -25.0,
+          "defective": true,
+          "clutter_per_bowl": 0,
+          "mass_scale": 1.0,
+          "friction_scale": 1.0,
+          "latency_frames": 0,
+          "backlash_deg": 0.0
+        },
+        "mujoco": {
+          "success": false,
+          "failure_mode": "pick_miss",
+          "grasped_ok": false,
+          "max_slip_pos_m": 0.0,
+          "max_slip_rot_deg": 0.0,
+          "dual_contact_ratio": 0.9794520547945206,
+          "mean_pinch_force_N": 7.301732826105233,
+          "max_pinch_force_N": 12.212274099116051,
+          "max_stall_duration_s": 0.3333333333333333,
+          "torque_saturation_ratio": 0.017985611510791366,
+          "unintended_collision_count": 37,
+          "max_unintended_force_N": 102.1948411748566,
+          "settled_in_bowl": true,
+          "settle_consecutive_frames": 68,
+          "final_dist_to_bowl_m": 0.00765761145679678,
+          "final_brick_speed_mps": 5.583990281344797e-07
+        },
+        "isaac": {
+          "success": true,
+          "failure_mode": "ok",
+          "grasped_ok": true,
+          "max_slip_pos_m": 0.001601992576229835,
+          "max_slip_rot_deg": 24.585243438555082,
+          "dual_contact_ratio": 0.9971509971509972,
+          "mean_pinch_force_N": 8.629277817491028,
+          "max_pinch_force_N": 11.463172912597656,
+          "max_stall_duration_s": 1.3,
+          "torque_saturation_ratio": 0.16501650165016502,
+          "unintended_collision_count": 0,
+          "max_unintended_force_N": 0.0,
+          "settled_in_bowl": true,
+          "settle_consecutive_frames": 81,
+          "final_dist_to_bowl_m": 0.018030261306955262,
+          "final_brick_speed_mps": 0.0004019583652267
+        }
+      },
+      {
+        "condition": {
+          "name": "dynamic_clutter",
+          "brick_size": "2x2",
+          "brick_xy": [
+            0.26,
+            0.01
+          ],
+          "brick_yaw_deg": 15.0,
+          "defective": true,
+          "clutter_per_bowl": 3,
+          "mass_scale": 1.0,
+          "friction_scale": 1.0,
+          "latency_frames": 0,
+          "backlash_deg": 0.0
+        },
+        "mujoco": {
+          "success": false,
+          "failure_mode": "pick_miss",
+          "grasped_ok": false,
+          "max_slip_pos_m": 0.0,
+          "max_slip_rot_deg": 0.0,
+          "dual_contact_ratio": 0.976027397260274,
+          "mean_pinch_force_N": 7.20575107633994,
+          "max_pinch_force_N": 11.703647701262511,
+          "max_stall_duration_s": 0.4,
+          "torque_saturation_ratio": 0.06115107913669065,
+          "unintended_collision_count": 65,
+          "max_unintended_force_N": 126.82372456990865,
+          "settled_in_bowl": true,
+          "settle_consecutive_frames": 72,
+          "final_dist_to_bowl_m": 0.01790695296950773,
+          "final_brick_speed_mps": 0.004690977093397911
+        },
+        "isaac": {
+          "success": true,
+          "failure_mode": "ok",
+          "grasped_ok": true,
+          "max_slip_pos_m": 0.007684337147411731,
+          "max_slip_rot_deg": 23.501060112979847,
+          "dual_contact_ratio": 0.9971509971509972,
+          "mean_pinch_force_N": 8.964970216982895,
+          "max_pinch_force_N": 17.400758266448975,
+          "max_stall_duration_s": 1.4666666666666666,
+          "torque_saturation_ratio": 0.21762589928057555,
+          "unintended_collision_count": 0,
+          "max_unintended_force_N": 0.0,
+          "settled_in_bowl": true,
+          "settle_consecutive_frames": 78,
+          "final_dist_to_bowl_m": 0.01543754968650812,
+          "final_brick_speed_mps": 0.0008216747145264516
+        }
+      },
+      {
+        "condition": {
+          "name": "low_friction",
+          "brick_size": "2x2",
+          "brick_xy": [
+            0.26,
+            0.01
+          ],
+          "brick_yaw_deg": 20.0,
+          "defective": true,
+          "clutter_per_bowl": 0,
+          "mass_scale": 1.0,
+          "friction_scale": 0.65,
+          "latency_frames": 0,
+          "backlash_deg": 0.0
+        },
+        "mujoco": {
+          "success": false,
+          "failure_mode": "pick_miss",
+          "grasped_ok": false,
+          "max_slip_pos_m": 0.0,
+          "max_slip_rot_deg": 0.0,
+          "dual_contact_ratio": 0.976027397260274,
+          "mean_pinch_force_N": 7.234039447723513,
+          "max_pinch_force_N": 14.446586832030238,
+          "max_stall_duration_s": 0.4,
+          "torque_saturation_ratio": 0.06115107913669065,
+          "unintended_collision_count": 63,
+          "max_unintended_force_N": 102.46168492632114,
+          "settled_in_bowl": false,
+          "settle_consecutive_frames": 0,
+          "final_dist_to_bowl_m": 0.014959688619599214,
+          "final_brick_speed_mps": 0.008435950141920069
+        },
+        "isaac": {
+          "success": true,
+          "failure_mode": "ok",
+          "grasped_ok": true,
+          "max_slip_pos_m": 1.3022226655340148e-05,
+          "max_slip_rot_deg": 0.11009837166155059,
+          "dual_contact_ratio": 1.0,
+          "mean_pinch_force_N": 9.293287129144044,
+          "max_pinch_force_N": 10.153919696807861,
+          "max_stall_duration_s": 1.4666666666666666,
+          "torque_saturation_ratio": 0.21762589928057555,
+          "unintended_collision_count": 0,
+          "max_unintended_force_N": 0.0,
+          "settled_in_bowl": true,
+          "settle_consecutive_frames": 81,
+          "final_dist_to_bowl_m": 0.025842830049554455,
+          "final_brick_speed_mps": 0.0002612883885086376
+        }
+      },
+      {
+        "condition": {
+          "name": "high_mass",
+          "brick_size": "2x2",
+          "brick_xy": [
+            0.26,
+            0.01
+          ],
+          "brick_yaw_deg": 20.0,
+          "defective": true,
+          "clutter_per_bowl": 0,
+          "mass_scale": 1.6,
+          "friction_scale": 1.0,
+          "latency_frames": 0,
+          "backlash_deg": 0.0
+        },
+        "mujoco": {
+          "success": false,
+          "failure_mode": "pick_miss",
+          "grasped_ok": false,
+          "max_slip_pos_m": 0.0,
+          "max_slip_rot_deg": 0.0,
+          "dual_contact_ratio": 0.976027397260274,
+          "mean_pinch_force_N": 7.273953448286666,
+          "max_pinch_force_N": 17.666142849427448,
+          "max_stall_duration_s": 0.4,
+          "torque_saturation_ratio": 0.06115107913669065,
+          "unintended_collision_count": 63,
+          "max_unintended_force_N": 102.46168492632114,
+          "settled_in_bowl": false,
+          "settle_consecutive_frames": 0,
+          "final_dist_to_bowl_m": 0.01570411434522889,
+          "final_brick_speed_mps": 0.01298418884504534
+        },
+        "isaac": {
+          "success": true,
+          "failure_mode": "ok",
+          "grasped_ok": true,
+          "max_slip_pos_m": 0.001412630772601821,
+          "max_slip_rot_deg": 9.742963758895423,
+          "dual_contact_ratio": 0.9943019943019943,
+          "mean_pinch_force_N": 8.51648400436312,
+          "max_pinch_force_N": 11.004323482513428,
+          "max_stall_duration_s": 1.4666666666666666,
+          "torque_saturation_ratio": 0.21762589928057555,
+          "unintended_collision_count": 0,
+          "max_unintended_force_N": 0.0,
+          "settled_in_bowl": true,
+          "settle_consecutive_frames": 81,
+          "final_dist_to_bowl_m": 0.0257389071761576,
+          "final_brick_speed_mps": 2.960454000771112e-05
+        }
+      },
+      {
+        "condition": {
+          "name": "latency_backlash",
+          "brick_size": "2x2",
+          "brick_xy": [
+            0.26,
+            0.01
+          ],
+          "brick_yaw_deg": 20.0,
+          "defective": true,
+          "clutter_per_bowl": 0,
+          "mass_scale": 1.0,
+          "friction_scale": 1.0,
+          "latency_frames": 2,
+          "backlash_deg": 0.5
+        },
+        "mujoco": {
+          "success": false,
+          "failure_mode": "pick_miss",
+          "grasped_ok": false,
+          "max_slip_pos_m": 0.0,
+          "max_slip_rot_deg": 0.0,
+          "dual_contact_ratio": 0.9659863945578231,
+          "mean_pinch_force_N": 7.145379327451615,
+          "max_pinch_force_N": 14.44825588805882,
+          "max_stall_duration_s": 0.36666666666666664,
+          "torque_saturation_ratio": 0.05935251798561151,
+          "unintended_collision_count": 63,
+          "max_unintended_force_N": 135.62075657991727,
+          "settled_in_bowl": true,
+          "settle_consecutive_frames": 25,
+          "final_dist_to_bowl_m": 0.016009492957991773,
+          "final_brick_speed_mps": 0.000679591231479353
+        },
+        "isaac": {
+          "success": true,
+          "failure_mode": "ok",
+          "grasped_ok": true,
+          "max_slip_pos_m": 1.3825970717401437e-05,
+          "max_slip_rot_deg": 0.08365978037085907,
+          "dual_contact_ratio": 1.0,
+          "mean_pinch_force_N": 9.270075043943043,
+          "max_pinch_force_N": 10.367705821990967,
+          "max_stall_duration_s": 1.4666666666666666,
+          "torque_saturation_ratio": 0.19504132231404958,
+          "unintended_collision_count": 0,
+          "max_unintended_force_N": 0.0,
+          "settled_in_bowl": true,
+          "settle_consecutive_frames": 79,
+          "final_dist_to_bowl_m": 0.025900909177557368,
+          "final_brick_speed_mps": 0.00023881088493528502
+        }
+      }
+    ]
+  }
+}

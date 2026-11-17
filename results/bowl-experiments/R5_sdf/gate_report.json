@@ -1,0 +1,47 @@
+{
+  "id": "R5_sdf",
+  "passed": false,
+  "failed_gate": "G0",
+  "detail": {
+    "missing_area_frac": 0.025905349794238683,
+    "flat_floor_r_mm": 60.0,
+    "flat_min_mm": 0.634488793760199,
+    "flat_max_mm": 3.0025918097766473,
+    "basin_min_mm": 0.04059257090799351,
+    "rim_min_mm": 20.757118532084576,
+    "rim_max_mm": 21.872884726137563,
+    "wall_devs_mm": {
+      "6": Infinity,
+      "12": 0.08759805361088979,
+      "18": 0.06491255055803435
+    },
+    "max_wall_dev_mm": Infinity,
+    "wall_miss": 72,
+    "protrusion_mm": 0.0
+  },
+  "wall_s": 0.283,
+  "gates": [
+    {
+      "gate": "G0",
+      "passed": false,
+      "wall_s": 0.283,
+      "detail": {
+        "missing_area_frac": 0.025905349794238683,
+        "flat_floor_r_mm": 60.0,
+        "flat_min_mm": 0.634488793760199,
+        "flat_max_mm": 3.0025918097766473,
+        "basin_min_mm": 0.04059257090799351,
+        "rim_min_mm": 20.757118532084576,
+        "rim_max_mm": 21.872884726137563,
+        "wall_devs_mm": {
+          "6": Infinity,
+          "12": 0.08759805361088979,
+          "18": 0.06491255055803435
+        },
+        "max_wall_dev_mm": Infinity,
+        "wall_miss": 72,
+        "protrusion_mm": 0.0
+      }
+    }
+  ]
+}

@@ -66,6 +66,7 @@ CAMERA_SHAPES = {
 # Real cell: plates about 20 cm across, Duplo-size bricks (2x2: 31.8 mm square, 19.2 mm high; 2x4: 63.6 mm long).
 BOWL_R = 0.10
 BOWL_H = 0.022
+BOWL_FLOOR_TOP_M = 0.003
 DUPLO_2X2 = (0.0318, 0.0318, 0.0192)
 DUPLO_2X3 = (0.0477, 0.0318, 0.0192)
 DUPLO_2X4 = (0.0636, 0.0318, 0.0192)

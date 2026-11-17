@@ -29,14 +29,51 @@ def decode_height(depth_rgb: np.ndarray) -> np.ndarray:
 	return np.where(b > 128, h, np.nan)
 
 
-def depth_plane_to_height(cam: CameraPose | Mapping[str, float], depth: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
+def _ray_world_z_grid(
+	pose: CameraPose,
+	full_shape: tuple[int, int],
+	crop: tuple[int, int, int, int] | None = None,
+) -> np.ndarray:
+	"""Compute world Z component of camera viewing rays per pixel using full-frame principal point."""
+	right, up, forward = pose.frame()
+	full_h, full_w = full_shape
+	if crop is None:
+		u0, v0, wid, hgt = 0, 0, full_w, full_h
+	else:
+		u0, v0, wid, hgt = crop
+	u, v = np.meshgrid(np.arange(u0, u0 + wid) + 0.5, np.arange(v0, v0 + hgt) + 0.5)
+	f = pose.focal_px
+	ray = ((u - full_w / 2.0) / f)[..., None] * right + (-(v - full_h / 2.0) / f)[..., None] * up + forward
+	return ray[..., 2]
+
+
+def depth_plane_to_height(
+	cam: CameraPose | Mapping[str, float],
+	depth: np.ndarray,
+	crop: tuple[int, int, int, int] | None = None,
+	full_shape: tuple[int, int] | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
 	"""World height per pixel and a validity mask from a ``distance_to_image_plane`` image (H, W) of camera ``cam``."""
 	pose = as_pose(cam)
-	right, up, forward = pose.frame()
-	hgt, wid = depth.shape
-	u, v = np.meshgrid(np.arange(wid) + 0.5, np.arange(hgt) + 0.5)
-	f = pose.focal_px
-	ray = ((u - wid / 2.0) / f)[..., None] * right + (-(v - hgt / 2.0) / f)[..., None] * up + forward
+	shape = full_shape if full_shape is not None else depth.shape
+	ray_z = _ray_world_z_grid(pose, shape, crop=crop if full_shape is not None or crop is None else None)
 	valid = np.isfinite(depth) & (depth > 0.05) & (depth < 5.0)
-	world_z = pose.height + ray[..., 2] * np.where(valid, depth, 0.0)
+	world_z = pose.height + ray_z * np.where(valid, depth, 0.0)
 	return world_z, valid
+
+
+def height_to_depth_plane(
+	cam: CameraPose | Mapping[str, float],
+	z_world: np.ndarray,
+	crop: tuple[int, int, int, int] | None = None,
+	full_shape: tuple[int, int] | None = None,
+) -> tuple[np.ndarray, np.ndarray]:
+	"""Convert world height ``z_world`` back to camera optical-axis depth ``distance_to_image_plane``."""
+	pose = as_pose(cam)
+	shape = full_shape if full_shape is not None else z_world.shape
+	ray_z = _ray_world_z_grid(pose, shape, crop=crop if full_shape is not None or crop is None else None)
+	valid = np.isfinite(z_world) & (ray_z < -1e-4)
+	safe_rz = np.where(valid, ray_z, -1.0)
+	depth_m = np.where(valid, (z_world - pose.height) / safe_rz, 0.0)
+	valid &= (depth_m > 0.05) & (depth_m < 5.0)
+	return depth_m, valid

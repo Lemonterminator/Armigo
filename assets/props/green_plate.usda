@@ -52,9 +52,11 @@ def Xform "GreenPlate" (
         prepend apiSchemas = ["PhysicsMaterialAPI"]
     )
     {
-        float physics:dynamicFriction = 0.5
-        float physics:restitution = 0
-        float physics:staticFriction = 0.6
+        float physics:dynamicFriction = 0.45
+        float physics:restitution = 0.05
+        float physics:staticFriction = 0.55
+        custom token physxMaterial:frictionCombineMode = "max"
+        custom token physxMaterial:restitutionCombineMode = "max"
     }
 }
 

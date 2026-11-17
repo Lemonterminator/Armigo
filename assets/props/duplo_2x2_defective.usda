@@ -11,7 +11,7 @@ def Xform "Brick" (
 {
     rel material:binding = </Brick/Looks/defect_mat>
     bool physics:kinematicEnabled = 0
-    float physics:mass = 0.025
+    float physics:mass = 0.007
 
     def Mesh "Mesh" (
         prepend apiSchemas = ["PhysicsCollisionAPI", "PhysicsMeshCollisionAPI", "MaterialBindingAPI"]
@@ -67,9 +67,11 @@ def Xform "Brick" (
         prepend apiSchemas = ["PhysicsMaterialAPI"]
     )
     {
-        float physics:dynamicFriction = 1.4
-        float physics:restitution = 0
-        float physics:staticFriction = 1.6
+        float physics:dynamicFriction = 0.35
+        float physics:restitution = 0.05
+        float physics:staticFriction = 0.4
+        custom token physxMaterial:frictionCombineMode = "max"
+        custom token physxMaterial:restitutionCombineMode = "max"
     }
 
     def Cube "Defect_0" (

@@ -1,0 +1,49 @@
+{
+  "id": "R2_wedge_full",
+  "passed": false,
+  "failed_gate": "G1",
+  "detail": {
+    "f552_worst_dist_mm": -3.3482093256501706,
+    "f552_bad_normals": 0,
+    "f552_ok": true,
+    "worst_dist_mm": -7.091316800162605,
+    "bad_normals": 417
+  },
+  "wall_s": 5.94,
+  "gates": [
+    {
+      "gate": "G0",
+      "passed": true,
+      "wall_s": 0.058,
+      "detail": {
+        "missing_area_frac": 0.0,
+        "flat_floor_r_mm": 60.0,
+        "flat_min_mm": 2.999999994085095,
+        "flat_max_mm": 3.0000000791764596,
+        "basin_min_mm": 2.9999999935924753,
+        "rim_min_mm": 21.929257298159158,
+        "rim_max_mm": 21.991981254261496,
+        "wall_devs_mm": {
+          "6": 0.1520431503768691,
+          "12": 0.16902859791174762,
+          "18": 0.1790423098084517
+        },
+        "max_wall_dev_mm": 0.1790423098084517,
+        "wall_miss": 0,
+        "protrusion_mm": 0.0005700468908429457
+      }
+    },
+    {
+      "gate": "G1",
+      "passed": false,
+      "wall_s": 5.879,
+      "detail": {
+        "f552_worst_dist_mm": -3.3482093256501706,
+        "f552_bad_normals": 0,
+        "f552_ok": true,
+        "worst_dist_mm": -7.091316800162605,
+        "bad_normals": 417
+      }
+    }
+  ]
+}

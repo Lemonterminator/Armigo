@@ -1,4 +1,5 @@
 __pycache__/
+data/catalog/
 *.py[cod]
 *.pyo
 .pytest_cache/
@@ -6,6 +7,8 @@ __pycache__/
 .venv/
 *.blend1
 results/stage2/demos/
+results/stage2_d415_check/demos/
+results/verification-physics-v2/stage2_d415_v2/demos/
 results/real_ref/*.png
 uv-cache/
 # written next to so101.xml by the MuJoCo cell

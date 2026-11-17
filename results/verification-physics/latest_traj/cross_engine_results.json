@@ -1,0 +1,95 @@
+{
+  "physics_spec_version": "v1-nominal-assumed",
+  "provenance": "Assumed nominal literature/catalog specs (BrickLink ABS DUPLO weights, ABS friction, Feetech STS3215 1:345 12V/7.4V specs). Pending real-hardware scale and tribology measurement.",
+  "mujoco_traj_sec": 0.23297020001336932,
+  "isaac_traj_sec": 25.807274700026028,
+  "experiments": {
+    "joint_tracking": {
+      "frames": 120,
+      "cross_engine": {
+        "qpos_rmse_rad": 0.007263012156157331,
+        "qpos_max_rad": 0.0882365504631728,
+        "tcp_pos_rmse_m": 0.00396233594592438,
+        "tcp_pos_max_m": 0.016002812185740133
+      }
+    },
+    "flick_slide": {
+      "strike_frame": 63,
+      "mujoco": {
+        "peak_speed_mps": 0.8746639396097948,
+        "final_displacement_m": 0.08149389901407311,
+        "final_xy": [
+          0.2739693891748397,
+          0.0802876857707687
+        ],
+        "final_yaw_deg": 34.735746499810716,
+        "stop_time_s": 0.1
+      },
+      "isaac": {
+        "peak_speed_mps": 0.6488797131859844,
+        "final_displacement_m": 0.07714087678233542,
+        "final_xy": [
+          0.2603009343147278,
+          0.07714035362005234
+        ],
+        "final_yaw_deg": 3.07283037901891,
+        "stop_time_s": 0.4
+      },
+      "cross_engine": {
+        "qpos_rmse_rad": 0.06436339967363364,
+        "qpos_max_rad": 0.5379917989495115,
+        "brick_pos_rmse_m": 0.0351550531805961,
+        "brick_pos_max_m": 0.07714096167612938,
+        "brick_yaw_rmse_rad": 0.43459432327575565,
+        "brick_yaw_max_rad": 0.5908518967678527
+      }
+    },
+    "spin_release": {
+      "release_frame": 158,
+      "mujoco": {
+        "release_xyz": [
+          0.3143736087897364,
+          -0.00021390748050731048,
+          0.2738049118613846
+        ],
+        "release_speed_mps": 0.0146398883812018,
+        "release_ang_vel_rad_s": 2.0523833547428496,
+        "flight_time_s": 0.3,
+        "first_bounce_peak_z_m": 0.009542777495513646,
+        "slide_after_impact_m": 0.0019462026872692508,
+        "final_xyz": [
+          0.3446504086919098,
+          0.0036488580508321467,
+          0.009542777495418507
+        ],
+        "final_yaw_deg": -159.53530347716904
+      },
+      "isaac": {
+        "release_xyz": [
+          0.3089574873447418,
+          -4.326228372519836e-05,
+          0.2785647511482239
+        ],
+        "release_speed_mps": 0.03456234320754055,
+        "release_ang_vel_rad_s": 9.161666991529763,
+        "flight_time_s": 0.43333333333333335,
+        "first_bounce_peak_z_m": 0.01696944609284401,
+        "slide_after_impact_m": 0.007884190435754683,
+        "final_xyz": [
+          0.41328009963035583,
+          0.0358576662838459,
+          0.015900008380413055
+        ],
+        "final_yaw_deg": 25.590569680706178
+      },
+      "cross_engine": {
+        "qpos_rmse_rad": 0.012968051451923628,
+        "qpos_max_rad": 0.09210241455737667,
+        "brick_pos_rmse_m": 0.06756917136658742,
+        "brick_pos_max_m": 0.07607844345885979,
+        "brick_yaw_rmse_rad": 2.6371592460487476,
+        "brick_yaw_max_rad": 3.027404250388167
+      }
+    }
+  }
+}

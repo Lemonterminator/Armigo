@@ -1,0 +1,35 @@
+--- cylinder R=100mm thickness 3mm (as in scene): ncon=4
+   table/b dist=-0.07mm n=(+0.00,+0.00,+1.00) pos_z=-0.0mm
+   table/b dist=-0.35mm n=(+0.00,+0.00,+1.00) pos_z=-0.2mm
+   floor/b dist=-115.31mm n=(-0.69,-0.73,+0.01) pos_z=1.7mm
+   floor/b dist=-115.32mm n=(-0.69,-0.73,+0.01) pos_z=2.5mm
+--- cylinder, same top face, 40mm thick: ncon=4
+   table/b dist=-0.07mm n=(+0.00,+0.00,+1.00) pos_z=-0.0mm
+   table/b dist=-0.35mm n=(+0.00,+0.00,+1.00) pos_z=-0.2mm
+   floor/b dist=-115.32mm n=(-0.69,-0.73,+0.01) pos_z=2.5mm
+   floor/b dist=-115.31mm n=(-0.69,-0.73,+0.01) pos_z=1.7mm
+--- box 200x200x3mm: ncon=4
+   table/b dist=-0.07mm n=(+0.00,+0.00,+1.00) pos_z=-0.0mm
+   table/b dist=-0.35mm n=(+0.00,+0.00,+1.00) pos_z=-0.2mm
+   floor/b dist=-3.35mm n=(+0.00,+0.00,+1.00) pos_z=1.3mm
+   floor/b dist=-3.07mm n=(+0.00,+0.00,+1.00) pos_z=1.5mm
+--- box 200x200x40mm, same top face: ncon=4
+   table/b dist=-0.07mm n=(+0.00,+0.00,+1.00) pos_z=-0.0mm
+   table/b dist=-0.35mm n=(+0.00,+0.00,+1.00) pos_z=-0.2mm
+   floor/b dist=-3.35mm n=(+0.00,+0.00,+1.00) pos_z=1.3mm
+   floor/b dist=-3.07mm n=(+0.00,+0.00,+1.00) pos_z=1.5mm
+--- cylinder R=30mm thickness 3mm: ncon=4
+   table/b dist=-0.07mm n=(+0.00,+0.00,+1.00) pos_z=-0.0mm
+   table/b dist=-0.35mm n=(+0.00,+0.00,+1.00) pos_z=-0.2mm
+   floor/b dist=-45.31mm n=(-0.69,-0.73,+0.01) pos_z=1.4mm
+   floor/b dist=-45.32mm n=(-0.69,-0.73,+0.01) pos_z=2.8mm
+--- cylinder, ccd_iterations=500 ccd_tolerance=1e-10: ncon=4
+   table/b dist=-0.07mm n=(+0.00,+0.00,+1.00) pos_z=-0.0mm
+   table/b dist=-0.35mm n=(+0.00,+0.00,+1.00) pos_z=-0.2mm
+   floor/b dist=-115.31mm n=(-0.69,-0.73,+0.01) pos_z=1.7mm
+   floor/b dist=-115.32mm n=(-0.69,-0.73,+0.01) pos_z=2.5mm
+--- cylinder, nativeccd disabled: ncon=3
+   table/b dist=-0.07mm n=(+0.00,+0.00,+1.00) pos_z=-0.0mm
+   table/b dist=-0.35mm n=(+0.00,+0.00,+1.00) pos_z=-0.2mm
+   floor/b dist=-3.35mm n=(+0.00,+0.00,+1.00) pos_z=2.6mm
+4.0.1

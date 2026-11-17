@@ -37,23 +37,23 @@ def test_brick_mesh_name_maps_standard_duplo_sizes():
 
 def test_scene_xml_uses_plate_and_brick_visual_meshes_while_hiding_collision():
 	xml_text = sim.scene_xml(_make_layout(sim.DUPLO_2X2))
-	root = ET.fromstring(xml_text)  # noqa: S314
+	root = ET.fromstring(xml_text)
 
-	meshes = {el.attrib["name"]: el.attrib["file"] for el in root.findall("./asset/mesh")}
+	meshes = {el.attrib["name"]: el.attrib.get("file", "") for el in root.findall("./asset/mesh")}
 	assert {"plate_200mm", "duplo_2x2", "duplo_2x3", "duplo_2x4"} <= set(meshes)
 
 	for bowl_name in ("green_bowl", "pink_bowl"):
 		body = root.find(f"./worldbody/body[@name='{bowl_name}']")
 		assert body is not None
 		geoms = body.findall("geom")
-		visual = [g for g in geoms if g.attrib.get("type") == "mesh"]
-		collision = [g for g in geoms if g.attrib.get("type") != "mesh"]
+		visual = [g for g in geoms if g.attrib.get("contype") == "0"]
+		collision = [g for g in geoms if g.attrib.get("group") == "3"]
 		assert len(visual) == 1
 		assert visual[0].attrib["mesh"] == "plate_200mm"
 		assert visual[0].attrib.get("contype") == "0"
 		assert visual[0].attrib.get("conaffinity") == "0"
 		assert visual[0].attrib.get("group", "0") == "0"
-		assert len(collision) == 65
+		assert len(collision) == 337  # 1 box floor + 7*48 convex wedge wall meshes
 		assert all(g.attrib.get("group") == "3" for g in collision)
 
 	brick_body = root.find("./worldbody/body[@name='brick']")
@@ -81,7 +81,7 @@ def test_scene_xml_uses_plate_and_brick_visual_meshes_while_hiding_collision():
 
 def test_scene_xml_selects_duplo_2x4_mesh_when_layout_is_2x4():
 	xml_text = sim.scene_xml(_make_layout(sim.DUPLO_2X4))
-	root = ET.fromstring(xml_text)  # noqa: S314
+	root = ET.fromstring(xml_text)
 	visual_brick = root.find("./worldbody/body[@name='brick']/geom[@name='brick']")
 	assert visual_brick is not None
 	assert visual_brick.attrib["mesh"] == "duplo_2x4"

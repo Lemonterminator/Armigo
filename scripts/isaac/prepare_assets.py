@@ -8,12 +8,17 @@ layer referencing the MuJoCo-converted so101.usda with the wrist camera attached
 from __future__ import annotations
 
 import math
+import sys
 from pathlib import Path
 
 import trimesh
 from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics, UsdShade
 
 ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "src"))
+from digital_twin_armigo.physics import load_physics_spec  # noqa: E402
+from digital_twin_armigo.presentation import defect_strokes  # noqa: E402
+
 SIM_ASSETS = ROOT / "assets" / "meshes"
 USD_OUT = ROOT / "assets"
 SO101_USDA = USD_OUT / "so101_usd" / "so101.usda"
@@ -44,10 +49,12 @@ def build_obj_prop_usd(
 	static_friction: float,
 	dynamic_friction: float,
 	approx: str,
+	restitution: float = 0.05,
 	roughness: float = 0.25,
 	rigid_body: bool = True,
 	kinematic: bool = False,
 	defect_face: int | None = None,
+	brick_size: tuple[float, float, float] = (0.0318, 0.0318, 0.0192),
 ) -> Path:
 	"""Load a Z-up meters OBJ via trimesh and export a clean USD RigidBody/Collider prop."""
 	usd_path.parent.mkdir(parents=True, exist_ok=True)
@@ -88,29 +95,29 @@ def build_obj_prop_usd(
 	mat_prim = UsdShade.Material(stage.GetPrimAtPath(f"/{prim_name}/Looks/{prim_name}_mat"))
 	UsdShade.MaterialBindingAPI.Apply(geom_prim.GetPrim()).Bind(mat_prim)
 
-	# Physics material (zero bounce, high friction)
+	# Physics material aligned with PhysicsSpec (max combine mode matches MuJoCo)
 	pmat_path = f"/{prim_name}/PhysicsMaterial"
 	UsdShade.Material.Define(stage, pmat_path)
-	pmat = UsdPhysics.MaterialAPI.Apply(stage.GetPrimAtPath(pmat_path))
+	pmat_prim = stage.GetPrimAtPath(pmat_path)
+	pmat = UsdPhysics.MaterialAPI.Apply(pmat_prim)
 	pmat.CreateStaticFrictionAttr(float(static_friction))
 	pmat.CreateDynamicFrictionAttr(float(dynamic_friction))
-	pmat.CreateRestitutionAttr(0.0)
+	pmat.CreateRestitutionAttr(float(restitution))
+	pmat_prim.CreateAttribute("physxMaterial:frictionCombineMode", Sdf.ValueTypeNames.Token).Set("max")
+	pmat_prim.CreateAttribute("physxMaterial:restitutionCombineMode", Sdf.ValueTypeNames.Token).Set("max")
 	UsdShade.MaterialBindingAPI.Apply(geom_prim.GetPrim()).Bind(
-		UsdShade.Material(stage.GetPrimAtPath(pmat_path)),
+		UsdShade.Material(pmat_prim),
 		materialPurpose="physics",
 	)
 
 	if defect_face is not None:
-		import sys
 		import numpy as np
 		from scipy.spatial.transform import Rotation
-		sys.path.insert(0, str(ROOT / "src"))
-		from digital_twin_armigo.presentation import defect_strokes
-		brick_size = (0.0318, 0.0318, 0.0192)
+
 		_bind_plastic_material(stage, f"/{prim_name}", "defect_mat", (0.02, 0.02, 0.02), roughness=0.45)
 		dmat = UsdShade.Material(stage.GetPrimAtPath(f"/{prim_name}/Looks/defect_mat"))
 		for idx, (centre, axis_u, side_v, half_len) in enumerate(defect_strokes(brick_size, defect_face)):
-			_, normal, _, _ = (None, np.cross(axis_u, side_v), None, None)
+			normal = np.cross(axis_u, side_v)
 			normal = normal / np.linalg.norm(normal)
 			# Push slightly past brick body surface (+0.0005m) so cross stays crisp without z-fighting
 			pos = centre + normal * 0.0005
@@ -129,7 +136,8 @@ def build_obj_prop_usd(
 
 
 def build_so101_physx_usd() -> Path:
-	"""Create so101_physx.usda overriding so101.usda with PhysX-compatible approximations and wrist_cam."""
+	"""Create so101_physx.usda overriding so101.usda with unified PhysicsSpec drives, gripper friction, and wrist_cam."""
+	spec = load_physics_spec()
 	stage = Usd.Stage.CreateNew(str(SO101_PHYSX_USDA))
 	UsdGeom.SetStageUpAxis(stage, UsdGeom.Tokens.z)
 	UsdGeom.SetStageMetersPerUnit(stage, 1.0)
@@ -152,21 +160,24 @@ def build_so101_physx_usd() -> Path:
 		mcol = UsdPhysics.MeshCollisionAPI.Apply(over)
 		mcol.CreateApproximationAttr("convexDecomposition")
 
-	# Add angular drives with STS3215 PD defaults (overridable by IsaacLab actuators)
+	# Add angular drives from unified PhysicsSpec (arm vs gripper separate effort/stiffness)
 	for jp in joints:
 		over = stage.OverridePrim(jp)
 		drv = UsdPhysics.DriveAPI.Apply(over, "angular")
+		act = spec.gripper_actuator if jp.endswith("/gripper") else spec.arm_actuator
 		drv.CreateTypeAttr("force")
-		drv.CreateStiffnessAttr(100.0)
-		drv.CreateDampingAttr(10.0)
-		drv.CreateMaxForceAttr(2.94)
+		drv.CreateStiffnessAttr(float(act.stiffness))
+		drv.CreateDampingAttr(float(act.damping))
+		drv.CreateMaxForceAttr(float(act.effort_limit))
 
-	# Upgrade gripper PhysicsMaterial_1 to high-grip elastomer pad friction for pure-physics pinch
+	# Set gripper PhysicsMaterial_1 from unified gripper_pad spec
 	gp_mat = stage.OverridePrim("/so101/Physics/PhysicsMaterial_1")
 	pm = UsdPhysics.MaterialAPI.Apply(gp_mat)
-	pm.CreateStaticFrictionAttr(1.8)
-	pm.CreateDynamicFrictionAttr(1.6)
-	pm.CreateRestitutionAttr(0.0)
+	pm.CreateStaticFrictionAttr(float(spec.gripper_pad.static_friction))
+	pm.CreateDynamicFrictionAttr(float(spec.gripper_pad.dynamic_friction))
+	pm.CreateRestitutionAttr(float(spec.gripper_pad.restitution))
+	gp_mat.CreateAttribute("physxMaterial:frictionCombineMode", Sdf.ValueTypeNames.Token).Set("max")
+	gp_mat.CreateAttribute("physxMaterial:restitutionCombineMode", Sdf.ValueTypeNames.Token).Set("max")
 
 	# Attach wrist_cam matching so101.xml camera_mount pose + fovy=61
 	cam_mount = "/so101/Geometry/base/shoulder/upper_arm/lower_arm/wrist/gripper/camera_mount"
@@ -185,7 +196,7 @@ def build_so101_physx_usd() -> Path:
 
 	stage.SetDefaultPrim(stage.GetPrimAtPath("/so101"))
 	stage.GetRootLayer().Save()
-	print("Saved SO101 PhysX USD:", SO101_PHYSX_USDA)
+	print("Saved SO101 PhysX USD:", SO101_PHYSX_USDA, "spec:", spec.version)
 	print("  mesh_colliders patched:", mesh_colliders)
 	print("  joints with angular drive:", joints)
 	print("  attached wrist_cam:", cam_path)
@@ -193,17 +204,18 @@ def build_so101_physx_usd() -> Path:
 
 
 def main() -> None:
+	spec = load_physics_spec()
 	build_so101_physx_usd()
-	# Note linear RGB approx matching MuJoCo/Blender visual colors:
 	# Green plate: dark saturated forest green
 	build_obj_prop_usd(
 		SIM_ASSETS / "plate_200mm.obj",
 		PROPS_DIR / "green_plate.usda",
 		"GreenPlate",
 		rgb=(0.04, 0.28, 0.11),
-		mass=0.12,
-		static_friction=0.6,
-		dynamic_friction=0.5,
+		mass=spec.plate.mass_kg,
+		static_friction=spec.plate.static_friction,
+		dynamic_friction=spec.plate.dynamic_friction,
+		restitution=spec.plate.restitution,
 		approx="convexDecomposition",
 		roughness=0.28,
 		rigid_body=True,
@@ -215,43 +227,68 @@ def main() -> None:
 		PROPS_DIR / "pink_plate.usda",
 		"PinkPlate",
 		rgb=(0.78, 0.36, 0.45),
-		mass=0.12,
-		static_friction=0.6,
-		dynamic_friction=0.5,
+		mass=spec.plate.mass_kg,
+		static_friction=spec.plate.static_friction,
+		dynamic_friction=spec.plate.dynamic_friction,
+		restitution=spec.plate.restitution,
 		approx="convexDecomposition",
 		roughness=0.28,
 		rigid_body=True,
 		kinematic=True,
 	)
-	# Orange 2x2 Duplo brick (matches real episode brick in real_ref/top_rgb_v2_3217.png!)
+	# All Duplo sizes (normal + defective) from unified PhysicsSpec
+	for size_key in ("2x2", "2x3", "2x4"):
+		bspec = spec.bricks[size_key]
+		obj_path = SIM_ASSETS / f"duplo_{size_key}.obj"
+		build_obj_prop_usd(
+			obj_path,
+			PROPS_DIR / f"duplo_{size_key}_orange.usda",
+			"Brick",
+			rgb=(0.82, 0.24, 0.04),
+			mass=bspec.mass_kg,
+			static_friction=bspec.static_friction,
+			dynamic_friction=bspec.dynamic_friction,
+			restitution=bspec.restitution,
+			approx="convexHull",
+			roughness=0.20,
+			rigid_body=True,
+			kinematic=False,
+			brick_size=bspec.size_m,
+		)
+		build_obj_prop_usd(
+			obj_path,
+			PROPS_DIR / f"duplo_{size_key}_defective.usda",
+			"Brick",
+			rgb=(0.82, 0.24, 0.04),
+			mass=bspec.mass_kg,
+			static_friction=bspec.static_friction,
+			dynamic_friction=bspec.dynamic_friction,
+			restitution=bspec.restitution,
+			approx="convexHull",
+			roughness=0.20,
+			rigid_body=True,
+			kinematic=False,
+			defect_face=0,
+			brick_size=bspec.size_m,
+		)
+	# Dynamic clutter brick prop (2x2 blue) for bowl clutter interactions
+	c_spec = spec.bricks["2x2"]
 	build_obj_prop_usd(
 		SIM_ASSETS / "duplo_2x2.obj",
-		PROPS_DIR / "duplo_2x2_orange.usda",
-		"Brick",
-		rgb=(0.82, 0.24, 0.04),
-		mass=0.025,
-		static_friction=1.6,
-		dynamic_friction=1.4,
+		PROPS_DIR / "clutter_brick.usda",
+		"ClutterBrick",
+		rgb=(0.10, 0.42, 0.80),
+		mass=c_spec.mass_kg,
+		static_friction=c_spec.static_friction,
+		dynamic_friction=c_spec.dynamic_friction,
+		restitution=c_spec.restitution,
 		approx="convexHull",
-		roughness=0.20,
+		roughness=0.22,
 		rigid_body=True,
 		kinematic=False,
+		brick_size=c_spec.size_m,
 	)
-	build_obj_prop_usd(
-		SIM_ASSETS / "duplo_2x2.obj",
-		PROPS_DIR / "duplo_2x2_defective.usda",
-		"Brick",
-		rgb=(0.82, 0.24, 0.04),
-		mass=0.025,
-		static_friction=1.6,
-		dynamic_friction=1.4,
-		approx="convexHull",
-		roughness=0.20,
-		rigid_body=True,
-		kinematic=False,
-		defect_face=0,
-	)
-	print("Props generated under:", PROPS_DIR)
+	print("Props generated under:", PROPS_DIR, "using physics spec:", spec.version)
 
 
 if __name__ == "__main__":

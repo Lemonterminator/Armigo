@@ -33,6 +33,9 @@ from digital_twin_armigo.camera import as_pose, opengl_axes, project
 from digital_twin_armigo.constants import COARSE_MAX_M, JOINTS, TOP_CROP, TOP_FULL
 from digital_twin_armigo.depth import depth_plane_to_height, layered_height_image
 from digital_twin_armigo.joints import normalized_to_rad
+from digital_twin_armigo.physics import load_physics_spec
+
+_PHYS = load_physics_spec()
 
 USD_ASSETS = ROOT / "assets"
 OUT_DIR = ROOT / "results" / "stage1"
@@ -63,12 +66,28 @@ class CellSceneCfg(InteractiveSceneCfg):
 		prim_path="{ENV_REGEX_NS}/Robot",
 		spawn=sim_utils.UsdFileCfg(usd_path=str(USD_ASSETS / "so101_usd" / "so101_physx.usda")),
 		actuators={
-			"sts3215": ImplicitActuatorCfg(
-				joint_names_expr=[".*"],
-				stiffness=250.0,
-				damping=20.0,
-				effort_limit_sim=2.94,
-			)
+			"sts3215_arm": ImplicitActuatorCfg(
+				joint_names_expr=["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll"],
+				stiffness=_PHYS.arm_actuator.stiffness,
+				damping=_PHYS.arm_actuator.damping,
+				effort_limit_sim=_PHYS.arm_actuator.effort_limit,
+				velocity_limit_sim=_PHYS.arm_actuator.velocity_limit,
+				armature=_PHYS.arm_actuator.armature,
+				friction=_PHYS.arm_actuator.frictionloss,
+				dynamic_friction=_PHYS.arm_actuator.frictionloss,
+				viscous_friction=_PHYS.arm_actuator.joint_damping,
+			),
+			"sts3215_gripper": ImplicitActuatorCfg(
+				joint_names_expr=["gripper"],
+				stiffness=_PHYS.gripper_actuator.stiffness,
+				damping=_PHYS.gripper_actuator.damping,
+				effort_limit_sim=_PHYS.gripper_actuator.effort_limit,
+				velocity_limit_sim=_PHYS.gripper_actuator.velocity_limit,
+				armature=_PHYS.gripper_actuator.armature,
+				friction=_PHYS.gripper_actuator.frictionloss,
+				dynamic_friction=_PHYS.gripper_actuator.frictionloss,
+				viscous_friction=_PHYS.gripper_actuator.joint_damping,
+			),
 		},
 	)
 	green_plate = RigidObjectCfg(

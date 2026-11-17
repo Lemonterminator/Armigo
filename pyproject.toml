@@ -12,6 +12,7 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+catalog = ["fastapi>=0.115", "uvicorn>=0.30"]
 # MuJoCo cell (simulate / render); marker textures need OpenCV.
 mujoco = [
 	"mujoco>=3.2",
@@ -25,16 +26,21 @@ calibration = [
 ]
 
 [project.scripts]
+armigo-data = "digital_twin_armigo.catalog.cli:main"
 armigo-sim = "digital_twin_armigo.mujoco_cell.cli:main"
 
 [dependency-groups]
 dev = [
+	"httpx>=0.28",
 	"pytest>=8.0",
 	"ruff>=0.8",
 ]
 
 [tool.hatch.build.targets.wheel]
 packages = ["src/digital_twin_armigo"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"src/digital_twin_armigo/catalog/index.html" = "digital_twin_armigo/catalog/index.html"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

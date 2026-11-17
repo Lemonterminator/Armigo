@@ -1,0 +1,47 @@
+{
+  "physics_mode": "pure_friction_contact_sensor_no_fixed_joint",
+  "physics_spec_version": "v1-nominal-assumed",
+  "brick_size": "2x2",
+  "brick_pose_init": [
+    0.26,
+    0.01,
+    20.0
+  ],
+  "clutter_per_bowl": 0,
+  "mass_scale": 1.0,
+  "friction_scale": 1.0,
+  "latency_frames": 0,
+  "backlash_deg": 0.0,
+  "sensor_noise": false,
+  "total_frames": 556,
+  "close_fixed_force_N": 5.73268985748291,
+  "close_moving_force_N": 5.710806846618652,
+  "close_gripper_rad": 0.22877974808216095,
+  "close_contact_ok": true,
+  "max_lift_z_m": 0.26008108258247375,
+  "best_show_cos": 0.7818211026723692,
+  "final_brick_xyz": [
+    0.277597039937973,
+    -0.19878488779067993,
+    0.01565948873758316
+  ],
+  "health": {
+    "success": false,
+    "failure_mode": "grasp_slip",
+    "grasped_ok": true,
+    "max_slip_pos_m": 0.04772820200416245,
+    "max_slip_rot_deg": 18.251985691783315,
+    "dual_contact_ratio": 0.9831932773109243,
+    "mean_pinch_force_N": 9.137500719287294,
+    "max_pinch_force_N": 10.149926662445068,
+    "max_stall_duration_s": 1.4666666666666666,
+    "torque_saturation_ratio": 0.21762589928057555,
+    "unintended_collision_count": 0,
+    "max_unintended_force_N": 0.0,
+    "settled_in_bowl": true,
+    "settle_consecutive_frames": 81,
+    "final_dist_to_bowl_m": 0.025739615845755223,
+    "final_brick_speed_mps": 0.0002654209368095887
+  },
+  "success": false
+}

@@ -1,0 +1,63 @@
+{
+  "bowl_collision_id": "R6_box_floor_wedge_walls",
+  "matrix_success": 540,
+  "matrix_total": 540,
+  "per_condition": {
+    "baseline_2x2": [
+      60,
+      60
+    ],
+    "brick_2x3": [
+      60,
+      60
+    ],
+    "brick_2x4": [
+      60,
+      60
+    ],
+    "dynamic_clutter": [
+      60,
+      60
+    ],
+    "low_friction": [
+      60,
+      60
+    ],
+    "high_mass": [
+      60,
+      60
+    ],
+    "latency_backlash": [
+      60,
+      60
+    ],
+    "combined_friction_mass": [
+      60,
+      60
+    ],
+    "combined_all_nominal_stress": [
+      60,
+      60
+    ]
+  },
+  "layouts": [
+    119,
+    120
+  ],
+  "bounce_outs": 0,
+  "fast_releases": 0,
+  "jaw_env_over_5N": 2,
+  "jaw_env_over_5N_ids": [
+    "layouts_seed1000_idx15",
+    "layouts_seed1000_idx32"
+  ],
+  "frames_ge_890": 1,
+  "frames_ge_890_ids": [
+    "layouts_seed1001_idx37"
+  ],
+  "detected_blocked_ids": [
+    "layouts_seed1000_idx15",
+    "layouts_seed1000_idx32",
+    "layouts_seed1001_idx11"
+  ]
+}
