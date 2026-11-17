@@ -1,0 +1,87 @@
+{
+  "n_episodes": 60,
+  "n_reached_show": 60,
+  "verdicts": {
+    "FAILURE": 8,
+    "SUCCESS": 52
+  },
+  "aborted": {
+    "inspection_unknown": 6,
+    "None": 54
+  },
+  "labels": {
+    "defective": {
+      "defective": 29,
+      "None": 1
+    },
+    "normal": {
+      "None": 5,
+      "normal": 25
+    }
+  },
+  "wrong_labels": 0,
+  "face_coverage_base_poses": {
+    "top": {
+      "+x": 0.783,
+      "-x": 0.617,
+      "+y": 0.767,
+      "-y": 0.567,
+      "top": 0.7,
+      "bottom": 0.467
+    },
+    "wrist_cam": {
+      "+x": 0.417,
+      "-x": 0.6,
+      "+y": 0.467,
+      "-y": 0.067,
+      "top": 1.0,
+      "bottom": 0.0
+    },
+    "either": {
+      "+x": 0.817,
+      "-x": 0.833,
+      "+y": 0.9,
+      "-y": 0.6,
+      "top": 1.0,
+      "bottom": 0.467
+    }
+  },
+  "defect_visible_by_face": {
+    "+x": "3/3",
+    "+y": "10/10",
+    "-x": "3/3",
+    "-y": "5/5",
+    "bottom": "2/3",
+    "top": "6/6"
+  },
+  "config": {
+    "n": 60,
+    "seed": 2026,
+    "stop_when_known": true,
+    "extra_show_poses": [
+      [
+        0.0,
+        120.0
+      ],
+      [
+        0.8,
+        90.0
+      ],
+      [
+        0.4,
+        -150.0
+      ],
+      [
+        0.8,
+        -90.0
+      ]
+    ],
+    "cameras": [
+      "top",
+      "wrist_cam"
+    ],
+    "min_face_px": 60,
+    "min_defect_px": 25,
+    "max_frames": 1300
+  }
+}

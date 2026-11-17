@@ -1,0 +1,19 @@
+{
+  "model": "patchcore",
+  "config": {
+    "backbone": "wide_resnet50_2",
+    "layers": [
+      "layer2",
+      "layer3"
+    ],
+    "num_neighbors": 9
+  },
+  "scope": "pooled",
+  "input_size": 320,
+  "real_top_crop": true,
+  "crop_size": 256,
+  "threshold": 68.69544982910156,
+  "val_quantile": 0.99,
+  "test_auroc": 0.798,
+  "dataset": "results\\anomaly\\dataset-v4"
+}

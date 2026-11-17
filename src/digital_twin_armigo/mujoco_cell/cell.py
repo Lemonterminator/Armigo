@@ -12,16 +12,43 @@ from ..camera import CameraPose
 from ..constants import JOINTS, TOP_CROP, TOP_FULL
 from ..depth import layered_height_image
 from ..physics import PhysicsSpec, brick_spec_for_size
-from ..presentation import face_frame
+from ..presentation import FACES, face_frame
 from ..sensor_noise import D415NoiseCfg, degrade_depth_height, degrade_rgb
 from ._mj import mujoco
 from .layout import Layout
-from .scene import PROBE_GROUP, SUBSTEPS, scene_xml, write_marker_textures
+from .scene import PROBE_GROUP, SUBSTEPS, face_probe_name, scene_xml, write_marker_textures
 
 GRASP_RADIUS_M = 0.03
 RELEASE_MAX_SPEED = 0.6  # m/s, brick speed cap for RELEASE_SETTLE_FRAMES frames after the jaws open
 RELEASE_SETTLE_FRAMES = 15
 RENDER_SIZE = (640, 480)  # width, height of every rendered camera
+
+
+MIN_SPECK_PX = 10  # brick-mask components smaller than this are segmentation decoding errors
+MIN_SPECK_FRACTION = 0.1  # ... and so are components smaller than this fraction of the largest one
+
+
+def _drop_specks(geom: np.ndarray, is_brick: np.ndarray) -> np.ndarray:
+	"""``geom`` with brick pixels outside the brick's real blob set to -1.
+
+	Pixels far from the brick (on speckled bowl rims, thin streaks) decode to brick geom ids. A real view of the brick,
+	even a thin grazing face, is one connected blob, or a few large pieces where the jaws cut across it; so a component
+	is kept only when it has at least :data:`MIN_SPECK_PX` pixels and :data:`MIN_SPECK_FRACTION` of the largest one."""
+	import cv2
+
+	mask = is_brick[geom]
+	if not mask.any():
+		return geom
+	_, labels, stats, _ = cv2.connectedComponentsWithStats(mask.astype(np.uint8), connectivity=8)
+	area = stats[:, cv2.CC_STAT_AREA].copy()
+	area[0] = 0  # label 0 is the background
+	keep_min = max(MIN_SPECK_PX, MIN_SPECK_FRACTION * area.max())
+	small = np.flatnonzero((area > 0) & (area < keep_min))
+	if not len(small):
+		return geom
+	out = geom.copy()
+	out[np.isin(labels, small)] = -1
+	return out
 
 
 class Cell:
@@ -42,6 +69,7 @@ class Cell:
 		friction_scale: float = 1.0,
 		render_enabled: bool = True,
 		sensor_noise: D415NoiseCfg | None = None,
+		face_probes: bool = False,
 	) -> None:
 		write_marker_textures(menagerie, {m[0] for m in layout.markers})
 		# The scene includes so101.xml by relative path, so it is compiled from a file next to it.
@@ -53,6 +81,7 @@ class Cell:
 				dynamic_clutter=dynamic_clutter,
 				mass_scale=mass_scale,
 				friction_scale=friction_scale,
+				face_probes=face_probes,
 			),
 			encoding="utf-8",
 		)
@@ -100,8 +129,14 @@ class Cell:
 			return False
 
 		self.link_geoms = np.array([g for g in self.robot_geoms if moves(m.geom_bodyid[g])])
+		# Every geom named ``defect_<k>`` (any number of them: the cross has two strokes, other defect kinds more).
 		self.defect_geoms = np.array(
-			[mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_GEOM, f"defect_{k}") for k in range(2)], dtype=int
+			[
+				g
+				for g in range(m.ngeom)
+				if (mujoco.mj_id2name(m, mujoco.mjtObj.mjOBJ_GEOM, g) or "").startswith("defect_")
+			],
+			dtype=int,
 		)
 		self.brick_geoms = np.array([g for g in range(m.ngeom) if m.geom_bodyid[g] == self.brick_body])
 		self.fixed_jaw_geoms = {
@@ -125,6 +160,13 @@ class Cell:
 		self._is_defect[self.defect_geoms] = True
 		self._is_brick = np.zeros(m.ngeom + 1, bool)
 		self._is_brick[self.brick_geoms] = True
+		# Face index of each face-probe geom (-1 elsewhere); all -1 unless the cell was built with ``face_probes``.
+		self._face_of = np.full(m.ngeom + 1, -1, dtype=np.int64)
+		for face in range(len(FACES)):
+			gid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_GEOM, face_probe_name(face))
+			if gid >= 0:
+				self._face_of[gid] = face
+		self.has_face_probes = bool((self._face_of >= 0).any())
 		# A plain int: comparing an array with the pybind11 enum itself runs a Python call per pixel (about 65 ms
 		# for one cropped image against 0.04 ms).
 		self._obj_geom = int(mujoco.mjtObj.mjOBJ_GEOM)
@@ -399,12 +441,58 @@ class Cell:
 		self.renderer.disable_segmentation_rendering()
 		return out
 
-	def robot_min_z(self) -> float:
-		"""Lowest point of the moving links' collision geometry (oriented bounding boxes), metres above the table."""
+	def face_visibility(
+		self, camera: str, crop: tuple[int, int, int, int] | None = None, data=None
+	) -> dict[str, np.ndarray | int]:
+		"""Visible pixels per brick face (``faces``, shape (6,), :data:`~digital_twin_armigo.presentation.FACES` order)
+		and of the defect cross (``defect``) and the brick (``brick``) in ``camera``, occlusion by the arm included,
+		plus the brick's pixels with the arm removed (``brick_full``) and its pixel bounding box ``bbox`` (x, y, w, h in
+		the crop, or None). Needs a cell built with ``face_probes``. ``data`` renders another ``MjData`` of this model
+		(for example a kinematic copy with the arm moved) instead of the simulation state."""
+		if not self.has_face_probes:
+			raise RuntimeError("face_visibility needs a Cell built with face_probes=True")
+		d = self.data if data is None else data
+		segs = []
+		self.renderer.enable_segmentation_rendering()
+		try:
+			for opt in (self._all_groups, self._brick_only):
+				self.renderer.update_scene(d, camera, scene_option=opt)
+				seg = self.renderer.render()
+				if crop is not None:
+					x, y, w, h = crop
+					seg = seg[y : y + h, x : x + w]
+				segs.append(np.where(seg[..., 1] == self._obj_geom, seg[..., 0], -1))
+		finally:
+			self.renderer.disable_segmentation_rendering()
+		geom, geom_full = segs
+		geom = _drop_specks(geom, self._is_brick)
+		geom_full = _drop_specks(geom_full, self._is_brick)
+		face = self._face_of[geom]
+		faces = np.bincount(face[face >= 0], minlength=len(FACES))
+		brick = self._is_brick[geom]
+		ys, xs = np.nonzero(brick)
+		bbox = None
+		if len(xs):
+			# 1st-99th percentile extent: stray pixels (the table's reflection of the brick) must not stretch it
+			x0, x1 = np.percentile(xs, [1, 99])
+			y0, y1 = np.percentile(ys, [1, 99])
+			bbox = (int(x0), int(y0), int(x1 - x0) + 1, int(y1 - y0) + 1)
+		return {
+			"faces": faces,
+			"defect": int(np.count_nonzero(self._is_defect[geom])),
+			"brick": int(np.count_nonzero(brick)),
+			"brick_full": int(np.count_nonzero(self._is_brick[geom_full])),
+			"bbox": bbox,
+		}
+
+	def robot_min_z(self, data=None) -> float:
+		"""Lowest point of the moving links' collision geometry (oriented bounding boxes), metres above the table;
+		of ``data`` (another ``MjData`` of this model) when given."""
+		d = self.data if data is None else data
 		g = self.link_geoms
-		rot = self.data.geom_xmat[g].reshape(-1, 3, 3)
+		rot = d.geom_xmat[g].reshape(-1, 3, 3)
 		aabb = self.model.geom_aabb[g]
-		centre_z = self.data.geom_xpos[g, 2] + np.einsum("nj,nj->n", rot[:, 2, :], aabb[:, :3])
+		centre_z = d.geom_xpos[g, 2] + np.einsum("nj,nj->n", rot[:, 2, :], aabb[:, :3])
 		return float(np.min(centre_z - np.einsum("nj,nj->n", np.abs(rot[:, 2, :]), aabb[:, 3:])))
 
 	def defect_normal(self) -> tuple[np.ndarray, np.ndarray]:

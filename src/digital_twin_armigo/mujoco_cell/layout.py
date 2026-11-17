@@ -32,6 +32,8 @@ class Layout:
 	tile_m: float = 0.30
 	top: CameraPose | None = None
 	front: CameraPose | None = None
+	defect_kind: str = "cross"  # one of scene.DEFECT_KINDS: cross, tape, chip, scuff, discolor, cross_var
+	defect_seed: int = 0  # the defect's shape / colour is a deterministic function of this, the face and the kind
 
 
 RELEASE_REACH_M = 0.34

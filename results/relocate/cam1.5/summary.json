@@ -1,0 +1,83 @@
+{
+  "results": {
+    "n": 20,
+    "grasped": 0.95,
+    "placed": 0.85,
+    "scan_all5": 0.85,
+    "scan_mode": {
+      "null": 3,
+      "vertical": 17
+    },
+    "bottom_shown": 0.85,
+    "bottom_px>=400": 0.85,
+    "full_pipeline": 0.85,
+    "failures": {
+      "None": 17,
+      "grasp:gripper_blocked": 1,
+      "lost_in_transfer": 2
+    },
+    "bottom_failures": {
+      "None": 20
+    },
+    "lost": 0.1,
+    "truncated": 0.0,
+    "place_xy_err_m_median": 0.0048,
+    "final_xy_err_m_median": 0.003,
+    "final_tilt_deg_median": 0.0,
+    "final_on_table": 1.0,
+    "carry_m_median": 0.1236,
+    "bottom_px_median": 3228.0,
+    "top_brick_px_start_median": 1408.5,
+    "top_brick_px_placed_median": 1199,
+    "frames_median": 1770.0,
+    "wall_s_median": 16.45
+  },
+  "setup": {
+    "shoulder_anchor": [
+      0.0388,
+      0.0,
+      0.0624
+    ],
+    "max_tip_reach_m": 0.4721,
+    "camera_pos": [
+      0.5396,
+      0.0,
+      0.5631
+    ],
+    "camera_dist_from_anchor_m": 0.7082,
+    "camera": {
+      "x": 0.5395775742639779,
+      "y": 0.0,
+      "height": 0.5631422742639779,
+      "yaw_deg": 180.0,
+      "tilt_deg": 27.33377921050673,
+      "roll_deg": 0.0,
+      "focal_px": 612.47
+    },
+    "bowls": [
+      [
+        -0.30107982744847944,
+        0.33991512744847946
+      ],
+      [
+        -0.30107982744847944,
+        -0.33991512744847946
+      ]
+    ],
+    "args": {
+      "n": 20,
+      "seed": 11,
+      "r_start": "0.30,0.38",
+      "az_max": 75.0,
+      "zone_outer": 0.26,
+      "margin": 0.04,
+      "cam_factor": 1.5,
+      "cam_elev_deg": 45.0,
+      "min_px": 800,
+      "min_bottom_px": 400,
+      "max_frames": 3600,
+      "workers": 10,
+      "out": "results\\relocate\\cam1.5"
+    }
+  }
+}

@@ -1,10 +1,9 @@
-"""Pure-physics pick → show → handoff → place episodes on the MuJoCo cell: a per-frame recorder and a closed-loop
-expert.
+"""Closed-loop pure-physics pick → show → handoff → place expert on the MuJoCo cell.
 
-``PhysicsEpisode`` owns the 240 Hz stepping and the per-frame telemetry the audited evaluator reads (the open-loop
-benchmark in ``scripts/bench_cross_engine.py`` replays its joint targets through it). ``ClosedLoopExpert`` reads
-privileged simulator state every frame and returns the next joint target; it acts only through that target, which
-goes through the same :class:`~digital_twin_armigo.physics.ActuatorCommandFilter` as the open-loop plan.
+``ClosedLoopExpert`` reads privileged simulator state every frame and returns the next joint target; it acts only
+through that target, which goes through the same :class:`~digital_twin_armigo.physics.ActuatorCommandFilter` as the
+open-loop plan. The episode recorder lives in :mod:`.episode`, the jaw / grasp geometry in :mod:`.grasp_geometry` and
+the post-hoc diagnostics in :mod:`.episode_diagnostics`; their public names are re-exported here.
 
 Privileged inputs the expert reads (never writes): arm joint positions, gripper-frame pose, brick pose and velocity,
 per-jaw contact normal forces, the target bowl centre, the clutter bricks' positions (visible to the cameras; used
@@ -15,136 +14,83 @@ floor, bowls / clutter for clearance). IK and forward kinematics run on a privat
 from __future__ import annotations
 
 import math
+from collections.abc import Callable, Iterator, Mapping, Sequence
 from dataclasses import dataclass
+from typing import TYPE_CHECKING, Protocol
 
 import numpy as np
 
 from ..constants import BOWL_FLOOR_TOP_M, BOWL_R, FPS, HANDOFF_Q, PHASES
-from ..physics import DEFAULT_PHYSICS, ActuatorCommandFilter, NonIdealityCfg
+from ..physics import NonIdealityCfg
 from ._mj import mujoco
 from .cell import Cell
+from .episode import PHYSICS_HZ, SUBSTEPS, WARMUP_STEPS, PhysicsEpisode, jaw_env_contact_force, observe
+from .episode_diagnostics import EVALUATOR_RELEASE_DELTA_RAD, episode_diagnostics, show_hold_measured
+from .grasp_geometry import Kinematics, jaw_pad_faces, jaw_sweep_low_point, quat_xyzw_to_mat
 from .gripper_state import GripperMonitor, GripperState
 
-PHYSICS_HZ = 240
-SUBSTEPS = PHYSICS_HZ // FPS  # 8 substeps @ 240 Hz per 30 Hz frame
-WARMUP_STEPS = 12
+if TYPE_CHECKING:
+	from ..inspection import InspectionResult
+
+InspectFn = Callable[[float, float, int], "InspectionResult"]
+"""Inspection callback: (wrist flex rad, wrist roll deg, frame index) -> result for the current simulator state."""
+
+NextPoseFn = Callable[[Sequence[Mapping]], "tuple[float, float] | None"]
+"""Show-pose policy: the inspection history so far (:data:`POLICY_HISTORY_KEYS` of each record in
+``ClosedLoopExpert.inspections``) -> the next (wrist flex rad, wrist roll deg) to show, or None to stop. Asked only
+while the label is UNKNOWN after the base poses."""
 
 
-def jaw_env_contact_force(cell: Cell) -> float:
-	"""Peak contact force (N) between a jaw geom and anything that is neither the robot nor the target brick
-	(table, bowls, clutter). Reads the current contacts only. The evaluator's unintended-collision check excludes
-	the jaws, so this is the only record of jaws pressing on the environment."""
-	jaws = cell.fixed_jaw_geoms | cell.moving_jaw_geoms
-	brick = {int(g) for g in cell.brick_geoms}
-	peak = 0.0
-	f = np.zeros(6)
-	for cid in range(cell.data.ncon):
-		con = cell.data.contact[cid]
-		g1, g2 = int(con.geom1), int(con.geom2)
-		other = g2 if g1 in jaws else (g1 if g2 in jaws else -1)
-		if other < 0 or other in cell.robot_all_geoms or other in brick:
-			continue
-		mujoco.mj_contactForce(cell.model, cell.data, cid, f)
-		peak = max(peak, float(np.linalg.norm(f[:3])))
-	return peak
+class EpisodePlanner(Protocol):
+	"""A whole-episode inspection strategy driving the expert through extra stages (used instead of ``inspect``).
+
+	The expert calls, in order: :meth:`prescan_poses` once after the ready move (arm poses to visit with the open
+	gripper while the brick is still on the table) and :meth:`after_prescan_view` after holding each; then
+	:meth:`choose_grasp` with the grasp candidates (best first) for every grasp plan; :meth:`after_grasp` once the
+	brick is lifted; then :meth:`next_present_pose` / :meth:`after_present` alternately until the former returns None
+	(whole-arm poses to carry the brick to and hold); finally :meth:`label` picks the bowl (None aborts the episode
+	with ``inspection_unknown``). Every method may read ``expert.cell`` (the live simulator state) and ``expert``."""
+
+	def prescan_poses(self, expert: ClosedLoopExpert) -> list[np.ndarray]: ...
+
+	def after_prescan_view(self, expert: ClosedLoopExpert, k: int) -> bool: ...
+
+	def choose_grasp(self, expert: ClosedLoopExpert, cands: list[dict]) -> int: ...
+
+	def after_grasp(self, expert: ClosedLoopExpert) -> None: ...
+
+	def next_present_pose(self, expert: ClosedLoopExpert, q_lift: np.ndarray) -> np.ndarray | None: ...
+
+	def after_present(self, expert: ClosedLoopExpert) -> None: ...
+
+	def label(self) -> str | None: ...
 
 
-class PhysicsEpisode:
-	"""Reset the cell for one pure-physics episode, step it one 30 Hz frame at a time and log telemetry.
+POLICY_HISTORY_KEYS = ("frame", "flex", "roll_deg", "status", "visible_faces", "observed_faces")
+"""What a ``next_pose`` policy sees of each inspection. Not ``reason``: an inspector may word its UNKNOWN reasons
+differently per class (``inspection.inspect_object_sim_oracle`` does), which would reveal the label; not ``label``,
+which is always None while the policy is asked."""
 
-	``telemetry()`` returns the arrays the audited evaluator consumes (see ``_evaluate_mj_rollout``): one row per
-	frame, sampled after the frame's substeps.
-	"""
-
-	def __init__(
-		self,
-		cell: Cell,
-		q_start: np.ndarray,
-		brick_xy: tuple[float, float] = (0.26, 0.0),
-		brick_yaw_deg: float = 0.0,
-		non_ideal: NonIdealityCfg | None = None,
-	) -> None:
-		self.cell = cell
-		cell.model.opt.timestep = 1.0 / PHYSICS_HZ
-		cell.set_joints(q_start)
-		cell.data.qvel[:] = 0.0
-		yaw_rad = math.radians(brick_yaw_deg)
-		b_quat = (0.0, 0.0, math.sin(yaw_rad / 2.0), math.cos(yaw_rad / 2.0))
-		cell.set_brick_pose(
-			np.array([brick_xy[0], brick_xy[1], cell.layout.brick_size[2] / 2.0 + 0.0005]), np.array(b_quat)
-		)
-		cell.data.ctrl[:6] = q_start
-		for _ in range(WARMUP_STEPS):
-			mujoco.mj_step(cell.model, cell.data)
-
-		self.filt = ActuatorCommandFilter(non_ideal, n_joints=6, fps=FPS) if non_ideal is not None else None
-		if self.filt is not None:
-			self.filt.reset(q_start)
-		# Peak jaw ↔ environment contact force per frame (end-of-frame contacts); kept out of ``telemetry()``,
-		# whose keys are fixed by the evaluator contract.
-		self.jaw_env_force: list[float] = []
-		self._logs: dict[str, list] = {
-			k: []
-			for k in (
-				"q_cmd",
-				"qpos",
-				"tcp_pos",
-				"ee_quat",
-				"brick_pos",
-				"brick_quat",
-				"brick_vel",
-				"brick_ang_vel",
-				"jaw_forces",
-				"pinch_normal",
-				"pinch_tangential",
-				"unintended_forces",
-				"substep_unintended",
-				"actuator_torques",
-			)
-		}
-
-	@property
-	def n_frames(self) -> int:
-		return len(self._logs["q_cmd"])
-
-	def step(self, target: np.ndarray) -> None:
-		"""Advance one 30 Hz frame towards the 6-D joint position ``target`` (through the command filter)."""
-		cell = self.cell
-		q_cmd = self.filt.step_command(target, cell.joints()) if self.filt is not None else target
-		sub = cell.step_with_telemetry(q_cmd, substeps=SUBSTEPS)
-		log = self._logs
-		log["q_cmd"].append(q_cmd.copy())
-		log["qpos"].append(cell.joints())
-		log["tcp_pos"].append(cell.tcp_pos())
-		wxyz = cell.data.xquat[cell.grip_body]
-		log["ee_quat"].append(np.array([wxyz[1], wxyz[2], wxyz[3], wxyz[0]], dtype=np.float64))
-		log["brick_pos"].append(cell.brick_pos())
-		log["brick_quat"].append(cell.brick_quat_xyzw())
-		lv, av = cell.brick_vel()
-		log["brick_vel"].append(lv)
-		log["brick_ang_vel"].append(av)
-		log["jaw_forces"].append(sub["jaw_total"][-1])
-		log["pinch_normal"].append(sub["jaw_normal"].mean(axis=1))
-		log["pinch_tangential"].append(sub["jaw_tangential"].mean(axis=1))
-		log["unintended_forces"].append(float(sub["unintended"][-1]))
-		log["substep_unintended"].append(sub["unintended"])
-		log["actuator_torques"].append(sub["torques"][np.argmax(np.abs(sub["torques"]), axis=0), np.arange(6)])
-		self.jaw_env_force.append(jaw_env_contact_force(cell))
-		observer = getattr(cell, "frame_observer", None)
-		if observer is not None:
-			observer(self)
-
-	def last(self, key: str):
-		"""The most recent logged row of ``key``."""
-		return self._logs[key][-1]
-
-	def telemetry(self) -> dict[str, np.ndarray]:
-		out = {"t": np.arange(self.n_frames, dtype=np.float64) / float(FPS)}
-		out.update({k: np.array(v) for k, v in self._logs.items()})
-		return out
-
-
-# --- closed-loop expert -----------------------------------------------------------------------------------------
+__all__ = [
+	"EVALUATOR_RELEASE_DELTA_RAD",
+	"PHYSICS_HZ",
+	"SUBSTEPS",
+	"WARMUP_STEPS",
+	"ClosedLoopExpert",
+	"EpisodePlanner",
+	"ExpertParams",
+	"InspectFn",
+	"NextPoseFn",
+	"PhysicsEpisode",
+	"assess_feasibility",
+	"bowl_floor_z",
+	"episode_diagnostics",
+	"jaw_env_contact_force",
+	"jaw_pad_faces",
+	"jaw_sweep_low_point",
+	"run_closed_loop_episode",
+	"show_hold_measured",
+]
 
 
 @dataclass(frozen=True)
@@ -227,100 +173,23 @@ class ExpertParams:
 	max_block_replans: int = 2  # maximum reactive replans when gripper is BLOCKED (separate from max_grasp_retries)
 	open_ladder: tuple[float, ...] = (0.85, 0.70, 0.55, 0.40)  # candidate pre-grasp openings from widest to narrowest
 	pre_narrow_open: bool = True  # Stage 3: pre-narrow along open_ladder only when default open_g is blocked
-
-
-class _Kinematics:
-	"""A private ``MjData`` on the cell's model for IK and forward kinematics: the simulation state is never
-	touched. Exposes the attributes the solvers in :mod:`.ik` read."""
-
-	def __init__(self, cell: Cell) -> None:
-		self.model = cell.model
-		self.data = mujoco.MjData(cell.model)
-		self.data.qpos[:] = cell.data.qpos
-		mujoco.mj_forward(self.model, self.data)
-		for name in ("site", "qadr", "dofadr", "jnt_range", "jaw_body", "grip_body"):
-			setattr(self, name, getattr(cell, name))
-
-	def site_pose(self, q: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
-		"""Gripper-frame position and rotation matrix at joint angles ``q``."""
-		self.data.qpos[self.qadr] = q
-		mujoco.mj_kinematics(self.model, self.data)
-		return self.data.site_xpos[self.site].copy(), self.data.site_xmat[self.site].reshape(3, 3).copy()
-
-
-def _geom_points(model, gid: int) -> np.ndarray:
-	"""Vertices (mesh) or bounding-box corners (primitives) of geom ``gid`` in its own frame."""
-	t = model.geom_type[gid]
-	s = model.geom_size[gid]
-	signs = np.array([(x, y, z) for x in (-1.0, 1.0) for y in (-1.0, 1.0) for z in (-1.0, 1.0)])
-	if t == mujoco.mjtGeom.mjGEOM_MESH:
-		mid = model.geom_dataid[gid]
-		a, n = model.mesh_vertadr[mid], model.mesh_vertnum[mid]
-		return model.mesh_vert[a : a + n].astype(np.float64)
-	if t == mujoco.mjtGeom.mjGEOM_BOX:
-		return signs * s
-	if t == mujoco.mjtGeom.mjGEOM_SPHERE:
-		return signs * s[0]
-	if t == mujoco.mjtGeom.mjGEOM_CAPSULE:
-		return signs * np.array([s[0], s[0], s[1] + s[0]])
-	raise ValueError(f"jaw geom {gid} has unsupported type {int(t)} for the pad-geometry derivation")
-
-
-def jaw_pad_faces(cell: Cell, kin: _Kinematics, q: np.ndarray, band: tuple[float, float]) -> tuple[float, float]:
-	"""Inner faces of the fixed and moving jaw along the gripper frame's z axis (fixed → moving jaw), metres.
-
-	Computed from the compiled collision geoms at joint angles ``q``, keeping only geometry whose gripper-frame x
-	(the approach axis, pointing down) lies in ``band`` — the slab the brick occupies. Returns the largest z of the
-	fixed jaw and the smallest z of the moving jaw (``inf`` when the moving jaw is clear of the slab).
-	"""
-	pos, rot = kin.site_pose(q)
-	m, d = kin.model, kin.data
-	faces = []
-	for geoms, pick in ((cell.fixed_jaw_geoms, np.max), (cell.moving_jaw_geoms, np.min)):
-		if not geoms:
-			raise ValueError("the compiled model has no fixed / moving jaw collision geoms (groups 3 and 4)")
-		pts = []
-		for gid in sorted(geoms):
-			w = d.geom_xpos[gid] + _geom_points(m, gid) @ d.geom_xmat[gid].reshape(3, 3).T
-			pts.append((w - pos) @ rot)
-		p = np.vstack(pts)
-		p = p[(p[:, 0] >= band[0]) & (p[:, 0] <= band[1])]
-		faces.append(float(pick(p[:, 2])) if len(p) else (np.inf if pick is np.min else -np.inf))
-	return faces[0], faces[1]
-
-
-def jaw_sweep_low_point(cell: Cell, kin: _Kinematics, q: np.ndarray, g_from: float, g_to: float, samples: int) -> float:
-	"""Deepest point of either jaw below the gripper frame (along its approach axis) while the gripper closes from
-	``g_from`` to ``g_to`` at arm pose ``q``, from the compiled collision geoms; metres."""
-	m, d = kin.model, kin.data
-	geoms = sorted(cell.fixed_jaw_geoms | cell.moving_jaw_geoms)
-	if not geoms:
-		raise ValueError("the compiled model has no jaw collision geoms (groups 3 and 4)")
-	low = -np.inf
-	qq = np.asarray(q, dtype=np.float64).copy()
-	for g in np.linspace(g_from, g_to, samples):
-		qq[5] = g
-		pos, rot = kin.site_pose(qq)
-		for gid in geoms:
-			w = d.geom_xpos[gid] + _geom_points(m, gid) @ d.geom_xmat[gid].reshape(3, 3).T
-			low = max(low, float(((w - pos) @ rot)[:, 0].max()))
-	return low
+	# Inspection (used only with an ``inspect`` callback): extra (wrist flex rad, wrist roll deg) show poses tried in
+	# order while the label is still UNKNOWN after the ``show_roll_deg`` poses, and whether to stop showing as soon
+	# as the label is KNOWN.
+	extra_show_poses: tuple[tuple[float, float], ...] = ()
+	stop_when_known: bool = True
+	max_extra_shows: int = 4  # cap on the poses a ``next_pose`` policy may add after the base poses
+	# Planner stages (used only with a ``planner``): pre-grasp viewpoint moves / holds and the present-pose holds.
+	prescan_move_s: float = 0.6
+	prescan_peak_speed_rad_s: float = 1.0
+	prescan_hold_s: float = 0.25
+	present_hold_s: float = 0.5
+	present_peak_speed_rad_s: float = 0.3  # whole-arm close-up moves while carrying: slower than ordinary carries
 
 
 def bowl_floor_z(model, data, bowl_xy: np.ndarray) -> float:
 	"""Top of the bowl inner flat floor (metres): constant ``BOWL_FLOOR_TOP_M`` verified against raycasts."""
 	return BOWL_FLOOR_TOP_M
-
-
-def _quat_xyzw_to_mat(q: np.ndarray) -> np.ndarray:
-	x, y, z, w = q
-	return np.array(
-		[
-			[1 - 2 * (y * y + z * z), 2 * (x * y - z * w), 2 * (x * z + y * w)],
-			[2 * (x * y + z * w), 1 - 2 * (x * x + z * z), 2 * (y * z - x * w)],
-			[2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)],
-		]
-	)
 
 
 MIN_JERK_PEAK_RATIO = 1.875  # peak / mean speed of a min-jerk profile
@@ -331,6 +200,15 @@ def _min_jerk(n: int) -> np.ndarray:
 	return 10 * s**3 - 15 * s**4 + 6 * s**5
 
 
+@dataclass(frozen=True)
+class _Grasp:
+	"""A grasp the expert executed: gripper-frame target, wrist roll and the servo correction it settled on."""
+
+	target: np.ndarray
+	roll: float
+	corr: np.ndarray
+
+
 class ClosedLoopExpert:
 	"""Per-frame pick → show → handoff → place policy on privileged simulator state.
 
@@ -338,12 +216,40 @@ class ClosedLoopExpert:
 	``jaw_normal``) and returns ``(joint_target, phase)``; ``done`` turns True when the episode script has ended.
 	"""
 
-	def __init__(self, cell: Cell, q_start: np.ndarray, bowl_xy: tuple[float, float], params: ExpertParams) -> None:
+	def __init__(
+		self,
+		cell: Cell,
+		q_start: np.ndarray,
+		bowl_xy: tuple[float, float] | None,
+		params: ExpertParams,
+		*,
+		bowls: Mapping[str, tuple[float, float]] | None = None,
+		inspect: InspectFn | None = None,
+		next_pose: NextPoseFn | None = None,
+		planner: EpisodePlanner | None = None,
+	) -> None:
+		"""``bowl_xy`` fixes the target bowl up front (the label read from ground truth). With ``inspect`` instead,
+		the target is chosen after the show poses from the inspection label: ``bowls`` maps each label
+		(``"normal"`` / ``"defective"``) to a bowl centre. ``planner`` replaces ``inspect`` and the show poses with a
+		whole-episode strategy (see :class:`EpisodePlanner`)."""
+		n_modes = sum(x is not None for x in (bowl_xy, inspect, planner))
+		if n_modes != 1:
+			raise ValueError("give exactly one of bowl_xy (fixed target), inspect (+ bowls) or planner (+ bowls)")
+		if (inspect is not None or planner is not None) and not bowls:
+			raise ValueError("inspect / planner needs bowls: label -> bowl centre")
+		if next_pose is not None and (inspect is None or params.extra_show_poses):
+			raise ValueError("next_pose needs inspect and replaces extra_show_poses")
+		self.planner = planner
 		self.cell = cell
 		self.p = params
 		self.q_start = np.asarray(q_start, dtype=np.float64).copy()
-		self.bowl_xy = np.asarray(bowl_xy, dtype=np.float64)
-		self.kin = _Kinematics(cell)
+		self.bowl_xy = None if bowl_xy is None else np.asarray(bowl_xy, dtype=np.float64)
+		self.bowls = {k: np.asarray(v, dtype=np.float64) for k, v in (bowls or {}).items()}
+		self.inspect = inspect
+		self.next_pose = next_pose
+		self.inspections: list[dict] = []  # one record per inspection call
+		self.label: str | None = None
+		self.kin = Kinematics(cell)
 		self.size = tuple(cell.layout.brick_size)
 		self.obs: dict[str, np.ndarray] = {}
 		self.last = self.q_start.copy()
@@ -556,10 +462,10 @@ class ClosedLoopExpert:
 		g_open = p.open_g if open_g is None else float(open_g)
 		self.kin.data.qpos[:] = self.cell.data.qpos  # current clutter / bowl state for the clearance checks
 		bpos = self.obs["brick_pos"]
-		rot_b = _quat_xyzw_to_mat(self.obs["brick_quat"])
-		axes = [(rot_b[:2, 1], 0.5 * self.size[1])]
+		rot_b = quat_xyzw_to_mat(self.obs["brick_quat"])
+		axes = [(rot_b[:2, 1], 0.5 * self.size[1], 1)]  # (axis, half width, brick-local axis index)
 		if abs(self.size[0] - self.size[1]) < 1e-6:
-			axes.append((rot_b[:2, 0], 0.5 * self.size[0]))
+			axes.append((rot_b[:2, 0], 0.5 * self.size[0], 0))
 		q_seed = np.array([*p.ready_q, g_open])
 		q_hover = self._ik(np.array([bpos[0], bpos[1], p.hover_z_m]), q_seed, 0.0)
 		lo, hi = self.cell.jnt_range[4]
@@ -572,7 +478,7 @@ class ClosedLoopExpert:
 			zs.append(z / max(np.linalg.norm(z), 1e-9))
 		zs = np.array(zs)
 		cands = []
-		for axis, half_w in axes:
+		for axis, half_w, local in axes:
 			axis = axis / max(np.linalg.norm(axis), 1e-9)
 			for sign in (1.0, -1.0):
 				align = sign * (zs @ axis)
@@ -581,6 +487,7 @@ class ClosedLoopExpert:
 					continue
 				c = self._grasp_candidate(float(rolls[i]), sign * axis, half_w, q_hover, open_g=g_open)
 				c["score"] = min(c["clearance_m"], p.clearance_cap_m) - p.roll_penalty_m_per_rad * abs(c["roll"])
+				c["pinched_faces"] = (2 * local, 2 * local + 1)  # the jaws cover the brick's +/- faces of this axis
 				cands.append(c)
 		cands.sort(key=lambda c: -c["score"])
 		return cands
@@ -591,6 +498,9 @@ class ClosedLoopExpert:
 		cands = self.grasp_candidates(open_g=open_g)
 		if not cands:
 			raise RuntimeError("no wrist roll lines the jaws up with the brick")
+		if self.planner is not None:
+			k = int(self.planner.choose_grasp(self, cands))
+			cands.insert(0, cands.pop(k))
 		c = cands[0]
 		if (
 			p.pre_narrow_open
@@ -603,6 +513,9 @@ class ClosedLoopExpert:
 				if g >= p.open_g - 1e-6:
 					continue
 				pool.extend(cand for cand in self.grasp_candidates(open_g=g) if cand["gap_ok"])
+			if self.planner is not None:  # keep the planner's choice of which faces the jaws cover
+				same = [cand for cand in pool if cand.get("pinched_faces") == c.get("pinched_faces")]
+				pool = same or pool
 			if pool:
 				c = max(pool, key=lambda cand: cand["score"])
 				self._active_open_g = float(c["open_g"])
@@ -635,102 +548,260 @@ class ClosedLoopExpert:
 		return corr
 
 	def _script(self):
+		"""The episode as a sequence of phases. Each phase is a generator of ``(joint_target, phase)`` frames; a phase
+		that can fail sets ``aborted`` (or ``lost``) and the script goes home."""
 		p = self.p
 		yield from self._hold(p.rest_s, "rest")
 		yield from self._move(np.array([*p.ready_q, p.open_g]), p.ready_move_s, "approach")
-		attempts = 0
-		clamped = False
-		phase = "approach"
-		while True:
-			target, roll, q_grasp = self._grasp_plan(open_g=self._active_open_g)
-			hover = target + np.array([0.0, 0.0, p.hover_z_m - self.z_grasp])
-			pre = target + np.array([0.0, 0.0, p.pregrasp_dz_m])
-			q = self._ik(hover, q_grasp, roll)
-			q[5] = self._active_open_g
-			yield from self._move(q, p.hover_move_s, phase)
-			q = self._ik(pre, q, roll)
-			yield from self._move(q, p.descend_s, phase)
-			q = self._ik(target, q, roll)
-			yield from self._move(q, p.final_descend_s, "grasp")
-			corr = yield from self._servo(target, roll, "grasp", p.servo_tol_m)
-			q_closed = self.last.copy()
-			q_closed[5] = p.hold_g
-			blocked = False
-			for frame in self._move(q_closed, p.close_s, "grasp"):
-				if self.gripper_state is GripperState.BLOCKED:
-					blocked = True
-					break
-				yield frame
-			still = 0
-			if not blocked:
-				for _ in range(p.clamp_timeout_frames):
-					if self.gripper_state is GripperState.BLOCKED:
-						blocked = True
-						break
-					f = self.obs["jaw_normal"]
-					v = float(np.linalg.norm(self.obs["brick_vel"]))
-					still = still + 1 if (min(f) >= p.clamp_force_n and v < p.clamp_still_speed_mps) else 0
-					if still >= p.clamp_still_frames:
-						clamped = True
-						break
-					yield self.last.copy(), "grasp"
-			if blocked:
-				q_back = self.last.copy()
-				q_back[5] = float(
-					np.clip(self.obs["q"][5] - self._last_block_dir * p.block_backoff_rad, self._lo[5], self._hi[5])
-				)
-				yield q_back, "grasp"
-				self._blocked_poses.append((self.obs["q"][:5].copy(), float(self.obs["q"][5])))
-				q_up = self._ik(self.obs["tcp"] + np.array([0.0, 0.0, p.hover_z_m - self.z_grasp]), self.last, roll)
-				q_up[5] = q_back[5]
-				yield from self._move(q_up, p.descend_s, "grasp")
-				self.block_replans += 1
-				next_open = self._next_clear_opening(self._active_open_g)
-				if self.block_replans > p.max_block_replans or next_open is None:
-					self.aborted = "gripper_blocked"
-					yield from self._go_home()
-					return
-				self._active_open_g = next_open
-				phase = "grasp"
-				continue
-			if clamped or attempts >= p.max_grasp_retries:
-				break
-			attempts += 1
-			self.grasp_retries = attempts
-			phase = "grasp"
-			q_open = self.last.copy()
-			q_open[5] = self._active_open_g
-			yield from self._move(q_open, p.reopen_s, "grasp")
-			q_up = self._ik(self.obs["tcp"] + np.array([0.0, 0.0, p.hover_z_m - self.z_grasp]), self.last, roll)
-			q_up[5] = self._active_open_g
-			yield from self._move(q_up, p.descend_s, "grasp")
-		if not clamped:
-			# no verified clamp after the retries: do not lift, go home and let the episode record the miss
-			self.aborted = "no_clamp"
+		if self.planner is not None:
+			yield from self._prescan()
+		grasp = yield from self._grasp()
+		if grasp is None:
 			yield from self._go_home()
 			return
-		lift_target = np.array([target[0], target[1], p.lift_z_m]) + corr
-		q_lift = self._ik(lift_target, self.last, roll)
-		q_lift[5] = p.hold_g
-		yield from self._carry(self._move(q_lift, self._carry_secs(q_lift, p.lift_s), "lift"))
-		for wr in p.show_roll_deg:
-			if self.lost:
-				break
-			q_show = q_lift.copy()
-			q_show[3] = p.show_flex
-			q_show[4] = math.radians(wr)
-			secs = self._carry_secs(q_show, p.show_move_s, p.show_peak_speed_rad_s)
-			yield from self._carry(self._move(q_show, secs, "show_move"))
-			yield from self._carry(self._show_hold(q_show))
+		q_lift = yield from self._lift(grasp)
+		if self.planner is not None:
+			yield from self._planned_present(q_lift)
+		else:
+			yield from self._present(q_lift)
+		if self.aborted is not None:
+			yield from self._go_home()
+			return
 		if not self.lost:
-			q_hand = np.array([*HANDOFF_Q, p.hold_g])
-			yield from self._carry(self._move(q_hand, self._carry_secs(q_hand, p.handoff_move_s), "handoff"))
-			yield from self._carry(self._hold_servo(q_hand, p.handoff_hold_s, "handoff"))
+			yield from self._handoff()
 		if not self.lost:
 			yield from self._place(q_lift)
 		if self.lost:
 			self.aborted = "brick_lost"
 		yield from self._go_home()
+
+	def _approach_and_descend(self, phase: str):
+		"""Plan a grasp for the brick's current pose, move over it, descend and servo onto the grasp point."""
+		p = self.p
+		target, roll, q_grasp = self._grasp_plan(open_g=self._active_open_g)
+		hover = target + np.array([0.0, 0.0, p.hover_z_m - self.z_grasp])
+		pre = target + np.array([0.0, 0.0, p.pregrasp_dz_m])
+		q = self._ik(hover, q_grasp, roll)
+		q[5] = self._active_open_g
+		yield from self._move(q, p.hover_move_s, phase)
+		q = self._ik(pre, q, roll)
+		yield from self._move(q, p.descend_s, phase)
+		q = self._ik(target, q, roll)
+		yield from self._move(q, p.final_descend_s, "grasp")
+		corr = yield from self._servo(target, roll, "grasp", p.servo_tol_m)
+		return _Grasp(target=target, roll=roll, corr=corr)
+
+	def _close_and_clamp(self):
+		"""Close the gripper and wait for a verified clamp; returns ``"clamped"``, ``"blocked"`` or ``"timeout"``."""
+		p = self.p
+		q_closed = self.last.copy()
+		q_closed[5] = p.hold_g
+		for frame in self._move(q_closed, p.close_s, "grasp"):
+			if self.gripper_state is GripperState.BLOCKED:
+				return "blocked"
+			yield frame
+		still = 0
+		for _ in range(p.clamp_timeout_frames):
+			if self.gripper_state is GripperState.BLOCKED:
+				return "blocked"
+			f = self.obs["jaw_normal"]
+			v = float(np.linalg.norm(self.obs["brick_vel"]))
+			still = still + 1 if (min(f) >= p.clamp_force_n and v < p.clamp_still_speed_mps) else 0
+			if still >= p.clamp_still_frames:
+				return "clamped"
+			yield self.last.copy(), "grasp"
+		return "timeout"
+
+	def _rise_to_hover(self, roll: float, g: float):
+		"""Straight up from the current gripper frame to hover height with gripper command ``g``."""
+		p = self.p
+		q_up = self._ik(self.obs["tcp"] + np.array([0.0, 0.0, p.hover_z_m - self.z_grasp]), self.last, roll)
+		q_up[5] = g
+		yield from self._move(q_up, p.descend_s, "grasp")
+
+	def _recover_blocked(self, roll: float):
+		"""Back the gripper off the block, rise, and pick the next narrower opening; False when out of options."""
+		p = self.p
+		q_back = self.last.copy()
+		q_back[5] = float(
+			np.clip(self.obs["q"][5] - self._last_block_dir * p.block_backoff_rad, self._lo[5], self._hi[5])
+		)
+		yield q_back, "grasp"
+		self._blocked_poses.append((self.obs["q"][:5].copy(), float(self.obs["q"][5])))
+		yield from self._rise_to_hover(roll, q_back[5])
+		self.block_replans += 1
+		next_open = self._next_clear_opening(self._active_open_g)
+		if self.block_replans > p.max_block_replans or next_open is None:
+			return False
+		self._active_open_g = next_open
+		return True
+
+	def _grasp(self):
+		"""Approach, close and verify a clamp, recovering from a BLOCKED gripper and retrying a missed clamp.
+
+		Returns the successful :class:`_Grasp`, or None with ``aborted`` set (``gripper_blocked`` / ``no_clamp``)."""
+		p = self.p
+		attempts = 0
+		phase = "approach"
+		while True:
+			grasp = yield from self._approach_and_descend(phase)
+			outcome = yield from self._close_and_clamp()
+			phase = "grasp"
+			if outcome == "blocked":
+				if not (yield from self._recover_blocked(grasp.roll)):
+					self.aborted = "gripper_blocked"
+					return None
+				continue
+			if outcome == "clamped":
+				return grasp
+			if attempts >= p.max_grasp_retries:
+				# no verified clamp after the retries: do not lift; the episode records the miss
+				self.aborted = "no_clamp"
+				return None
+			attempts += 1
+			self.grasp_retries = attempts
+			q_open = self.last.copy()
+			q_open[5] = self._active_open_g
+			yield from self._move(q_open, p.reopen_s, "grasp")
+			yield from self._rise_to_hover(grasp.roll, self._active_open_g)
+
+	def _lift(self, grasp: _Grasp):
+		"""Lift the clamped brick straight up; returns the lift pose (the base of the show and place moves)."""
+		p = self.p
+		lift_target = np.array([grasp.target[0], grasp.target[1], p.lift_z_m]) + grasp.corr
+		q_lift = self._ik(lift_target, self.last, grasp.roll)
+		q_lift[5] = p.hold_g
+		yield from self._carry(self._move(q_lift, self._carry_secs(q_lift, p.lift_s), "lift"))
+		return q_lift
+
+	def _show_pose(self, q_lift: np.ndarray, roll_deg: float, flex: float | None = None) -> np.ndarray:
+		q_show = q_lift.copy()
+		q_show[3] = self.p.show_flex if flex is None else flex
+		q_show[4] = math.radians(roll_deg)
+		return q_show
+
+	def _show_poses(self) -> Iterator[tuple[float, float]]:
+		"""The (flex, roll deg) show poses in order: the base poses, then (inspection only, while UNKNOWN) the static
+		``extra_show_poses`` or up to ``max_extra_shows`` poses from the ``next_pose`` policy. Lazy, so the policy
+		sees every inspection before it picks."""
+		p = self.p
+		for wr in p.show_roll_deg:
+			yield p.show_flex, wr
+		if self.inspect is None:
+			return
+		if self.next_pose is None:
+			for flex, wr in p.extra_show_poses:
+				yield self._clip_show(flex, wr)
+			return
+		for _ in range(p.max_extra_shows):
+			if self.label is not None:
+				return
+			pose = self.next_pose([{k: r[k] for k in POLICY_HISTORY_KEYS} for r in self.inspections])
+			if pose is None:
+				return
+			flex, wr = (float(v) for v in pose)
+			if not (math.isfinite(flex) and math.isfinite(wr)):
+				return
+			yield self._clip_show(flex, wr)
+
+	def _clip_show(self, flex: float, roll_deg: float) -> tuple[float, float]:
+		"""A show pose inside the wrist joint ranges (the commanded target is clipped there anyway; clipping here keeps
+		the show-pose criterion reachable and the inspection record truthful)."""
+		lo, hi = self._lo, self._hi
+		return float(np.clip(flex, lo[3], hi[3])), math.degrees(float(np.clip(math.radians(roll_deg), lo[4], hi[4])))
+
+	def _present(self, q_lift: np.ndarray):
+		"""Show the brick to the camera at each show pose in turn (see :meth:`_show_poses`).
+
+		With an ``inspect`` callback, inspect after each show hold, stop once the label is KNOWN (``stop_when_known``;
+		extra poses always stop), then pick the target bowl from the label; still UNKNOWN after the last pose sets
+		``aborted = "inspection_unknown"``."""
+		p = self.p
+		for i, (flex, wr) in enumerate(self._show_poses()):
+			if self.lost:
+				return
+			if self.inspect is not None and self.label is not None and (p.stop_when_known or i >= len(p.show_roll_deg)):
+				break
+			q_show = self._show_pose(q_lift, wr, flex)
+			secs = self._carry_secs(q_show, p.show_move_s, p.show_peak_speed_rad_s)
+			yield from self._carry(self._move(q_show, secs, "show_move"))
+			yield from self._carry(self._show_hold(q_show))
+			if self.inspect is not None and not self.lost:
+				self._inspect_now(flex, wr)
+		if self.inspect is not None and not self.lost:
+			if self.label is None:
+				self.aborted = "inspection_unknown"
+			else:
+				self.bowl_xy = self.bowls[self.label].copy()
+
+	def _prescan(self):
+		"""Planner stage 1: visit the planner's pre-grasp viewpoints with the open gripper, holding each still."""
+		p = self.p
+		for k, q in enumerate(self.planner.prescan_poses(self)):
+			q = np.asarray(q, dtype=np.float64).copy()
+			q[5] = self._active_open_g
+			dq = float(np.max(np.abs(q[:5] - self.last[:5])))
+			yield from self._move(
+				q, max(p.prescan_move_s, MIN_JERK_PEAK_RATIO * dq / p.prescan_peak_speed_rad_s), "approach"
+			)
+			yield from self._hold_servo(q, p.prescan_hold_s, "approach")
+			if not self.planner.after_prescan_view(self, k):
+				break
+
+	def _planned_present(self, q_lift: np.ndarray):
+		"""Planner stages 3-4: the held-brick view at the lift pose, then the planner's whole-arm present poses (each
+		carried to and held), then the label picks the bowl."""
+		p = self.p
+		self.planner.after_grasp(self)
+		while not self.lost:
+			q = self.planner.next_present_pose(self, q_lift)
+			if q is None:
+				break
+			q = np.asarray(q, dtype=np.float64).copy()
+			q[5] = p.hold_g
+			secs = self._carry_secs(q, p.show_move_s, p.present_peak_speed_rad_s)
+			yield from self._carry(self._move(q, secs, "show_move"))
+			yield from self._carry(self._hold_servo(q, p.present_hold_s, "show_hold"))
+			if not self.lost:
+				self.planner.after_present(self)
+		if self.lost:
+			return
+		# back to the lift pose before the handoff, so the handoff move starts where it always does
+		secs = self._carry_secs(q_lift, p.show_move_s, p.present_peak_speed_rad_s)
+		yield from self._carry(self._move(q_lift, secs, "show_move"))
+		self.label = self.planner.label()
+		if self.label is None:
+			self.aborted = "inspection_unknown"
+		elif self.label not in self.bowls:
+			raise ValueError(f"planner returned label {self.label!r}; bowls has {sorted(self.bowls)}")
+		else:
+			self.bowl_xy = self.bowls[self.label].copy()
+
+	def _inspect_now(self, flex: float, roll_deg: float) -> None:
+		"""One inspection of the current state at show pose (``flex``, ``roll_deg``); the first KNOWN label sticks."""
+		res = self.inspect(flex, roll_deg, self._frame_idx)
+		self.inspections.append(
+			{
+				"frame": int(self._frame_idx),
+				"flex": float(flex),
+				"roll_deg": float(roll_deg),
+				"status": res.status,
+				"label": res.label,
+				"visible_faces": list(res.visible_faces),
+				"observed_faces": list(res.observed_faces),
+				"reason": res.reason,
+			}
+		)
+		if self.label is None and res.status == "KNOWN":
+			if res.label not in self.bowls:
+				raise ValueError(f"inspector returned KNOWN label {res.label!r}; bowls has {sorted(self.bowls)}")
+			self.label = res.label
+
+	def _handoff(self):
+		p = self.p
+		q_hand = np.array([*HANDOFF_Q, p.hold_g])
+		yield from self._carry(self._move(q_hand, self._carry_secs(q_hand, p.handoff_move_s), "handoff"))
+		yield from self._carry(self._hold_servo(q_hand, p.handoff_hold_s, "handoff"))
 
 	def _go_home(self):
 		q_rest = self.q_start.copy()
@@ -839,7 +910,7 @@ class ClosedLoopExpert:
 def assess_feasibility(
 	cell: Cell,
 	q_start: np.ndarray,
-	bowl_xy: tuple[float, float],
+	bowl_xy: tuple[float, float] | None,
 	params: ExpertParams,
 	brick_xy: tuple[float, float],
 	brick_yaw_deg: float,
@@ -847,7 +918,8 @@ def assess_feasibility(
 	"""Kinematic-only check before an episode: a reason string when the layout is shown unreachable, else None."""
 	if not params.pre_narrow_open:
 		return None
-	expert = ClosedLoopExpert(cell, q_start, bowl_xy, params)
+	# the target bowl plays no part in the kinematic check
+	expert = ClosedLoopExpert(cell, q_start, (0.0, 0.0) if bowl_xy is None else bowl_xy, params)
 	yaw_rad = math.radians(brick_yaw_deg)
 	expert.obs = {
 		"q": np.asarray(q_start, dtype=np.float64),
@@ -866,140 +938,66 @@ def assess_feasibility(
 	return "grasp_blocked_by_environment"
 
 
-def _observe(cell: Cell, episode: PhysicsEpisode) -> dict[str, np.ndarray | float]:
-	q = cell.joints()
-	lv, _ = cell.brick_vel()
-	jaw = episode.last("pinch_normal") if episode.n_frames else np.zeros(2)
-	effort_limit = (cell.physics or DEFAULT_PHYSICS).gripper_actuator.effort_limit
-	gripper_cmd = float(episode.last("q_cmd")[5]) if episode.n_frames else float(q[5])
-	effort_frac = abs(float(episode.last("actuator_torques")[5])) / effort_limit if episode.n_frames else 0.0
-	return {
-		"q": q,
-		"tcp": cell.tcp_pos(),
-		"brick_pos": cell.brick_pos(),
-		"brick_quat": cell.brick_quat_xyzw(),
-		"brick_vel": lv,
-		"jaw_normal": np.asarray(jaw, dtype=np.float64),
-		"gripper_cmd": gripper_cmd,
-		"effort_frac": effort_frac,
-	}
-
-
-# The evaluator's release rule (``metrics.evaluate_episode_health``: ``opening = place_idx[q_cmd_a[place_idx, 5] >
-# hold_baseline + 0.02]``): release starts at the first ``place`` frame whose gripper command exceeds the minimum
-# gripper command in ``place`` by this much (rad).
-EVALUATOR_RELEASE_DELTA_RAD = 0.02
-
-
-def show_hold_measured(tel: dict[str, np.ndarray], phases: np.ndarray, params: ExpertParams) -> list[float]:
-	"""For each show pose, the longest run (s) of show-phase frames in which the measured wrist flex and roll are
-	within tolerance of that pose and every arm joint moves slower than ``show_still_speed_rad_s``."""
-	ph = np.asarray(phases)
-	q = tel["qpos"]
-	speed = np.zeros(len(q))
-	if len(q) > 1:
-		speed[1:] = np.max(np.abs(np.diff(q[:, :5], axis=0)), axis=1) * FPS
-	show = np.isin(ph, [PHASES.index("show_move"), PHASES.index("show_hold")])
-	out = []
-	for wr in params.show_roll_deg:
-		ok = (
-			show
-			& (np.abs(q[:, 3] - params.show_flex) < params.show_flex_tol)
-			& (np.abs(q[:, 4] - math.radians(wr)) < math.radians(params.show_roll_tol_deg))
-			& (speed < params.show_still_speed_rad_s)
-		)
-		best = run = 0
-		for flag in ok:
-			run = run + 1 if flag else 0
-			best = max(best, run)
-		out.append(best / float(FPS))
-	return out
-
-
-def episode_diagnostics(tel: dict[str, np.ndarray], phases: np.ndarray, params: ExpertParams) -> dict:
-	"""``grasp_push_mm``, ``jaw_normal_at_lift_N``, ``release_peak_speed_mps`` and ``show_hold_measured_s`` from an
-	episode's telemetry (``nan`` when the episode never reached the phase a metric needs)."""
-	ph = np.asarray(phases)
-	g = np.flatnonzero(ph == PHASES.index("grasp"))
-	lift = np.flatnonzero(ph == PHASES.index("lift"))
-	place = np.flatnonzero(ph == PHASES.index("place"))
-	out = {"grasp_push_mm": math.nan, "jaw_normal_at_lift_N": math.nan, "release_peak_speed_mps": math.nan}
-	if len(g) and len(lift):
-		d = tel["brick_pos"][lift[0], :2] - tel["brick_pos"][g[0], :2]
-		out["grasp_push_mm"] = float(np.linalg.norm(d) * 1000.0)
-		out["jaw_normal_at_lift_N"] = float(np.min(tel["pinch_normal"][lift[0]]))
-	if len(place):
-		g_cmd = tel["q_cmd"][place, 5]
-		opening = place[g_cmd > g_cmd.min() + EVALUATOR_RELEASE_DELTA_RAD]
-		if len(opening):
-			out["release_peak_speed_mps"] = float(np.linalg.norm(tel["brick_vel"][opening[0] :], axis=1).max())
-	out["show_hold_measured_s"] = show_hold_measured(tel, ph, params)
-	return out
-
-
 def run_closed_loop_episode(
 	cell: Cell,
 	params: ExpertParams | None = None,
 	*,
 	q_start: np.ndarray,
-	bowl_xy: tuple[float, float],
+	bowl_xy: tuple[float, float] | None = None,
 	brick_xy: tuple[float, float],
 	brick_yaw_deg: float,
 	non_ideal: NonIdealityCfg | None = None,
+	bowls: Mapping[str, tuple[float, float]] | None = None,
+	inspect: InspectFn | None = None,
+	next_pose: NextPoseFn | None = None,
+	planner: EpisodePlanner | None = None,
 ) -> tuple[dict[str, np.ndarray], np.ndarray, dict]:
-	"""Run one closed-loop episode on ``cell``; returns (telemetry, phases, info)."""
+	"""Run one closed-loop episode on ``cell``; returns (telemetry, phases, info).
+
+	Give ``bowl_xy`` for a fixed target, or ``inspect`` (or ``planner``) and ``bowls`` to choose it from the label (see
+	:class:`ClosedLoopExpert`); ``info["target_bowl_xy"]`` is the bowl the expert placed into (None if it never chose)."""
 	params = params or ExpertParams()
 	episode = PhysicsEpisode(cell, q_start, brick_xy=brick_xy, brick_yaw_deg=brick_yaw_deg, non_ideal=non_ideal)
 	infeasible_reason = assess_feasibility(cell, q_start, bowl_xy, params, brick_xy, brick_yaw_deg)
-	if infeasible_reason is not None:
-		tel = episode.telemetry()
-		ph = np.array([], dtype=np.uint8)
-		info = episode_diagnostics(tel, ph, params)
-		info.update(
-			n_frames=0,
-			grasp_retries=0,
-			block_replans=0,
-			brick_lost=False,
-			aborted=infeasible_reason,
-			infeasible_reason=infeasible_reason,
-			truncated=False,
-			assisted_grasp=cell.assisted_grasp,
-			grasp_geometry={},
-			jaw_env_contact_max_N=0.0,
-			gripper_blocked_frames=0,
-			gripper_first_blocked_frame=None,
-			gripper_block_direction=0,
-			_targets=np.zeros((0, 6), dtype=np.float64),
-		)
-		return tel, ph, info
-	expert = ClosedLoopExpert(cell, q_start, bowl_xy, params)
+	expert = None
 	phases: list[int] = []
 	targets: list[np.ndarray] = []
-	while episode.n_frames < params.max_frames:
-		target, phase = expert.act(_observe(cell, episode))
-		if expert.done:
-			break
-		episode.step(target)
-		targets.append(target)
-		phases.append(PHASES.index(phase))
-	truncated = not expert.done and episode.n_frames >= params.max_frames
+	if infeasible_reason is None:
+		expert = ClosedLoopExpert(
+			cell, q_start, bowl_xy, params, bowls=bowls, inspect=inspect, next_pose=next_pose, planner=planner
+		)
+		while episode.n_frames < params.max_frames:
+			target, phase = expert.act(observe(cell, episode))
+			if expert.done:
+				break
+			episode.step(target)
+			targets.append(target)
+			phases.append(PHASES.index(phase))
 	tel = episode.telemetry()
 	ph = np.array(phases, dtype=np.uint8)
 	info = episode_diagnostics(tel, ph, params)
+	blocked = expert.blocked_frames if expert is not None else []
 	info.update(
 		n_frames=len(ph),
-		grasp_retries=int(expert.grasp_retries),
-		block_replans=int(expert.block_replans),
-		brick_lost=bool(expert.lost),
-		aborted=expert.aborted,
-		infeasible_reason=None,
-		truncated=bool(truncated),
+		grasp_retries=int(expert.grasp_retries) if expert else 0,
+		block_replans=int(expert.block_replans) if expert else 0,
+		brick_lost=bool(expert.lost) if expert else False,
+		aborted=expert.aborted if expert else infeasible_reason,
+		infeasible_reason=infeasible_reason,
+		truncated=bool(expert is not None and not expert.done and episode.n_frames >= params.max_frames),
 		assisted_grasp=cell.assisted_grasp,
-		grasp_geometry=dict(expert.grasp_info),
+		grasp_geometry=dict(expert.grasp_info) if expert else {},
 		jaw_env_contact_max_N=float(max(episode.jaw_env_force, default=0.0)),
-		gripper_blocked_frames=len(expert.blocked_frames),
-		gripper_first_blocked_frame=(expert.blocked_frames[0] if expert.blocked_frames else None),
-		gripper_block_direction=int(expert.gripper_block_direction),
-		_targets=np.array(targets),
+		gripper_blocked_frames=len(blocked),
+		gripper_first_blocked_frame=(blocked[0] if blocked else None),
+		gripper_block_direction=int(expert.gripper_block_direction) if expert else 0,
+		_targets=np.array(targets) if targets else np.zeros((0, 6), dtype=np.float64),
 	)
+	if inspect is not None or planner is not None:
+		chosen = expert.bowl_xy if expert is not None else None
+		info.update(
+			inspection_label=expert.label if expert else None,
+			inspections=list(expert.inspections) if expert else [],
+			target_bowl_xy=None if chosen is None else [float(v) for v in chosen],
+		)
 	return tel, ph, info

@@ -1,0 +1,203 @@
+{
+  "policies": {
+    "none": {
+      "n": 60,
+      "known_rate": 0.45,
+      "known_rate_defective": 0.9,
+      "known_rate_normal": 0.0,
+      "accuracy_of_known": 1.0,
+      "inspection_unknown_rate": 0.55,
+      "success_rate": 0.45,
+      "success_with_correct_label_rate": 0.45,
+      "success_but_aborted": 0,
+      "verdicts": {
+        "FAILURE": 33,
+        "SUCCESS": 27
+      },
+      "aborted": {
+        "inspection_unknown": 33,
+        "None": 27
+      },
+      "mean_extra_poses": 0.0,
+      "truncated_rate": 0.0,
+      "mean_frames": 521.4,
+      "mean_wall_s": 1.3
+    },
+    "fixed": {
+      "n": 60,
+      "known_rate": 0.85,
+      "known_rate_defective": 0.967,
+      "known_rate_normal": 0.733,
+      "accuracy_of_known": 1.0,
+      "inspection_unknown_rate": 0.15,
+      "success_rate": 0.85,
+      "success_with_correct_label_rate": 0.85,
+      "success_but_aborted": 0,
+      "verdicts": {
+        "SUCCESS": 51,
+        "FAILURE": 9
+      },
+      "aborted": {
+        "None": 51,
+        "inspection_unknown": 9
+      },
+      "mean_extra_poses": 1.25,
+      "truncated_rate": 0.0,
+      "mean_frames": 869.3,
+      "mean_wall_s": 1.89
+    },
+    "coverage": {
+      "n": 60,
+      "known_rate": 0.783,
+      "known_rate_defective": 1.0,
+      "known_rate_normal": 0.567,
+      "accuracy_of_known": 1.0,
+      "inspection_unknown_rate": 0.217,
+      "success_rate": 0.8,
+      "success_with_correct_label_rate": 0.783,
+      "success_but_aborted": 1,
+      "verdicts": {
+        "SUCCESS": 48,
+        "FAILURE": 12
+      },
+      "aborted": {
+        "None": 47,
+        "inspection_unknown": 13
+      },
+      "mean_extra_poses": 1.35,
+      "truncated_rate": 0.0,
+      "mean_frames": 797.7,
+      "mean_wall_s": 1.81
+    },
+    "coverage_cond": {
+      "n": 60,
+      "known_rate": 0.85,
+      "known_rate_defective": 0.967,
+      "known_rate_normal": 0.733,
+      "accuracy_of_known": 1.0,
+      "inspection_unknown_rate": 0.15,
+      "success_rate": 0.85,
+      "success_with_correct_label_rate": 0.85,
+      "success_but_aborted": 0,
+      "verdicts": {
+        "SUCCESS": 51,
+        "FAILURE": 9
+      },
+      "aborted": {
+        "None": 51,
+        "inspection_unknown": 9
+      },
+      "mean_extra_poses": 1.05,
+      "truncated_rate": 0.0,
+      "mean_frames": 860.9,
+      "mean_wall_s": 1.87
+    },
+    "llm": {
+      "n": 60,
+      "known_rate": 0.767,
+      "known_rate_defective": 0.967,
+      "known_rate_normal": 0.567,
+      "accuracy_of_known": 1.0,
+      "inspection_unknown_rate": 0.233,
+      "success_rate": 0.767,
+      "success_with_correct_label_rate": 0.767,
+      "success_but_aborted": 0,
+      "verdicts": {
+        "SUCCESS": 46,
+        "FAILURE": 14
+      },
+      "aborted": {
+        "None": 46,
+        "inspection_unknown": 14
+      },
+      "mean_extra_poses": 1.317,
+      "truncated_rate": 0.0,
+      "mean_frames": 783.7,
+      "mean_wall_s": 14.24,
+      "llm": {
+        "calls": 83,
+        "calls_per_episode": 1.38,
+        "transport_errors": 0,
+        "invalid_outputs": 0,
+        "invalid_output_rate": 0.0,
+        "decision_failures_after_repair": 0,
+        "latency_s_mean": 8.897,
+        "latency_s_p50": 6.172,
+        "latency_s_p95": 23.381,
+        "prompt_tokens_mean": 5715.8,
+        "completion_tokens_mean": 56.3
+      }
+    },
+    "llm_cond": {
+      "n": 60,
+      "known_rate": 0.833,
+      "known_rate_defective": 0.967,
+      "known_rate_normal": 0.7,
+      "accuracy_of_known": 1.0,
+      "inspection_unknown_rate": 0.167,
+      "success_rate": 0.833,
+      "success_with_correct_label_rate": 0.833,
+      "success_but_aborted": 0,
+      "verdicts": {
+        "SUCCESS": 50,
+        "FAILURE": 10
+      },
+      "aborted": {
+        "None": 50,
+        "inspection_unknown": 10
+      },
+      "mean_extra_poses": 0.967,
+      "truncated_rate": 0.0,
+      "mean_frames": 884.4,
+      "mean_wall_s": 13.08,
+      "llm": {
+        "calls": 68,
+        "calls_per_episode": 1.13,
+        "transport_errors": 0,
+        "invalid_outputs": 0,
+        "invalid_output_rate": 0.0,
+        "decision_failures_after_repair": 0,
+        "latency_s_mean": 9.812,
+        "latency_s_p50": 7.627,
+        "latency_s_p95": 26.719,
+        "prompt_tokens_mean": 4958.7,
+        "completion_tokens_mean": 55.4
+      }
+    }
+  },
+  "config": {
+    "n": 60,
+    "seed": 7,
+    "max_extra_shows": 4,
+    "max_frames": 1600,
+    "grid": "E:\\digital_twin_armigo\\results\\inspection-visibility\\base-poses\\pose_grid.jsonl",
+    "menu_size": 88,
+    "table_layouts": 60,
+    "fixed_poses": [
+      [
+        0.0,
+        120.0
+      ],
+      [
+        0.8,
+        90.0
+      ],
+      [
+        0.4,
+        -150.0
+      ],
+      [
+        0.8,
+        -90.0
+      ]
+    ],
+    "llm": {
+      "base_url": "http://localhost:8000/v1",
+      "model": "qwen3.8-vllm",
+      "enable_thinking": false,
+      "max_tokens": 512
+    },
+    "workers": 4,
+    "wall_s": 542.4
+  }
+}

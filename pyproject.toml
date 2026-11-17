@@ -24,6 +24,11 @@ calibration = [
 	"pyarrow>=15",
 	"scipy>=1.11",
 ]
+# LangGraph inspection agent; the LLM client talks to an OpenAI-compatible server (local vLLM) over httpx.
+agent = [
+	"httpx>=0.28",
+	"langgraph>=0.6",
+]
 
 [project.scripts]
 armigo-data = "digital_twin_armigo.catalog.cli:main"
