@@ -163,10 +163,11 @@ SELECT_SYSTEM = (
 	'Reply with JSON {"skill": <one of choices>}. The detector, motion controller and safety checks are fixed; '
 	"you only choose what to do next. A face counts as cleared only after a readable, scored view of it. "
 	"missing_faces are still unseen (faces 0-4 come from scan_wrist, face 5 only from present_bottom): pick the "
-	"skill that covers the most missing faces. Recovery: choices named checkpoint-N rewind the physics to that "
-	"moment and replay it, so the latest checkpoint usually repeats the same failure; prefer an earlier "
-	"checkpoint that re-plans the grasp unless choice_notes says the retry differs. stop ends the episode as a "
-	"failure with the brick unsorted, so avoid it while a checkpoint is offered. choice_notes explains each choice."
+	"skill that covers the most missing faces. Recovery: checkpoint-N rewinds the physics to that moment; "
+	"checkpoint-N+variant also applies a bounded, slower or higher motion variant. A checkpoint whose note says it "
+	"keeps the stall will fail the same way again; prefer the earliest-listed choice that clears it. Choices are "
+	"listed best-evidence first. stop ends the episode as a failure with the brick unsorted, so avoid it while a "
+	"checkpoint is offered. choice_notes explains each choice."
 )
 LLM_FALLBACK_REASONS = (
 	"http_error",
