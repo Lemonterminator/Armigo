@@ -148,8 +148,8 @@ def suggest_policy(llm: ChatLLM, reports: list[dict]) -> Policy:
 				"content": (
 					"Choose a generic six-face robot inspection policy. Optimize successful sorts first, then simulation "
 					"time and view count, using only development aggregates. Propose a new candidate. Do not repeat any measured policy. Return one JSON object with exactly these "
-					"fields: order (wrist_first or bottom_first), max_bottom_views (1ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“3), max_wrist_views (1ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“3), "
-					"max_rewinds (0ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“2). The detector, coverage requirements and destinations are fixed."
+					"fields: order (wrist_first or bottom_first), max_bottom_views (1-3), max_wrist_views (1-3), "
+					"max_rewinds (0-2). The detector, coverage requirements and destinations are fixed."
 				),
 			},
 			{"role": "user", "content": json.dumps({"task": TASK, "development_results": reports})},

@@ -1,0 +1,133 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1180 760" font-family="Segoe UI, Microsoft YaHei, sans-serif" font-size="13">
+  <defs>
+    <marker id="a" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#555"/></marker>
+    <marker id="r" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0,0L10,5L0,10z" fill="#c0392b"/></marker>
+    <style>
+      .box{fill:#fff;stroke:#555;stroke-width:1.2;rx:6}
+      .t{font-weight:600}
+      .s{font-size:11px;fill:#555}
+      .e{stroke:#555;stroke-width:1.3;fill:none;marker-end:url(#a)}
+      .d{stroke:#c0392b;stroke-width:1.3;fill:none;stroke-dasharray:5 3;marker-end:url(#r)}
+      .warn{font-size:11px;fill:#c0392b}
+    </style>
+  </defs>
+  <rect width="1180" height="760" fill="#fafafa"/>
+  <text x="20" y="30" font-size="18" font-weight="700">Armigo 智能体架构现状（2026-11-18）</text>
+  <text x="20" y="50" class="s">实线 = 调用/数据流；红色虚线 = 可选 LLM 调用（--llm-url 时启用）；红字 = 已发现的问题</text>
+
+  <!-- MCP client -->
+  <rect x="20" y="75" width="190" height="70" class="box" style="fill:#eef5ff"/>
+  <text x="35" y="100" class="t">MCP 客户端</text>
+  <text x="35" y="118" class="s">Claude / 任意 stdio client</text>
+  <text x="35" y="134" class="s">轮询 job_status</text>
+
+  <!-- MCP server -->
+  <rect x="260" y="70" width="430" height="200" rx="8" fill="#f3f9f1" stroke="#3c8d40" stroke-width="1.5"/>
+  <text x="275" y="92" class="t" fill="#2d6a30">armigo-mcp serve · FastMCP (stdio) · twin_mcp.py</text>
+  <rect x="275" y="104" width="195" height="108" class="box"/>
+  <text x="285" y="122" class="t">5 个工具</text>
+  <text x="285" y="140" class="s">list_cases（不透明 ID）</text>
+  <text x="285" y="156" class="s">start_episode(request_id, policy…)</text>
+  <text x="285" y="172" class="s">start_policy_search(budget≤8)</text>
+  <text x="285" y="188" class="s">get_observation → PNG + 元数据</text>
+  <text x="285" y="204" class="s">job_status（仅证据，无真值）</text>
+  <rect x="482" y="104" width="195" height="108" class="box"/>
+  <text x="492" y="122" class="t">TwinService</text>
+  <text x="492" y="140" class="s">ThreadPoolExecutor(max_workers=1)</text>
+  <text x="492" y="156" class="s">队列上限 8，request_id 幂等</text>
+  <text x="492" y="172" class="s">jobs 字典只在进程内存</text>
+  <text x="492" y="188" class="s">无取消 / 无进度百分比</text>
+  <text x="492" y="204" class="s">失败只返回 JOB_EXECUTION_FAILED</text>
+  <text x="275" y="232" class="warn">✗ 重启即丢 job；单 worker 串行（~9.5 s/episode）</text>
+  <text x="275" y="250" class="warn">✗ 只有 stdio 传输；dashboard 是另一个独立进程</text>
+  <path d="M210,110 L258,110" class="e"/>
+
+  <!-- dashboard -->
+  <rect x="740" y="75" width="200" height="70" class="box" style="fill:#fff8e8"/>
+  <text x="755" y="98" class="t">twin_dashboard :8095</text>
+  <text x="755" y="116" class="s">跟随 events.jsonl / 回放</text>
+  <text x="755" y="132" class="s">v6 分数面板、分支时间轴</text>
+
+  <!-- vLLM -->
+  <rect x="960" y="70" width="200" height="200" rx="8" fill="#fdf0ef" stroke="#c0392b" stroke-width="1.5"/>
+  <text x="975" y="92" class="t" fill="#962d22">vLLM（WSL）</text>
+  <text x="975" y="110" class="s">serve_armigo_qwen.sh</text>
+  <text x="975" y="128" class="s">Qwen3.8-27B-NVFP4 :8038</text>
+  <text x="975" y="144" class="s">max-model-len 4096</text>
+  <text x="975" y="160" class="s">max-num-seqs 1</text>
+  <text x="975" y="176" class="s">enforce-eager, 无 prefix cache</text>
+  <text x="975" y="192" class="s">KV nvfp4，1 张图/请求</text>
+  <text x="975" y="212" class="warn">✗ 客户端默认 :8000</text>
+  <text x="975" y="228" class="warn">✗ 无结构化输出约束</text>
+  <text x="975" y="244" class="warn">✗ 无健康检查/守护</text>
+  <text x="975" y="260" class="warn">✗ 无 token 预算检查</text>
+
+  <!-- LLM client -->
+  <rect x="740" y="180" width="200" height="90" class="box"/>
+  <text x="755" y="200" class="t">OpenAICompatLLM · llm.py</text>
+  <text x="755" y="218" class="s">httpx，T=0，thinking 关闭</text>
+  <text x="755" y="234" class="s">MCP 内: max_tokens 96, timeout 30s,</text>
+  <text x="755" y="250" class="s">retries 0, json_object 模式</text>
+  <path d="M940,225 L958,225" class="d"/>
+
+  <!-- Outer graph -->
+  <rect x="20" y="300" width="370" height="200" rx="8" fill="#f5f0fb" stroke="#7d3c98" stroke-width="1.5"/>
+  <text x="35" y="322" class="t" fill="#5b2c6f">外层图 search_policies（LangGraph）</text>
+  <rect x="45" y="340" width="110" height="40" class="box"/><text x="70" y="365" class="t">measure</text>
+  <rect x="230" y="340" width="110" height="40" class="box"/><text x="258" y="365" class="t">propose</text>
+  <path d="M155,352 L228,352" class="e"/><path d="M230,370 L157,370" class="e"/>
+  <text x="35" y="402" class="s">measure：在 4 个固定 DEV_CASES 上跑真实 MuJoCo 内层图</text>
+  <text x="35" y="418" class="s">propose：suggest_policy → {order, max_*_views, max_rewinds}</text>
+  <text x="35" y="434" class="s">排序：成功数 → 标签正确 → 仿真帧 → 视角数</text>
+  <text x="35" y="456" class="warn">✗ prompt 里 "1–3" 被编码损坏成乱码（twin_graph.py:151）</text>
+  <text x="35" y="472" class="warn">✗ 搜索空间仅 2×3×3×3=54，可直接穷举</text>
+  <text x="35" y="488" class="warn">✗ 无检查点，崩溃后整轮重跑</text>
+  <path d="M340,345 C600,300 760,290 800,272" class="d"/>
+  <path d="M100,380 C100,520 300,560 420,560" class="e"/>
+
+  <!-- Inner graph -->
+  <rect x="420" y="300" width="740" height="290" rx="8" fill="#eef7fb" stroke="#2471a3" stroke-width="1.5"/>
+  <text x="435" y="322" class="t" fill="#1a5276">内层图 build_graph（每个 episode 一次 invoke，recursion_limit 64）· twin_graph.py</text>
+  <rect x="440" y="345" width="90" height="36" class="box"/><text x="458" y="368" class="t">prepare</text>
+  <rect x="580" y="345" width="120" height="36" class="box" style="fill:#fff3cd"/><text x="595" y="368" class="t">choose_view</text>
+  <rect x="760" y="335" width="120" height="30" class="box"/><text x="778" y="355" class="t">scan_wrist</text>
+  <rect x="760" y="375" width="120" height="30" class="box"/><text x="765" y="395" class="t">present_bottom</text>
+  <rect x="580" y="430" width="120" height="36" class="box"/><text x="620" y="453" class="t">place</text>
+  <rect x="440" y="430" width="90" height="36" class="box" style="fill:#fff3cd"/><text x="458" y="453" class="t">recover</text>
+  <rect x="760" y="430" width="120" height="36" class="box"/><text x="790" y="453" class="t">evaluate</text>
+  <path d="M530,363 L578,363" class="e"/>
+  <path d="M700,358 L758,350" class="e"/><path d="M700,368 L758,390" class="e"/>
+  <path d="M880,342 C900,330 690,328 665,343" class="e"/>
+  <path d="M640,381 L640,428" class="e"/>
+  <path d="M700,448 L758,448" class="e"/>
+  <path d="M580,448 L532,448" class="e"/>
+  <path d="M485,430 L485,383" class="e"/>
+  <path d="M485,466 C485,500 820,500 820,468" class="e"/>
+  <text x="900" y="350" class="s">ShowPose → v6 打分</text>
+  <text x="900" y="366" class="s">（LoRA 双头检测器，</text>
+  <text x="900" y="382" class="s">外部 venv 子进程）</text>
+  <text x="900" y="410" class="s">decision()：任一视角 ≥ 阈值 → defective</text>
+  <text x="900" y="426" class="s">6 面均有负证据 → normal，否则 unknown</text>
+  <text x="440" y="520" class="s">黄色节点可调用 select_skill：LLM 只能从合法技能 / 检查点 ID 中选一个，非法即回退 choices[0]</text>
+  <text x="440" y="538" class="s">上下文 = 全部刚体位姿、关节、相机、接触、视角分数（无真值、无标记几何）</text>
+  <text x="440" y="560" class="warn">✗ 整个场景 JSON 塞进 4096 上下文，无截断；超长时静默回退 → 很难区分“LLM 选的”和“兜底”</text>
+  <text x="440" y="576" class="warn">✗ recover 只能选检查点，不能改抓取/运动参数 → torque_stall 回退后原样复现</text>
+  <path d="M640,345 C700,250 760,250 800,272" class="d"/>
+
+  <!-- Backend -->
+  <rect x="20" y="620" width="540" height="120" rx="8" fill="#f4f4f4" stroke="#777"/>
+  <text x="35" y="642" class="t">TwinMujoco 后端（可信技能）· twin_mujoco.py</text>
+  <text x="35" y="662" class="s">真实摩擦抓取、命令滤波、审计评估器；夹爪张开 + 砖在桌上时打检查点</text>
+  <text x="35" y="678" class="s">检查点 = MuJoCo 积分状态 + 滤波器队列 + 控制游标 + 视角引用（只在进程内恢复）</text>
+  <text x="35" y="694" class="s">rewind：mj_setState → 新分支，保留失败轨迹与总预算</text>
+  <text x="35" y="716" class="warn">✗ LangGraph 状态（views/failures）与 MuJoCo 检查点是两套独立机制，未用 LangGraph checkpointer</text>
+  <path d="M640,590 L640,610 L400,610 L400,618" class="e"/>
+
+  <rect x="600" y="620" width="560" height="120" rx="8" fill="#f4f4f4" stroke="#777"/>
+  <text x="615" y="642" class="t">记录与导出 · twin_record.py</text>
+  <text x="615" y="662" class="s">episodes/&lt;job_id&gt;/：events.jsonl、replay.mp4、FFV1 归档、keyframes PNG/crop</text>
+  <text x="615" y="678" class="s">armigo-mcp export → LeRobot 0.6（仅成功且连续的 episode，拒收 rewind）</text>
+  <text x="615" y="700" class="s">另有遗留 graph.py：Stage-3 位姿菜单图（interrupt/resume + InMemorySaver），</text>
+  <text x="615" y="716" class="s">只被 scripts/run_inspection_policies.py 使用，与 MCP 主线不共享代码</text>
+  <path d="M880,590 L880,618" class="e"/>
+</svg>
