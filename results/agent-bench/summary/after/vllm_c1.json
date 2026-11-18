@@ -1,0 +1,10 @@
+{
+  "url": "http://127.0.0.1:8038/v1",
+  "requests": 12,
+  "concurrency": 1,
+  "prompt_tokens": 937,
+  "wall_s": 32.45,
+  "requests_per_s": 0.37,
+  "latency_p50_s": 2.919,
+  "latency_p95_s": 3.152
+}

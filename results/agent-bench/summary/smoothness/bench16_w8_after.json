@@ -1,0 +1,52 @@
+{
+  "suite": "config\\agent_bench\\bench16.json",
+  "args": [
+    "--detector",
+    "results/agent-bench/sup-local.json",
+    "--workers",
+    "8"
+  ],
+  "episodes": 16,
+  "wall_s": 51.3,
+  "episodes_per_min": 18.71,
+  "successes": 14,
+  "labels_correct": 14,
+  "unknown": 0,
+  "rewinds": 2,
+  "sim_frames": 26479,
+  "failures": [
+    {
+      "code": "PHYSICAL_HEALTH_FAILED",
+      "count": 2
+    }
+  ],
+  "decisions": {
+    "policy": 30
+  },
+  "llm_consulted": 0,
+  "llm_adoption_rate": null,
+  "fallback_reasons": {},
+  "prompt_tokens_median": null,
+  "prompt_tokens_max": null,
+  "llm_latency_median_s": null,
+  "smoothness": {
+    "episodes": 16,
+    "jerk_rms_cmd_median": 5.546,
+    "jerk_rms_meas_median": 6.399,
+    "jerk_peak_meas_max": 111.9,
+    "jerk_peak_phase": "rest",
+    "stops_median": 36.5,
+    "stops_total": 499,
+    "still_fraction_median": 0.221,
+    "clipped_frames_total": 92
+  },
+  "report_extra": {
+    "llm_consulted": 0,
+    "llm_adopted": 0,
+    "llm_adoption_rate": null,
+    "fallback_reasons": {},
+    "llm_prompt_tokens_median": null,
+    "llm_prompt_tokens_max": null,
+    "llm_latency_s_total": 0.0
+  }
+}

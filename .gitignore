@@ -30,3 +30,8 @@ graphify-out/*
 mlflow/
 results/anomaly/dataset-*/
 results/anomaly/*.log
+# Agent bench: full run folders, recorded videos and the machine-specific detector spec stay local.
+results/agent-bench/before/
+results/agent-bench/final/
+results/agent-bench/videos/*.mp4
+results/agent-bench/sup-local.json

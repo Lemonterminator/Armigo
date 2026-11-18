@@ -1,0 +1,10 @@
+{
+  "case": [
+    442701,
+    false,
+    5
+  ],
+  "context_chars": 470,
+  "prompt_tokens": 198,
+  "max_model_len": 4096
+}

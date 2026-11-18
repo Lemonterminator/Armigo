@@ -1,0 +1,242 @@
+[
+  {
+    "case": "case-0000",
+    "fixture": [
+      600004,
+      false,
+      5
+    ],
+    "branch": "branch-0",
+    "frames_before": 1705,
+    "frames_after": 1711,
+    "return_start": 1651,
+    "return_peak_before": 504.7,
+    "return_peak_after": 60.6,
+    "peak_before": 504.7,
+    "peak_after": 142.0,
+    "result_before": {
+      "verdict": "SUCCESS",
+      "destination": "green",
+      "label": "normal",
+      "rewinds": 0
+    },
+    "result_after": {
+      "verdict": "SUCCESS",
+      "destination": "green",
+      "label": "normal",
+      "rewinds": 0
+    },
+    "smoothness_before": null,
+    "smoothness_after": {
+      "frames": 1711,
+      "jerk_rms_cmd": 5.245,
+      "jerk_rms_meas": 6.3,
+      "jerk_peak_meas": 111.9,
+      "jerk_p99_meas": 41.8,
+      "stops": 38,
+      "still_fraction": 0.224,
+      "jerk_peak_phase": "rest",
+      "worst_phases": [
+        {
+          "phase": "rest",
+          "frames": 6,
+          "jerk_rms_meas": 25.06,
+          "jerk_rms_cmd": 0.0
+        },
+        {
+          "phase": "return",
+          "frames": 60,
+          "jerk_rms_meas": 16.83,
+          "jerk_rms_cmd": 15.19
+        },
+        {
+          "phase": "grasp",
+          "frames": 40,
+          "jerk_rms_meas": 8.32,
+          "jerk_rms_cmd": 8.24
+        }
+      ],
+      "clipped_frames": 1
+    }
+  },
+  {
+    "case": "case-0001",
+    "fixture": [
+      600005,
+      true,
+      4
+    ],
+    "branch": "branch-0",
+    "frames_before": 778,
+    "frames_after": 784,
+    "return_start": 724,
+    "return_peak_before": 493.8,
+    "return_peak_after": 60.6,
+    "peak_before": 493.8,
+    "peak_after": 142.0,
+    "result_before": {
+      "verdict": "SUCCESS",
+      "destination": "pink",
+      "label": "defective",
+      "rewinds": 0
+    },
+    "result_after": {
+      "verdict": "SUCCESS",
+      "destination": "pink",
+      "label": "defective",
+      "rewinds": 0
+    },
+    "smoothness_before": null,
+    "smoothness_after": {
+      "frames": 784,
+      "jerk_rms_cmd": 7.726,
+      "jerk_rms_meas": 8.823,
+      "jerk_peak_meas": 111.9,
+      "jerk_p99_meas": 48.0,
+      "stops": 15,
+      "still_fraction": 0.234,
+      "jerk_peak_phase": "rest",
+      "worst_phases": [
+        {
+          "phase": "rest",
+          "frames": 6,
+          "jerk_rms_meas": 25.06,
+          "jerk_rms_cmd": 0.0
+        },
+        {
+          "phase": "return",
+          "frames": 60,
+          "jerk_rms_meas": 17.83,
+          "jerk_rms_cmd": 16.03
+        },
+        {
+          "phase": "approach",
+          "frames": 348,
+          "jerk_rms_meas": 9.22,
+          "jerk_rms_cmd": 8.36
+        }
+      ],
+      "clipped_frames": 1
+    }
+  },
+  {
+    "case": "case-0002",
+    "fixture": [
+      600007,
+      true,
+      0
+    ],
+    "branch": "branch-0",
+    "frames_before": 834,
+    "frames_after": 840,
+    "return_start": 780,
+    "return_peak_before": 503.0,
+    "return_peak_after": 60.6,
+    "peak_before": 503.0,
+    "peak_after": 142.0,
+    "result_before": {
+      "verdict": "SUCCESS",
+      "destination": "pink",
+      "label": "defective",
+      "rewinds": 0
+    },
+    "result_after": {
+      "verdict": "SUCCESS",
+      "destination": "pink",
+      "label": "defective",
+      "rewinds": 0
+    },
+    "smoothness_before": null,
+    "smoothness_after": {
+      "frames": 840,
+      "jerk_rms_cmd": 6.24,
+      "jerk_rms_meas": 7.716,
+      "jerk_peak_meas": 111.9,
+      "jerk_p99_meas": 44.1,
+      "stops": 18,
+      "still_fraction": 0.219,
+      "jerk_peak_phase": "rest",
+      "worst_phases": [
+        {
+          "phase": "rest",
+          "frames": 6,
+          "jerk_rms_meas": 25.06,
+          "jerk_rms_cmd": 0.0
+        },
+        {
+          "phase": "return",
+          "frames": 60,
+          "jerk_rms_meas": 16.69,
+          "jerk_rms_cmd": 14.94
+        },
+        {
+          "phase": "approach",
+          "frames": 476,
+          "jerk_rms_meas": 6.9,
+          "jerk_rms_cmd": 5.21
+        }
+      ],
+      "clipped_frames": 2
+    }
+  },
+  {
+    "case": "case-0003",
+    "fixture": [
+      600008,
+      false,
+      5
+    ],
+    "branch": "branch-1",
+    "frames_before": 2626,
+    "frames_after": 2632,
+    "return_start": 2572,
+    "return_peak_before": 407.9,
+    "return_peak_after": 60.5,
+    "peak_before": 407.9,
+    "peak_after": 86.8,
+    "result_before": {
+      "verdict": "SUCCESS",
+      "destination": "green",
+      "label": "normal",
+      "rewinds": 1
+    },
+    "result_after": {
+      "verdict": "SUCCESS",
+      "destination": "green",
+      "label": "normal",
+      "rewinds": 1
+    },
+    "smoothness_before": null,
+    "smoothness_after": {
+      "frames": 2823,
+      "jerk_rms_cmd": 4.654,
+      "jerk_rms_meas": 4.962,
+      "jerk_peak_meas": 111.9,
+      "jerk_p99_meas": 43.1,
+      "stops": 62,
+      "still_fraction": 0.229,
+      "jerk_peak_phase": "rest",
+      "worst_phases": [
+        {
+          "phase": "rest",
+          "frames": 6,
+          "jerk_rms_meas": 25.06,
+          "jerk_rms_cmd": 0.0
+        },
+        {
+          "phase": "return",
+          "frames": 60,
+          "jerk_rms_meas": 16.94,
+          "jerk_rms_cmd": 15.09
+        },
+        {
+          "phase": "grasp",
+          "frames": 39,
+          "jerk_rms_meas": 6.3,
+          "jerk_rms_cmd": 7.64
+        }
+      ],
+      "clipped_frames": 19
+    }
+  }
+]

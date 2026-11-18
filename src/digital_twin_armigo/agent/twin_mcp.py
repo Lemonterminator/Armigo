@@ -428,6 +428,7 @@ class TwinService:
 				"evidence",
 				"cleared_faces",
 				"placement_evidence",
+				"smoothness",
 			)
 			out["episode"] = {key: row["result"][key] for key in keys if key in row["result"]}
 		if row["kind"] in ("episode", "resume") and (resumed := [c["job_id"] for c in self.store.children(job_id)]):
@@ -463,6 +464,30 @@ def aggregate(results):
 		"views": sum(x["views"] for x in results),
 		"rewinds": sum(x["rewinds"] for x in results),
 		"failures": [{"code": code, "count": count} for code, count in sorted(failures.items())],
+		"smoothness": aggregate_smoothness([x.get("smoothness") or {} for x in results]),
+	}
+
+
+def aggregate_smoothness(rows):
+	"""Suite view of the per-episode ``smoothness`` blocks: medians of the rates, worst peak, totals of counts."""
+	rows = [r for r in rows if "jerk_rms_meas" in r]
+	if not rows:
+		return {}
+
+	def median(key):
+		return round(statistics.median(r[key] for r in rows), 3)
+
+	peak = max(rows, key=lambda r: r["jerk_peak_meas"])
+	return {
+		"episodes": len(rows),
+		"jerk_rms_cmd_median": median("jerk_rms_cmd"),
+		"jerk_rms_meas_median": median("jerk_rms_meas"),
+		"jerk_peak_meas_max": peak["jerk_peak_meas"],
+		"jerk_peak_phase": peak.get("jerk_peak_phase"),
+		"stops_median": median("stops"),
+		"stops_total": sum(r["stops"] for r in rows),
+		"still_fraction_median": median("still_fraction"),
+		"clipped_frames_total": sum(r.get("clipped_frames", 0) for r in rows),
 	}
 
 

@@ -1,0 +1,31 @@
+{
+  "suite": "config\\agent_bench\\bench16.json",
+  "args": [
+    "--detector",
+    "results/agent-bench/sup-local.json"
+  ],
+  "episodes": 16,
+  "wall_s": 157.9,
+  "episodes_per_min": 6.08,
+  "successes": 12,
+  "labels_correct": 14,
+  "unknown": 0,
+  "rewinds": 2,
+  "sim_frames": 24419,
+  "failures": [
+    {
+      "code": "PHYSICAL_HEALTH_FAILED",
+      "count": 4
+    }
+  ],
+  "decisions": {
+    "policy": 28
+  },
+  "llm_consulted": 0,
+  "llm_adoption_rate": null,
+  "fallback_reasons": {},
+  "prompt_tokens_median": null,
+  "prompt_tokens_max": null,
+  "llm_latency_median_s": null,
+  "report_extra": {}
+}

@@ -126,6 +126,22 @@ and fused scores, the effective threshold, and the score margin. These scores ar
 a probability scale. Previously recorded runs show the fused score when the per-head outputs were not collected.
 Any RTX replay is a separate set of images.
 
+## Motion smoothness
+
+Each episode result carries a `smoothness` block, and the suite report aggregates it. Jerk is the third finite
+difference of the arm joints (0-4) times FPS cubed, in rad/s³. It is computed for the commanded targets
+(`jerk_rms_cmd`) and for the measured joint positions (`jerk_rms_meas`, `jerk_peak_meas`, `jerk_p99_meas`).
+`jerk_peak_phase` and `worst_phases` name the phases with the highest measured jerk. `stops` counts moves that
+come to rest and then start again (0.05 rad/s threshold, three-frame hysteresis). `clipped_frames` counts frames
+where the expert's target had to be clipped to the joint range.
+
+Every move is planned to the clipped target, so no joint stops dead at a limit halfway through a min-jerk path.
+The return to rest is long enough to keep the peak joint speed under `return_peak_speed_rad_s` (4.4 rad/s, just
+below what the wrist flex reaches under its torque limit), capped at one unchunked 1.4 s segment. On the 16-case
+bench this cut the median measured jerk from 11.0 to 6.4 and the worst peak from 505 (in the return) to 112,
+with identical sort outcomes. The stops that remain come from chunk pauses and holds that the torque-saturation
+health rule requires.
+
 ## LeRobot
 
 Use the environment that contains LeRobot 0.6 and PyAV.
