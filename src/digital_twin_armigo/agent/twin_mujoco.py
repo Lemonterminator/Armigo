@@ -9,8 +9,9 @@ import math
 import time
 from collections import deque
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
+from types import MappingProxyType
 
 import numpy as np
 
@@ -82,7 +83,137 @@ class Checkpoint:
 	views: list[dict]
 
 
+# Bounded recovery variants. Each is a fixed, named, deterministic transform of the default expert parameters. The
+# agent (or LLM) only ever picks a name; no number crosses that boundary. Every value must lie in RECOVERY_BOUNDS and
+# every variant only slows motion down or raises the transfer height, so a variant cannot be more aggressive than the
+# defaults. Keys of "expert" / "relocate" are ExpertParams / RelocateParams fields; "scan_peak_speed" is the peak
+# joint speed (rad/s) of the wrist-scan moves (default SCAN_PEAK_SPEED, the value the scan used before variants).
+SCAN_PEAK_SPEED = 1.0
+RECOVERY_BOUNDS = MappingProxyType(
+	{
+		"scan_peak_speed": (0.25, SCAN_PEAK_SPEED),
+		"scan_move_s": (0.6, 1.5),
+		"ready_move_s": (0.6, 1.2),
+		"carry_peak_speed_rad_s": (0.2, 0.5),
+		"show_move_s": (0.9, 2.0),
+		"transfer_s": (1.8, 3.0),
+		"transfer_z_m": (0.12, 0.15),
+		"place_descend_s": (1.2, 2.0),
+		"retreat_s": (0.8, 1.5),
+		"return_s": (1.2, 2.0),
+	}
+)
+_SLOW_SCAN = {"scan_peak_speed": 0.35, "scan_move_s": 1.0, "ready_move_s": 1.0}
+_SLOW_CARRY = {"carry_peak_speed_rad_s": 0.3, "show_move_s": 1.4, "transfer_s": 2.6}
+_GENTLE_PLACE = {"place_descend_s": 1.8, "retreat_s": 1.2, "return_s": 1.8}
+RECOVERY_VARIANTS = MappingProxyType(
+	{
+		"slow_scan": MappingProxyType(_SLOW_SCAN),
+		"slow_carry": MappingProxyType(_SLOW_CARRY),
+		"gentle_place": MappingProxyType(_GENTLE_PLACE),
+		"high_place": MappingProxyType({**_GENTLE_PLACE, "transfer_z_m": 0.14}),
+		"cautious": MappingProxyType({**_SLOW_SCAN, **_SLOW_CARRY, **_GENTLE_PLACE}),
+	}
+)
+VARIANT_NOTES = MappingProxyType(
+	{
+		"slow_scan": "slower wrist-scan and ready moves, so joints stop saturating",
+		"slow_carry": "slower carry and show moves",
+		"gentle_place": "slower place descent, retreat and return",
+		"high_place": "slower place moves with a higher approach height over the bowl",
+		"cautious": "slow scan, carry and place together",
+	}
+)
+# Failure evidence -> recommended variant. A torque stall is attributed to the skill that was running when the
+# saturated run started; other physical or placement failures map by code.
+STALL_VARIANT_BY_NODE = MappingProxyType(
+	{"scan_wrist": "slow_scan", "present_bottom": "slow_carry", "place": "gentle_place"}
+)
+VARIANT_BY_CODE = MappingProxyType(
+	{
+		"BRICK_LOST": "slow_carry",
+		"PLACEMENT_UNVERIFIED": "high_place",
+		"PLACE_RETURN_PATH_BLOCKED": "high_place",
+		"PARK_PATH_BLOCKED": "slow_carry",
+	}
+)
+RELOCATE_KEYS = frozenset({"scan_move_s"})  # RelocateParams fields a variant may set
+STALL_REASONS = ("torque_stall", "tracking_lag")
+STALL_SECONDS = 1.5  # metrics.evaluate_episode_health max_stall_secs
+STALL_FRACTION = 0.95  # fraction of the torque limit that counts as saturated
+
+
+def apply_variant(name, params, relocate):
+	"""Return ``(ExpertParams, RelocateParams, scan_peak_speed)`` for variant ``name`` applied to the given defaults.
+	Raises ValueError for an unknown name or a value outside RECOVERY_BOUNDS."""
+	if name not in RECOVERY_VARIANTS:
+		raise ValueError(f"unknown recovery variant: {name}")
+	values = RECOVERY_VARIANTS[name]
+	for key, value in values.items():
+		lo, hi = RECOVERY_BOUNDS[key]
+		if not lo <= value <= hi:
+			raise ValueError(f"variant {name}: {key}={value} outside [{lo}, {hi}]")
+	# transfer_z_m exists in both parameter classes: only the ExpertParams one (the bowl approach) is a variant key.
+	rel = {k: v for k, v in values.items() if k in RELOCATE_KEYS}
+	expert = {k: v for k, v in values.items() if k not in RELOCATE_KEYS and k != "scan_peak_speed"}
+	return (
+		replace(params, **expert),
+		replace(relocate, **rel),
+		float(values.get("scan_peak_speed", SCAN_PEAK_SPEED)),
+	)
+
+
+def stall_start(torques, limit, fps=FPS):
+	"""First frame of a continuous run of saturated arm-joint torque longer than STALL_SECONDS, else None."""
+	saturated = (np.abs(np.asarray(torques)[:, :5]) >= STALL_FRACTION * limit).any(axis=1)
+	run = 0
+	for i, flag in enumerate(saturated):
+		run = run + 1 if flag else 0
+		if run / fps > STALL_SECONDS:
+			return i - run + 1
+	return None
+
+
+def node_at(events, frame):
+	"""Skill node running at active-branch ``frame``, replaying node and rewound events of the trace."""
+	timeline = []
+	for e in events:
+		if e["kind"] == "rewound":
+			timeline = [t for t in timeline if t[0] <= e["frame"]]
+		elif e["kind"] == "node" and e["node"] != "recover":
+			timeline.append((e["frame"], e["node"]))
+	return next((node for f, node in reversed(timeline) if f <= frame), None)
+
+
+def rewind_options(checkpoints, failure, stall_frame, stall_node):
+	"""Ordered ``(choice, note)`` pairs for a rewind. The first entry is the deterministic default: the latest
+	checkpoint taken before the stall began (a checkpoint after it keeps the stall in the health history, so it can
+	never clear it) with the variant recommended for the failure, then the plain rewind of that checkpoint."""
+	reasons = failure.get("reason_codes") or []
+	recommended = VARIANT_BY_CODE.get(failure.get("code"))
+	if stall_frame is not None and any(r in STALL_REASONS for r in reasons):
+		recommended = STALL_VARIANT_BY_NODE.get(stall_node, "cautious")
+	latest = list(reversed(checkpoints))
+	if stall_frame is not None:
+		clean = [c for c in latest if c.frame <= stall_frame]
+		latest = clean + [c for c in latest if c not in clean]
+	options = []
+	for c in latest:
+		hint = ""
+		if stall_frame is not None and c.frame > stall_frame:
+			hint = f"; keeps the stall that began at frame {stall_frame}"
+		variants = [recommended] if recommended else []
+		variants += ["cautious"] if recommended not in (None, "cautious") else []
+		for v in variants:
+			options.append((f"{c.id}+{v}", f"rewind to {c.id} (frame {c.frame}) with {VARIANT_NOTES[v]}{hint}"))
+		options.append((c.id, f"rewind to {c.id} (frame {c.frame}) and retry with unchanged parameters{hint}"))
+	return options
+
+
 class TwinMujoco:
+	scan_peak_speed = SCAN_PEAK_SPEED
+	recovery_variants: tuple = ()
+
 	def __init__(self, layout, scorer, record, *, llm=None, bottom_threshold=None, crop_size=256, fault=None):
 		self.layout = layout
 		self.scorer = scorer
@@ -239,7 +370,7 @@ class TwinMujoco:
 			"pinch_normal_n": rounded(self.ep.last("pinch_normal")) if self.ep.n_frames else [0.0, 0.0],
 		}
 
-	def choose(self, allowed, views, failures):
+	def choose(self, allowed, views, failures, notes=None):
 		context = {
 			"geometry": self._geometry(),
 			"views": views,
@@ -379,7 +510,9 @@ class TwinMujoco:
 				continue
 
 			def look(q):
-				move_time = max(ex.rp.scan_move_s, 1.875 * float(np.max(np.abs(q[:5] - ex.last[:5]))))
+				move_time = max(
+					ex.rp.scan_move_s, 1.875 * float(np.max(np.abs(q[:5] - ex.last[:5]))) / self.scan_peak_speed
+				)
 				yield from ex._move(q, move_time, "approach")
 				yield from ex._hold_servo(q, ex.rp.scan_hold_s, "approach")
 
@@ -474,11 +607,16 @@ class TwinMujoco:
 	def rewind(self, policy: Policy, failures):
 		if not self.checkpoints or self.rewinds >= policy.max_rewinds or self.total_frames >= MAX_TOTAL_FRAMES:
 			return None
-		actions = [c.id for c in reversed(self.checkpoints)] + ["stop"]
-		choice = self.choose(actions, self.checkpoints[-1].views, failures)
+		stall = stall_start(self.ep.telemetry()["actuator_torques"], self.spec.arm_actuator.effort_limit)
+		stall_node = None if stall is None else node_at(self.record.events, stall)
+		options = rewind_options(self.checkpoints, failures[-1], stall, stall_node)
+		actions = [choice for choice, _ in options] + ["stop"]
+		notes = {**dict(options), "stop": "give up and report the failure"}
+		choice = self.choose(actions, self.checkpoints[-1].views, failures, notes=notes)
 		if choice == "stop":
 			return None
-		checkpoint = next(c for c in self.checkpoints if c.id == choice)
+		checkpoint_id, _, variant = choice.partition("+")
+		checkpoint = next(c for c in self.checkpoints if c.id == checkpoint_id)
 		self.rewinds += 1
 		self.branch = self.rewinds
 		self.record.fork(self.branch, checkpoint)
@@ -494,13 +632,13 @@ class TwinMujoco:
 		filt._queue = deque((np.array(q) for q in checkpoint.filter["queue"]), maxlen=filt._queue.maxlen)
 		filt._prev_out = np.array(checkpoint.filter["prev"])
 		filt._backlash_pos = np.array(checkpoint.filter["backlash"])
-		self.expert = ex = RelocateExpert(
-			self.cell,
-			INITIAL_Q,
-			self.layout.brick_xy,
-			self.expert.p,
-			self.expert.rp,
-		)
+		params, relocate = self.expert.p, self.expert.rp
+		if variant:
+			# Variants transform the first attempt's defaults, so they never stack on an earlier variant.
+			self._base_params = getattr(self, "_base_params", (params, relocate))
+			params, relocate, self.scan_peak_speed = apply_variant(variant, *self._base_params)
+		self.recovery_variants = (*self.recovery_variants, variant or "none")
+		self.expert = ex = RelocateExpert(self.cell, INITIAL_Q, self.layout.brick_xy, params, relocate)
 		ex.last = np.array(checkpoint.expert["last"])
 		ex._active_open_g = checkpoint.expert["active_open"]
 		ex._frame_idx = checkpoint.expert["frame_idx"]
@@ -513,7 +651,13 @@ class TwinMujoco:
 		self.bottom_count = checkpoint.bottom_count
 		del self.checkpoints[self.checkpoints.index(checkpoint) + 1 :]
 		self.record.restored(self.cell)
-		self.event("rewound", parent_branch=checkpoint.branch, checkpoint=checkpoint.id, reason=failures[-1]["code"])
+		self.event(
+			"rewound",
+			parent_branch=checkpoint.branch,
+			checkpoint=checkpoint.id,
+			reason=failures[-1]["code"],
+			variant=variant or None,
+		)
 		return copy.deepcopy(checkpoint.views)
 
 	def place(self, label):
@@ -580,6 +724,7 @@ class TwinMujoco:
 			"destination": self.actual_destination,
 			"active_branch": self.branch,
 			"rewinds": self.rewinds,
+			"recovery_variants": list(self.recovery_variants),
 			"failures": failures,
 			"active_views": len(views),
 			"views": sum(e["kind"] == "view" for e in self.record.events),
