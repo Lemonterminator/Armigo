@@ -83,13 +83,16 @@ class Checkpoint:
 
 
 class TwinMujoco:
-	def __init__(self, layout, scorer, record, *, llm=None, bottom_threshold=None, crop_size=256, fault=None):
+	def __init__(
+		self, layout, scorer, record, *, llm=None, bottom_threshold=None, crop_size=256, fault=None, on_frame=None
+	):
 		self.layout = layout
 		self.scorer = scorer
 		self.record = record
 		self.llm = llm
 		self.bottom_threshold = bottom_threshold
 		self.crop_size = crop_size
+		self.on_frame = on_frame  # Called once per simulated frame; may raise to cancel the episode.
 		self.fault = fault  # Internal acceptance hook. It is absent from the public MCP API.
 		self.spec = load_physics_spec()
 		base = next(c for c in SENSITIVITY_MATRIX if c.name == "baseline_2x2")
@@ -135,6 +138,8 @@ class TwinMujoco:
 		expert._gen = generator
 		expert.done = False
 		while self.total_frames < MAX_TOTAL_FRAMES:
+			if self.on_frame is not None:
+				self.on_frame(self)
 			obs = observe(self.cell, self.ep)
 			target, phase = expert.act(obs)
 			if expert.done:

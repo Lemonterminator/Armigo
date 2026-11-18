@@ -64,7 +64,7 @@ def decision(views: list[dict]) -> tuple[str, set[int]]:
 	return ("normal" if len(covered) == 6 else "unknown"), covered
 
 
-def build_graph(backend, policy: Policy):
+def build_graph(backend, policy: Policy, checkpointer=None):
 	from langgraph.graph import END, START, StateGraph
 
 	def prepare(state: InspectionState):
@@ -136,7 +136,7 @@ def build_graph(backend, policy: Policy):
 		)
 	graph.add_conditional_edges("recover", lambda s: s["action"], ["choose_view", "evaluate"])
 	graph.add_edge("evaluate", END)
-	return graph.compile()
+	return graph.compile(checkpointer=checkpointer)
 
 
 def suggest_policy(llm: ChatLLM, reports: list[dict]) -> Policy:
