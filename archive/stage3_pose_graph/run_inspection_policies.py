@@ -28,14 +28,14 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import inspection_visibility as iv
+from graph import GraphNextPose
 
 from digital_twin_armigo.agent import CoveragePolicy, CoverageTable, FixedSequencePolicy, LLMShowPosePolicy
-from digital_twin_armigo.agent.graph import GraphNextPose
 from digital_twin_armigo.agent.llm import DEFAULT_BASE_URL, OpenAICompatLLM
 from digital_twin_armigo.agent.policies import LLMProposer
 

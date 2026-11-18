@@ -37,8 +37,15 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
-from .llm import LLMError
-from .policies import FACE_NAMES, CoverageTable, Pose, ShowPosePolicy, build_context, parse_choice
+from digital_twin_armigo.agent.llm import LLMError
+from digital_twin_armigo.agent.policies import (
+	FACE_NAMES,
+	CoverageTable,
+	Pose,
+	ShowPosePolicy,
+	build_context,
+	parse_choice,
+)
 
 __all__ = [
 	"GraphNextPose",
