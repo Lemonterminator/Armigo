@@ -147,3 +147,57 @@ def test_live_preview_retries_after_a_windows_file_lock(tmp_path, monkeypatch):
 		assert published.read_bytes() != previous
 	finally:
 		trace.close()
+
+
+def test_continuous_carry_preserves_the_path_duration_and_gripper_transition():
+	pytest.importorskip("mujoco")
+	from digital_twin_armigo.agent.twin_mujoco import ContinuousCarryExpert
+	from digital_twin_armigo.mujoco_cell.physics_expert import ExpertParams
+	from digital_twin_armigo.mujoco_cell.table_relocation import RelocateExpert
+
+	expert = ContinuousCarryExpert.__new__(ContinuousCarryExpert)
+	expert.p = ExpertParams()
+	expert.last = np.zeros(6)
+	expert._lo, expert._hi = np.full(6, -np.pi), np.full(6, np.pi)  # joint range; the target lies inside it
+	target = np.array([0.5, -1.0, 0.0, 0.0, 0.0, 0.0])
+	smooth = np.array([q for q, _ in expert._move(target, 4.2, "show_move")])
+	baseline = np.array([q for q, _ in RelocateExpert._move(expert, target, 4.2, "show_move")])
+	assert len(smooth) == len(baseline)
+	np.testing.assert_array_equal(smooth[-1], target)
+	assert np.all(np.diff(smooth[:, 0]) > 0)
+	np.testing.assert_allclose(smooth, (smooth[:, 0] / target[0])[:, None] * target)
+	assert expert.smoothed_moves == 1
+
+	target[-1] = 0.5
+	transition = np.array([q for q, _ in expert._move(target, 4.2, "place")])
+	baseline = np.array([q for q, _ in RelocateExpert._move(expert, target, 4.2, "place")])
+	np.testing.assert_array_equal(transition, baseline)
+
+
+def test_carry_replay_compares_archived_commands_and_measured_end_state():
+	from types import SimpleNamespace
+
+	pytest.importorskip("mcp")
+	pytest.importorskip("mujoco")
+	pytest.importorskip("av")
+	pytest.importorskip("cv2")
+	from digital_twin_armigo.agent.twin_mcp import CarryReplayCheck
+
+	start = np.zeros((2, 6))
+	end_position = np.zeros(6)
+	command = np.full(6, 0.75)
+	rows = [(None, command, "return"), (None, command, "return")]
+	cell = SimpleNamespace(joints=lambda: end_position, data=SimpleNamespace(qvel=start[1]), dofadr=list(range(6)))
+	backend = SimpleNamespace(
+		cell=cell, record=SimpleNamespace(rows=rows, events=[]), expert=SimpleNamespace(smoothed_moves=1)
+	)
+	check = CarryReplayCheck()
+	result = {"student_eligible": True}
+	assert check.finish(backend, start, result) is None
+	rows[-1] = (None, np.nextafter(command, np.inf), "return")
+	assert check.finish(backend, start, result)["accepted"]
+
+	end_position[0] = 0.02
+	rejected = check.finish(backend, start, result)
+	assert rejected["boundary_commands_match"]
+	assert not rejected["accepted"]

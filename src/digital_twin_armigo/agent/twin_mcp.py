@@ -13,11 +13,12 @@ import threading
 import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any
 
 import anyio
+import numpy as np
 from langgraph.checkpoint.memory import InMemorySaver
 from mcp.server.fastmcp import Context, FastMCP, Image
 
@@ -50,6 +51,68 @@ DEV_CASES = tuple(dev_suite(8))
 SEARCH_EPISODES_PER_BUDGET = 50
 _JOB = object()  # default ``hook``: use the calling job's cancel flag, if any
 DEMO_CASES = ((187271, False, 5), (187271, True, 5), (187272, False, 5), (187272, True, 5))
+END_POSITION_TOL_RAD = 0.01
+END_SPEED_TOL_RAD_S = 0.05
+
+
+def _robot_state(cell):
+	return np.stack((cell.joints(), cell.data.qvel[cell.dofadr]))
+
+
+@dataclass(frozen=True)
+class ReplayEndpoints:
+	start: np.ndarray
+	end: np.ndarray
+	first_command: np.ndarray
+	last_command: np.ndarray
+	views: tuple[tuple[str, tuple[int, ...]], ...]
+
+
+class CarryReplayCheck:
+	def __init__(self):
+		self.reference: ReplayEndpoints | None = None
+
+	def finish(self, backend, start, result):
+		if not result["student_eligible"]:
+			return {"accepted": False, "reason": "episode_ineligible"} if self.reference is not None else None
+		rows = backend.record.rows
+		views = tuple(
+			(obs["camera"], tuple(obs["faces"]))
+			for event in backend.record.events
+			if event["kind"] == "view"
+			for obs in (event["observation"],)
+		)
+		# Compare the targets at the precision of the action archive.
+		current = ReplayEndpoints(
+			start, _robot_state(backend.cell), rows[0][1].astype(np.float32), rows[-1][1].astype(np.float32), views
+		)
+		reference = self.reference
+		if reference is None:
+			self.reference = current
+			return None
+		pos_error, speed_error = np.max(np.abs(current.end - reference.end), axis=1)
+		if not (math.isfinite(pos_error) and math.isfinite(speed_error)):
+			return {"accepted": False, "reason": "nonfinite_endpoint"}
+		checks = {
+			"smoothed_moves": backend.expert.smoothed_moves,
+			"start_state_matches": bool(np.array_equal(current.start, reference.start)),
+			"boundary_commands_match": bool(
+				np.array_equal(current.first_command, reference.first_command)
+				and np.array_equal(current.last_command, reference.last_command)
+			),
+			"views_match": current.views == reference.views,
+			"final_position_error_rad": float(pos_error),
+			"final_speed_error_rad_s": float(speed_error),
+		}
+		checks["accepted"] = bool(
+			checks["smoothed_moves"]
+			and checks["start_state_matches"]
+			and checks["boundary_commands_match"]
+			and checks["views_match"]
+			and pos_error <= END_POSITION_TOL_RAD
+			and speed_error <= END_SPEED_TOL_RAD_S
+		)
+		return checks
 
 
 class TwinService:
@@ -139,7 +202,20 @@ class TwinService:
 		if self.llm:
 			self.llm.close()
 
-	def run(self, case, policy, path, *, video, use_llm=False, fault=None, hook=_JOB, thread_id=None, resume=None):
+	def run(
+		self,
+		case,
+		policy,
+		path,
+		*,
+		video,
+		use_llm=False,
+		fault=None,
+		hook=_JOB,
+		thread_id=None,
+		resume=None,
+		carry_check=None,
+	):
 		"""Run one episode in this process. ``hook`` is called per frame and may raise ``JobCancelled``.
 
 		``thread_id`` persists the inner LangGraph state in ``graph.sqlite``; ``resume`` is a ``ResumePlan``.
@@ -165,7 +241,9 @@ class TwinService:
 				crop_size=self.crop_size,
 				fault=fault,
 				on_frame=hook,
+				smooth_carry=carry_check is not None and carry_check.reference is not None,
 			)
+			start = _robot_state(backend.cell) if carry_check is not None else None
 			link = None
 			if resume is not None:
 				link = restore(backend, resume)
@@ -184,6 +262,9 @@ class TwinService:
 				graph.update_state(config, resume.graph_state(), as_node="prepare")
 				result = graph.invoke(None, config=config)["result"]
 				result["student_eligible"] = False
+			if carry_check is not None and (checked := carry_check.finish(backend, start, result)) is not None:
+				result["carry_smoothing"] = checked
+				result["student_eligible"] = checked["accepted"]
 			trace.finish(
 				result,
 				{
@@ -206,6 +287,21 @@ class TwinService:
 				backend.close()
 			if saver is not None and hasattr(saver, "conn"):
 				saver.conn.close()
+
+	def run_for_vla(self, case, policy, path, *, video, use_llm):
+		check = CarryReplayCheck()
+		baseline = self.run(case, policy, path, video=video, use_llm=use_llm, carry_check=check)
+		selection = {"baseline": path.name, "selected": None}
+		if check.reference is not None:
+			target = path.parent / "smoothed" / path.name
+			candidate = self.run(case, policy, target, video=video, use_llm=use_llm, carry_check=check)
+			relative = target.relative_to(path.parent).as_posix()
+			selection.update(
+				candidate=relative,
+				selected=relative if candidate["student_eligible"] else path.name,
+				verification=candidate["carry_smoothing"],
+			)
+		return baseline, selection
 
 	def _job_hook(self, report=True):
 		job_id = getattr(self._ctx, "job_id", None)
@@ -625,6 +721,7 @@ def main():
 	run.add_argument("--headless", action="store_true")
 	run.add_argument("--resume", type=Path, help="Interrupted episode directory to restart from its last checkpoint.")
 	run.add_argument("--use-llm", action="store_true")
+	run.add_argument("--smooth-for-vla", action="store_true", help="Rerun successful demonstrations with smooth carry.")
 	dashboard = sub.add_parser("dashboard")
 	dashboard.add_argument("--out", type=Path, default=ROOT / "data/catalog/agent")
 	dashboard.add_argument("--port", type=int, default=8095)
@@ -671,17 +768,29 @@ def main():
 				print(json.dumps(result, indent=2))
 				return
 			started = time.perf_counter()
-			reports = service.run_batch(
-				[(case, policy, a.out / f"case-{i:04d}") for i, case in enumerate(cases)],
-				video=not a.headless,
-				use_llm=a.use_llm,
-			)
+			if a.smooth_for_vla:
+				# Serial and in-process: the replay check holds the baseline endpoints between the two runs.
+				reports, selection = [], []
+				for i, case in enumerate(cases):
+					baseline, selected = service.run_for_vla(
+						case, policy, a.out / f"case-{i:04d}", video=not a.headless, use_llm=a.use_llm
+					)
+					reports.append(baseline)
+					selection.append(selected)
+			else:
+				reports = service.run_batch(
+					[(case, policy, a.out / f"case-{i:04d}") for i, case in enumerate(cases)],
+					video=not a.headless,
+					use_llm=a.use_llm,
+				)
 			report = {
 				**aggregate(reports),
 				"median_sim_frames": statistics.median(r["sim_frames"] for r in reports),
 				"wall_seconds": round(time.perf_counter() - started, 3),
 				"policy": asdict(policy),
 			}
+			if a.smooth_for_vla:
+				report["carry_smoothing"] = selection
 			for is_defective, expected in ((True, "defective"), (False, "normal")):
 				group = [row for case, row in zip(cases, reports, strict=True) if case[1] == is_defective]
 				report[expected] = {

@@ -212,12 +212,49 @@ def rewind_options(checkpoints, failure, stall_frame, stall_node):
 	return options
 
 
+class ContinuousCarryExpert(RelocateExpert):
+	"""Retime long carry moves along the same joint-space line."""
+
+	smoothed_moves = 0
+
+	def _move(self, q_to: np.ndarray, secs: float, phase: str):
+		q_from = self.last.copy()
+		q_to = np.clip(q_to, self._lo, self._hi)  # plan to the reachable target, as the base move does
+		chunks = max(1, math.ceil(secs / self.p.max_move_chunk_s))
+		if chunks == 1 or phase not in ("lift", "show_move", "place") or q_from[5] != q_to[5]:
+			yield from super()._move(q_to, secs, phase)
+			return
+
+		frames = chunks * self._frames(secs / chunks) + (chunks - 1) * self._frames(self.p.chunk_pause_s)
+		t = np.arange(1, frames + 1, dtype=np.float64) / frames
+		ramp = 0.2
+		edge = np.minimum(t, 1 - t)
+		x = np.minimum(edge / ramp, 1.0)
+		# Integrate a quintic velocity ramp into a constant-speed middle, then mirror at the end.
+		progress = (ramp * x**4 * (2.5 - 3 * x + x * x) + np.maximum(edge - ramp, 0.0)) / (1 - ramp)
+		progress[t > 0.5] = 1 - progress[t > 0.5]
+		self.smoothed_moves += 1
+		for s in progress[:-1]:
+			yield q_from + s * (q_to - q_from), phase
+		yield q_to.copy(), phase
+
+
 class TwinMujoco:
 	scan_peak_speed = SCAN_PEAK_SPEED
 	recovery_variants: tuple = ()
 
 	def __init__(
-		self, layout, scorer, record, *, llm=None, bottom_threshold=None, crop_size=256, fault=None, on_frame=None
+		self,
+		layout,
+		scorer,
+		record,
+		*,
+		llm=None,
+		bottom_threshold=None,
+		crop_size=256,
+		fault=None,
+		on_frame=None,
+		smooth_carry=False,
 	):
 		self.layout = layout
 		self.scorer = scorer
@@ -239,7 +276,8 @@ class TwinMujoco:
 			layout, SO101_MJCF_DIR, physics=self.spec, dynamic_clutter=True, assisted_grasp=False, face_probes=True
 		)
 		self.ep = PhysicsEpisode(self.cell, INITIAL_Q, layout.brick_xy, layout.brick_yaw_deg, cfg)
-		self.expert = RelocateExpert(
+		self.expert_type = ContinuousCarryExpert if smooth_carry else RelocateExpert
+		self.expert = self.expert_type(
 			self.cell, INITIAL_Q, layout.brick_xy, ExpertParams(), RelocateParams(do_bottom=False, do_scan=False)
 		)
 		self.node = ""
@@ -721,7 +759,7 @@ class TwinMujoco:
 		params = self.expert.p if params is None else params
 		relocate = self.expert.rp if relocate is None else relocate
 		self._clipped_frames += getattr(self.expert, "clipped_frames", 0)
-		self.expert = ex = RelocateExpert(self.cell, INITIAL_Q, self.layout.brick_xy, params, relocate)
+		self.expert = ex = self.expert_type(self.cell, INITIAL_Q, self.layout.brick_xy, params, relocate)
 		ex.last = np.array(checkpoint.expert["last"])
 		ex._active_open_g = checkpoint.expert["active_open"]
 		ex._frame_idx = checkpoint.expert["frame_idx"]
