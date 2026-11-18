@@ -128,7 +128,9 @@ class TwinService:
 		llm_spec=None,
 		owner=True,
 		max_queue=None,
+		sensing="truth",
 	):
+		self.sensing = sensing  # TwinMujoco sensing mode of every episode this service runs
 		self.out = Path(out).resolve()
 		self.detector = Path(detector).resolve()
 		spec = json.loads(self.detector.read_text(encoding="utf-8"))
@@ -184,6 +186,7 @@ class TwinService:
 					"bottom_profile": str(self.bottom_profile) if self.bottom_profile else None,
 					"llm_spec": self.llm_spec,
 					"owner": False,
+					"sensing": self.sensing,
 				}
 				self._pool = EpisodePool(self.workers, config, lambda: default_sup_scorer(self.detector))
 			return self._pool
@@ -242,6 +245,7 @@ class TwinService:
 				fault=fault,
 				on_frame=hook,
 				smooth_carry=carry_check is not None and carry_check.reference is not None,
+				sensing=self.sensing,
 			)
 			start = _robot_state(backend.cell) if carry_check is not None else None
 			link = None
@@ -692,6 +696,12 @@ def options(parser):
 	parser.add_argument("--llm-url")
 	parser.add_argument("--model", default=DEFAULT_MODEL)
 	parser.add_argument("--workers", type=int, default=1, help="Simulation worker processes (1 = in-process thread).")
+	parser.add_argument(
+		"--sensing",
+		choices=("truth", "realistic"),
+		default="truth",
+		help="realistic: skills see only camera images and arm readings (see TwinMujoco).",
+	)
 
 
 def _service(a):
@@ -700,7 +710,7 @@ def _service(a):
 		if a.llm_url
 		else None
 	)
-	return TwinService(a.out, a.detector, a.bottom_profile, workers=a.workers, llm_spec=llm_spec)
+	return TwinService(a.out, a.detector, a.bottom_profile, workers=a.workers, llm_spec=llm_spec, sensing=a.sensing)
 
 
 def main():
@@ -722,6 +732,15 @@ def main():
 	run.add_argument("--resume", type=Path, help="Interrupted episode directory to restart from its last checkpoint.")
 	run.add_argument("--use-llm", action="store_true")
 	run.add_argument("--smooth-for-vla", action="store_true", help="Rerun successful demonstrations with smooth carry.")
+	step = sub.add_parser("step", help="Step-by-step tools: the client drives the episode (see step_mcp).")
+	step.add_argument("--profile", choices=("omniscient", "realistic"), required=True)
+	step.add_argument("--detector", type=Path, default=ROOT / "results/anomaly/models-sup/sup.json")
+	step.add_argument("--out", type=Path, default=ROOT / "data/catalog/agent-step")
+	step.add_argument("--suite", type=Path)
+	step.add_argument("--transport", choices=("stdio", "streamable-http"), default="stdio")
+	step.add_argument("--host", default="127.0.0.1")
+	step.add_argument("--port", type=int, default=8766)
+	step.add_argument("--scripted", action="store_true", help="Run the scripted client over every case instead.")
 	dashboard = sub.add_parser("dashboard")
 	dashboard.add_argument("--out", type=Path, default=ROOT / "data/catalog/agent")
 	dashboard.add_argument("--port", type=int, default=8095)
@@ -743,6 +762,11 @@ def main():
 	cases = [tuple(row) for row in json.loads(a.suite.read_text(encoding="utf-8-sig"))] if a.suite else DEMO_CASES
 	if not cases:
 		p.error("episode suite must be nonempty")
+	if a.command == "step":
+		from .step_mcp import main_step
+
+		main_step(a, cases)
+		return
 	service = _service(a)
 	try:
 		if a.command == "serve":

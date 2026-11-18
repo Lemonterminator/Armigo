@@ -35,5 +35,6 @@ results/anomaly/*.log
 results/agent-bench/before/
 results/agent-bench/final/
 results/agent-bench/perception/runs/
+results/agent-bench/step-mcp/runs/
 results/agent-bench/videos/*.mp4
 results/agent-bench/sup-local.json

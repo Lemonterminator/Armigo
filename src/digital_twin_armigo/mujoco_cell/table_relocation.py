@@ -23,7 +23,7 @@ from dataclasses import dataclass
 
 import numpy as np
 
-from ..constants import FPS
+from ..constants import FPS, TOP_FULL
 from ._mj import mujoco
 from .cell import Cell
 from .ik import ik, ik_reach
@@ -167,6 +167,14 @@ def plan_table_scan(
 	return [], "none"
 
 
+def _inside(bbox, resolution, border_px: int) -> bool:
+	if bbox is None:
+		return False
+	x, y, w, h = bbox
+	width, height = resolution
+	return x >= border_px and y >= border_px and x + w <= width - border_px and y + h <= height - border_px
+
+
 def plan_bottom_view(
 	cell: Cell,
 	q_from: np.ndarray,
@@ -176,9 +184,12 @@ def plan_bottom_view(
 	clearance_m: float = 0.04,
 	seed: int = 0,
 	clearance: Callable[[np.ndarray], bool] | None = None,
+	border_px: int = 0,
 ) -> ViewCandidate | None:
 	"""Arm pose (held brick carried rigidly) showing the brick's bottom face largest to the top camera, among random
-	joint vectors that keep arm and brick ``clearance_m`` above the table along the straight path from ``q_from``."""
+	joint vectors that keep arm and brick ``clearance_m`` above the table along the straight path from ``q_from``.
+	With ``border_px``, the brick's image box must also keep that far from the image edges (room for an uncertain
+	in-hand pose)."""
 	rng = np.random.default_rng(seed)
 	poser = HeldBrickPoser(cell)
 	lo, hi = cell.jnt_range[:, 0], cell.jnt_range[:, 1]
@@ -191,6 +202,8 @@ def plan_bottom_view(
 			continue
 		v = capture_view(cell, "top", data=dd)
 		if v.visible_fraction < 0.5 or (best is not None and v.faces_px[5] <= best.faces_px[5]):
+			continue
+		if border_px and not _inside(v.bbox, TOP_FULL, border_px):
 			continue
 		if path_min_z(cell, q_from, q, carried=True) < clearance_m * 0.5:
 			continue

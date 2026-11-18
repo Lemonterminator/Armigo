@@ -34,7 +34,8 @@ from ..mujoco_cell.orbit_scan import OrbitParams, plan_orbit_scan
 from ..mujoco_cell.physics_expert import MIN_JERK_PEAK_RATIO, ExpertParams, _min_jerk
 from ..mujoco_cell.table_relocation import RelocateExpert, RelocateParams, plan_bottom_view, plan_table_scan
 from ..physics import NonIdealityCfg, load_physics_spec
-from .perception import PerceptionCfg, locate_brick, yaw_error_deg
+from .perception import PerceptionCfg, bowl_fill, bowl_filled, locate_bowls, locate_brick, yaw_error_deg
+from .sensing import GripperContact
 from .twin_graph import Policy, decision, select_skill
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -46,6 +47,13 @@ BOTTOM_MIN_PX = 400
 WRIST_MIN_PX = 800
 MIN_BRICK_PX = 150
 MAX_TOTAL_FRAMES = 6300
+# ``truth``: skills read the simulator (brick, bowls, contact forces), optionally with the brick perceived (see
+# .perception). ``realistic``: skills see only what a real cell senses, see TwinMujoco.
+SENSING = ("truth", "realistic")
+NEUTRAL_XY = (0.25, 0.0)  # constructor target of a realistic expert; every target it uses is set later
+RETRY_MOVED_M = 0.005  # a brick found this far from where it was believed has moved: its face numbering is lost
+RETRY_MOVED_DEG = 3.0
+BOTTOM_BORDER_PX = 40  # realistic bottom views keep the believed brick this far inside the top image
 
 
 def sample_case(seed: int, positive: bool, face: int):
@@ -284,6 +292,23 @@ class ContinuousCarryExpert(RelocateExpert):
 
 
 class TwinMujoco:
+	"""The six-face skills on one simulated cell.
+
+	With ``sensing="realistic"`` the skills use only what a real cell senses, the camera images, the joint and
+	gripper readings and the robot model:
+
+	- the top camera is hand-eye calibrated before the episode, and the brick and both bowls are located in its images;
+	- a carried brick is believed to move rigidly with the gripper from the grasp on;
+	- planners and the detector crop see the believed brick (the simulated one is moved there while they run);
+	- the expert's contact signals come from the gripper position and effort (.sensing), and brick speed reads zero;
+	- a placement is checked by the top camera (depth against an empty-bowl image);
+	- a failure is recovered from the current state (park or drop, relocate the brick) instead of a physics rewind;
+	- the motion-health check moves to the final evaluation, which, as in ``truth``, is ground truth.
+
+	Still from the simulator: the bowl and clutter collision geometry in the grasp clearance checks (at the true bowl
+	positions, about 1 mm from the perceived ones).
+	"""
+
 	scan_peak_speed = SCAN_PEAK_SPEED
 	sweep_pause_s = None  # pause between chunks of a multi-pose scan sweep; None: the expert's chunk pause
 	recovery_variants: tuple = ()
@@ -300,7 +325,13 @@ class TwinMujoco:
 		fault=None,
 		on_frame=None,
 		smooth_carry=False,
+		sensing="truth",
 	):
+		if sensing not in SENSING:
+			raise ValueError(f"sensing must be one of {SENSING}")
+		self.sensing = sensing
+		self.realistic = sensing == "realistic"
+		self._expert_xy = NEUTRAL_XY if self.realistic else layout.brick_xy
 		self.layout = layout
 		self.scorer = scorer
 		self.record = record
@@ -323,7 +354,7 @@ class TwinMujoco:
 		self.ep = PhysicsEpisode(self.cell, INITIAL_Q, layout.brick_xy, layout.brick_yaw_deg, cfg)
 		self.expert_type = ContinuousCarryExpert if smooth_carry else RelocateExpert
 		self.expert = self.expert_type(
-			self.cell, INITIAL_Q, layout.brick_xy, ExpertParams(), RelocateParams(do_bottom=False, do_scan=False)
+			self.cell, INITIAL_Q, self._expert_xy, ExpertParams(), RelocateParams(do_bottom=False, do_scan=False)
 		)
 		self.node = ""
 		self.phases: list[int] = []
@@ -343,14 +374,74 @@ class TwinMujoco:
 		# Brick perception (opt-in, see .perception): the top camera is calibrated before the episode, and the brick
 		# is located in its depth image whenever a skill needs it on the table.
 		self.perception = PerceptionCfg.from_env()
+		if self.realistic and self.perception is None:
+			self.perception = PerceptionCfg.realistic()
 		self.brick_est = None
 		self._belief_obs = False
+		self._grip_from_brick = None  # realistic: the carried brick in the gripper frame, believed at the grasp
+		self._expected_yaw = None  # realistic: yaw the brick should show after the agent put it down itself
+		self._checkpoint_belief: dict[str, object] = {}
 		self._park_xy = np.asarray(layout.brick_xy, dtype=np.float64)
+		self.bowls = {
+			"green": np.asarray(layout.green, dtype=np.float64),
+			"pink": np.asarray(layout.pink, dtype=np.float64),
+		}
+		self.scene_error = None
 		if self.perception is not None:
 			seed = int(getattr(layout, "defect_seed", 0))
 			self._cam_k, self._cam_est, info = calibrate_layout(layout, seed, self.perception.calibration)
 			self._depth_rng = np.random.default_rng(seed + 30_000)
 			self.event("camera_calibrated", **info)
+		if self.realistic:
+			self._contact = GripperContact()
+			self._sense_bowls()
+
+	def _sense_bowls(self):
+		"""Locate both bowls in the top images and keep the depth image as the empty-bowl reference."""
+		depth = self._top_depth()
+		found = locate_bowls(self.cell.rgb("top"), depth, self._cam_k, self._cam_est)
+		self._baseline_depth = depth
+		errors = {}
+		for name, est in found.items():
+			if est is None:
+				self.scene_error = "BOWL_NOT_FOUND"
+				continue
+			self.bowls[name] = est.xy
+			truth = np.asarray(getattr(self.layout, name))
+			errors[name] = round(float(np.linalg.norm(est.xy - truth) * 1000), 3)  # scoring only
+		self.event(
+			"bowls_perceived",
+			positions_m={n: None if e is None else e.xy.round(5).tolist() for n, e in found.items()},
+			error_xy_mm=errors,
+		)
+
+	def _grip_pose(self) -> np.ndarray:
+		"""World-from-gripper frame from the joint readings (forward kinematics of the robot model)."""
+		d, site = self.cell.data, self.cell.site
+		tf = np.eye(4)
+		tf[:3, :3] = d.site_xmat[site].reshape(3, 3)
+		tf[:3, 3] = d.site_xpos[site]
+		return tf
+
+	def _brick_belief(self):
+		"""``(position, quaternion xyzw)`` the realistic agent believes for the brick: carried with the gripper since
+		the grasp, else as last perceived on the table; None before the first localisation."""
+		if self._grip_from_brick is not None:
+			tf = self._grip_pose() @ self._grip_from_brick
+			quat = np.zeros(4)
+			mujoco.mju_mat2Quat(quat, tf[:3, :3].flatten())
+			return tf[:3, 3].copy(), quat[[1, 2, 3, 0]]
+		if self.brick_est is not None:
+			return self.brick_est.pos.copy(), self.brick_est.quat_xyzw()
+		return None
+
+	def _table_belief_tf(self) -> np.ndarray:
+		est = self.brick_est
+		tf = np.eye(4)
+		c, s = math.cos(est.yaw), math.sin(est.yaw)
+		tf[:3, :3] = [[c, -s, 0.0], [s, c, 0.0], [0.0, 0.0, 1.0]]
+		tf[:3, 3] = est.pos
+		return tf
 
 	def _top_depth(self):
 		r = self.cell.renderer
@@ -367,10 +458,16 @@ class TwinMujoco:
 		"""Locate the brick on the table through the calibrated top camera; None, or a failure code."""
 		if self.perception is None:
 			return None
-		est = locate_brick(self._top_depth(), self._cam_k, self._cam_est, [self.layout.green, self.layout.pink])
+		est = locate_brick(self._top_depth(), self._cam_k, self._cam_est, list(self.bowls.values()))
 		if est is None:
 			self.event("brick_perceived", found=False)
 			return "BRICK_NOT_FOUND"
+		if self._expected_yaw is not None:
+			# The footprint only fixes the yaw up to its symmetry; after a put-down, keep the face numbering the
+			# agent has been using by taking the symmetric yaw nearest the one it put the brick down with.
+			period = math.pi if est.size[0] != est.size[1] else math.pi / 2
+			est.yaw += period * round((self._expected_yaw - est.yaw) / period)
+			self._expected_yaw = None
 		self.brick_est = est
 		# Truth is logged for scoring only; nothing in the agent reads it back.
 		rot = self.cell.data.xmat[self.cell.brick_body].reshape(3, 3)
@@ -391,15 +488,22 @@ class TwinMujoco:
 
 	@contextmanager
 	def _belief(self):
-		"""Show planners that read the brick from the simulation the perceived pose instead (brick on the table)."""
-		if self.brick_est is None or self.held is not None:
+		"""Show planners that read the brick from the simulation the believed pose instead: the perceived one on the
+		table, and in ``realistic`` also the carried one."""
+		if self.realistic:
+			belief = self._brick_belief()
+		elif self.brick_est is None or self.held is not None:
+			belief = None
+		else:
+			belief = (self.brick_est.pos, self.brick_est.quat_xyzw())
+		if belief is None:
 			yield
 			return
 		m, d = self.cell.model, self.cell.data
 		adr = self.cell.brick_qadr
 		saved = d.qpos[adr : adr + 7].copy()
-		x, y, z, w = self.brick_est.quat_xyzw()
-		d.qpos[adr : adr + 3] = self.brick_est.pos
+		x, y, z, w = belief[1]
+		d.qpos[adr : adr + 3] = belief[0]
 		d.qpos[adr + 3 : adr + 7] = (w, x, y, z)
 		mujoco.mj_kinematics(m, d)
 		try:
@@ -426,7 +530,17 @@ class TwinMujoco:
 			if self.on_frame is not None:
 				self.on_frame(self)
 			obs = observe(self.cell, self.ep)
-			if self._belief_obs and self.brick_est is not None:
+			if self.realistic:
+				belief = self._brick_belief()
+				if belief is None:
+					obs["brick_pos"], obs["brick_quat"] = np.full(3, np.nan), np.array([0.0, 0.0, 0.0, 1.0])
+				else:
+					obs["brick_pos"], obs["brick_quat"] = belief
+				obs["brick_vel"] = np.zeros(3)
+				obs["jaw_normal"] = self._contact.update(
+					float(obs["gripper_cmd"]), float(obs["q"][5]), float(obs["effort_frac"])
+				)
+			elif self._belief_obs and self.brick_est is not None:
 				obs["brick_pos"] = self.brick_est.pos.copy()
 				obs["brick_quat"] = self.brick_est.quat_xyzw()
 			target, phase = expert.act(obs)
@@ -476,6 +590,7 @@ class TwinMujoco:
 		)
 		self.record.checkpoint(checkpoint)
 		self.checkpoints.append(checkpoint)
+		self._checkpoint_belief[checkpoint.id] = copy.deepcopy(self.brick_est)
 		self.event("checkpoint", checkpoint=checkpoint.id)
 
 	def prepare(self):
@@ -483,8 +598,12 @@ class TwinMujoco:
 			yield from self.expert._hold(self.expert.p.rest_s, "rest")
 			yield from self.expert._go_ready()
 
+		if self.scene_error:
+			return self.scene_error
 		error = self._execute(ready())
 		if not error:
+			if self.realistic:  # the arm hid other pixels at rest: keep the farther reading of each
+				self._baseline_depth = np.maximum(self._baseline_depth, self._top_depth())
 			self._save([])
 		return error
 
@@ -545,7 +664,11 @@ class TwinMujoco:
 		"""Compact, leak-checked state for the LLM: coverage, per-view scores, failures, budgets, checkpoints."""
 		covered = decision(views)[1]
 		cell = self.cell
-		brick = cell.brick_pos()
+		if self.realistic:
+			belief = self._brick_belief()
+			brick = np.full(3, np.nan) if belief is None else belief[0]
+		else:
+			brick = cell.brick_pos()
 		policy = getattr(self, "policy", None)  # set by whoever owns the Policy; absent means limits are unknown
 		budget = {
 			"wrist_views_used": self.wrist_count,
@@ -574,8 +697,9 @@ class TwinMujoco:
 			"failures": [{k: f[k] for k in ("code", "skill", "reason_codes") if k in f} for f in failures],
 			"budget": budget,
 			"grasped": self.held is not None,
-			"brick": {"xy_m": np.asarray(brick[:2]).round(3).tolist(), "z_m": round(float(brick[2]), 3)},
 		}
+		if np.isfinite(brick).all():
+			context["brick"] = {"xy_m": np.asarray(brick[:2]).round(3).tolist(), "z_m": round(float(brick[2]), 3)}
 		described = {k: self.SKILL_NOTES[k] for k in allowed if k in self.SKILL_NOTES}
 		checkpoints = []
 		for c in self.checkpoints:
@@ -627,7 +751,12 @@ class TwinMujoco:
 
 	def choose(self, allowed, views, failures, notes=None):
 		info = {}
-		if self.llm is None or len(allowed) == 1 and not failures:
+		forced, self.forced_choice = getattr(self, "forced_choice", None), None
+		if forced is not None:  # an outside agent (the step MCP) already chose
+			if forced not in allowed:
+				raise ValueError(f"{forced!r} is not one of {allowed}")
+			action, source = forced, "agent"
+		elif self.llm is None or len(allowed) == 1 and not failures:
 			action, source = allowed[0], "policy"
 		else:
 			context = self.decision_context(allowed, views, failures, notes)
@@ -649,10 +778,18 @@ class TwinMujoco:
 
 	def _capture(self, camera):
 		cell = self.cell
-		with blind_geometry(cell):
-			geometry = capture_view(cell, camera)
 		rgb = cell.rgb(camera)
-		image, bbox = detector_crop(cell, camera, None, cell.data, self.crop_size, clamp=True, rgb=rgb)
+		if self.realistic:
+			# Visible faces and the crop come from the believed brick; the image is the real one.
+			with blind_geometry(cell):
+				true_faces = capture_view(cell, camera).faces_px
+			with self._belief(), blind_geometry(cell):
+				geometry = capture_view(cell, camera)
+				image, bbox = detector_crop(cell, camera, None, cell.data, self.crop_size, clamp=True, rgb=rgb)
+		else:
+			with blind_geometry(cell):
+				geometry = capture_view(cell, camera)
+			image, bbox = detector_crop(cell, camera, None, cell.data, self.crop_size, clamp=True, rgb=rgb)
 		min_px = BOTTOM_MIN_PX if camera == "top" else WRIST_MIN_PX
 		faces = [i for i, n in enumerate(geometry.faces_px) if n >= min_px and ((i == 5) == (camera == "top"))]
 		threshold = (
@@ -700,6 +837,14 @@ class TwinMujoco:
 			"crop_bbox": bbox,
 		}
 		self.record.view(view, rgb, image)
+		if self.realistic:  # scoring only: how far the believed visible faces were from the true ones
+			belief = self._brick_belief()
+			belief_err = (
+				None if belief is None else round(float(np.linalg.norm(belief[0] - cell.brick_pos()) * 1000), 2)
+			)
+			self.event(
+				"view_truth", id=view["id"], true_face_pixels=[int(v) for v in true_faces], belief_error_mm=belief_err
+			)
 		# Keep diagnostics in the trace, separate from the decision evidence supplied to the agent.
 		self.event(
 			"view" if error is None else "detector_error",
@@ -711,10 +856,11 @@ class TwinMujoco:
 		return view
 
 	def _straight_clear(self, first, last, *, held=False):
-		self.expert.kin.data.qpos[:] = self.cell.data.qpos
-		# Sample the swept arm and bowl/clutter clearance in addition to table height.
-		qs = [first + a * (last - first) for a in np.linspace(0, 1, 10)]
-		return path_min_z(self.cell, first, last, carried=held) >= 0.015 and self.expert._clearance(qs) >= 0
+		with self._belief():
+			self.expert.kin.data.qpos[:] = self.cell.data.qpos
+			# Sample the swept arm and bowl/clutter clearance in addition to table height.
+			qs = [first + a * (last - first) for a in np.linspace(0, 1, 10)]
+			return path_min_z(self.cell, first, last, carried=held) >= 0.015 and self.expert._clearance(qs) >= 0
 
 	def _park_held(self):
 		q_lift, roll = self.held
@@ -729,6 +875,10 @@ class TwinMujoco:
 			yield from ex._carry(ex._move(q_lift, ex._carry_secs(q_lift, ex.p.show_move_s), "show_move"))
 			if not ex.lost:
 				yield from ex._put_down(self._park_xy, roll, q_lift)
+				if self.realistic and self._grip_from_brick is not None:
+					# The put-down retreats straight up, so the gripper still has the release orientation.
+					rot = (self._grip_pose() @ self._grip_from_brick)[:3, :3]
+					self._expected_yaw = math.atan2(rot[1, 0], rot[0, 0])
 			if not ex.lost:
 				yield from ex._go_ready()
 
@@ -736,6 +886,9 @@ class TwinMujoco:
 		if error or ex.lost:
 			return error or "BRICK_LOST"
 		self.held = None
+		if self.realistic:  # released: where it landed is found by looking again
+			self._grip_from_brick = None
+			self.brick_est = None
 		return None
 
 	def _wrist(self, previous, views):
@@ -747,7 +900,8 @@ class TwinMujoco:
 		if error := self._perceive():
 			return error
 		ex, cell = self.expert, self.cell
-		ex.kin.data.qpos[:] = cell.data.qpos
+		with self._belief():
+			ex.kin.data.qpos[:] = cell.data.qpos
 		attempt = min(self.wrist_count - 1 + self.rewinds, 2)
 		steps, mode, extra = self._scan_plan(previous, attempt)
 		self.event("scan_plan", mode=mode, candidates=len(steps), **extra)
@@ -825,6 +979,9 @@ class TwinMujoco:
 				grasp = yield from ex._grasp()
 			finally:
 				self._belief_obs = False
+			if grasp is not None and self.realistic:
+				# From now on the brick is believed to move with the gripper, as it was perceived before the grasp.
+				self._grip_from_brick = np.linalg.inv(self._grip_pose()) @ self._table_belief_tf()
 			if grasp is not None:
 				q_lift = yield from ex._lift(grasp)
 				self.held = (q_lift, grasp.roll)
@@ -837,13 +994,14 @@ class TwinMujoco:
 		if self.held is None and (error := self._grasp()):
 			return error
 		ex, cell = self.expert, self.cell
-		with blind_geometry(cell):
+		with self._belief(), blind_geometry(cell):
 			candidate = plan_bottom_view(
 				cell,
 				ex.last,
 				gripper=ex.p.hold_g,
 				seed=self.rewinds * 71 + self.bottom_count - 1,
 				clearance=lambda q: self._straight_clear(ex.last, q, held=True),
+				border_px=BOTTOM_BORDER_PX if self.realistic else 0,
 			)
 		if candidate is None or candidate.faces_px[5] < BOTTOM_MIN_PX:
 			self.event("view_unavailable", camera="top", reason="NO_BOTTOM_PATH")
@@ -910,28 +1068,52 @@ class TwinMujoco:
 		params = self.expert.p if params is None else params
 		relocate = self.expert.rp if relocate is None else relocate
 		self._clipped_frames += getattr(self.expert, "clipped_frames", 0)
-		self.expert = ex = self.expert_type(self.cell, INITIAL_Q, self.layout.brick_xy, params, relocate)
+		self.expert = ex = self.expert_type(self.cell, INITIAL_Q, self._expert_xy, params, relocate)
 		ex.last = np.array(checkpoint.expert["last"])
 		ex._active_open_g = checkpoint.expert["active_open"]
 		ex._frame_idx = checkpoint.expert["frame_idx"]
 		ex.gripper_monitor._prev_meas = checkpoint.expert["monitor_position"]
 		ex.gripper_monitor._run = checkpoint.expert["monitor_count"]
 		self.held = None
+		self._grip_from_brick = None
+		if self.realistic:
+			self._contact.reset()
+			self.brick_est = copy.deepcopy(self._checkpoint_belief.get(checkpoint.id))
 		self.actual_destination = None
 		self.execution_error = None
 		self.wrist_count = checkpoint.wrist_count
 		self.bottom_count = checkpoint.bottom_count
 
-	def rewind(self, policy: Policy, failures):
-		self.policy = policy
-		if not self.checkpoints or self.rewinds >= policy.max_rewinds or self.total_frames >= MAX_TOTAL_FRAMES:
-			return None
+	def recovery_choices(self, policy: Policy, failures) -> list[tuple[str, str]]:
+		"""``(choice, note)`` pairs the recover node offers after ``failures[-1]``, the default first and ``stop``
+		last; empty when the budget leaves no recovery. ``truth`` rewinds the physics to a skill-boundary checkpoint;
+		``realistic`` recovers from the current state (see :meth:`_retry`)."""
+		stop = ("stop", "give up and report the failure")
+		if self.rewinds >= policy.max_rewinds or self.total_frames >= MAX_TOTAL_FRAMES:
+			return []
+		failure = failures[-1]
+		if self.realistic:
+			if failure.get("code") in ("BOWL_NOT_FOUND", "DETECTOR_UNAVAILABLE"):
+				return []
+			recommended = VARIANT_BY_CODE.get(failure.get("code"))
+			variants = [v for v in dict.fromkeys((recommended, "cautious")) if v]
+			note = "recover from the current state and retry with"
+			options = [(f"retry+{v}", f"{note} {VARIANT_NOTES[v]}") for v in variants]
+			return [*options, ("retry", f"{note} unchanged parameters"), stop]
+		if not self.checkpoints:
+			return []
 		stall = stall_start(self.ep.telemetry()["actuator_torques"], self.spec.arm_actuator.effort_limit)
 		stall_node = None if stall is None else node_at(self.record.events, stall)
-		options = rewind_options(self.checkpoints, failures[-1], stall, stall_node)
-		actions = [choice for choice, _ in options] + ["stop"]
-		notes = {**dict(options), "stop": "give up and report the failure"}
-		choice = self.choose(actions, self.checkpoints[-1].views, failures, notes=notes)
+		return [*rewind_options(self.checkpoints, failure, stall, stall_node), stop]
+
+	def rewind(self, policy: Policy, failures):
+		if self.realistic:
+			return self._retry(policy, failures)
+		self.policy = policy
+		options = self.recovery_choices(policy, failures)
+		if not options:
+			return None
+		choice = self.choose([c for c, _ in options], self.checkpoints[-1].views, failures, notes=dict(options))
 		if choice == "stop":
 			return None
 		checkpoint_id, _, variant = choice.partition("+")
@@ -962,12 +1144,76 @@ class TwinMujoco:
 		)
 		return copy.deepcopy(checkpoint.views)
 
+	def _retry(self, policy: Policy, failures):
+		"""Realistic recovery: no physics rewind. Put a carried brick down (or let go of it), go to the ready pose,
+		locate the brick again and carry on with a bounded variant. The views so far still count only when the brick
+		is found where it was believed at the last skill boundary; otherwise its face numbering is lost."""
+		self.policy = policy
+		failure = failures[-1]
+		options = self.recovery_choices(policy, failures)
+		if not options:
+			return None
+		last = self.checkpoints[-1] if self.checkpoints else None
+		kept = copy.deepcopy(last.views) if last else []
+		choice = self.choose([c for c, _ in options], kept, failures, notes=dict(options))
+		if choice == "stop":
+			return None
+		_, _, variant = choice.partition("+")
+		self.rewinds += 1
+		params, relocate = self.expert.p, self.expert.rp
+		if variant:
+			self._base_params = getattr(self, "_base_params", (params, relocate))
+			params, relocate, self.scan_peak_speed = apply_variant(variant, *self._base_params)
+		self.recovery_variants = (*self.recovery_variants, variant or "none")
+		self.event("retry", reason=failure.get("code"), variant=variant or None)
+		lost = self.expert.lost
+		self._clipped_frames += getattr(self.expert, "clipped_frames", 0)
+		self.expert = ex = self.expert_type(self.cell, INITIAL_Q, self._expert_xy, params, relocate)
+		ex.last = self.cell.joints().copy()
+		self._contact.reset()
+		error = None
+		if self.held is not None and not lost:
+			error = self._park_held()
+		if self.held is not None or self._grip_from_brick is not None or error:
+
+			def let_go():  # open where the gripper is, then rise
+				q = ex.last.copy()
+				q[5] = ex.p.open_g
+				yield from ex._move(q, ex.p.close_s, "place")
+				up = ex._ik(self.cell.tcp_pos() + np.array([0.0, 0.0, 0.06]), q, float(q[4]))
+				up[5] = ex.p.open_g
+				yield from ex._move(up, ex.p.descend_s, "place")
+
+			error = self._execute(let_go())
+		self.held = None
+		self._grip_from_brick = None
+		self.brick_est = None
+		if error or self._execute(ex._go_ready()):
+			return None
+		believed = self._checkpoint_belief.get(last.id) if last else None
+		if self._perceive():
+			return None
+		moved = believed is None or bool(
+			np.linalg.norm(self.brick_est.pos[:2] - believed.pos[:2]) > RETRY_MOVED_M
+			or yaw_error_deg(self.brick_est.yaw, believed.yaw, self.brick_est.size) > RETRY_MOVED_DEG
+			or self.brick_est.size != believed.size
+		)
+		views = [] if moved else kept
+		self.event("retried", brick_moved=moved, views_kept=len(views))
+		self._save(views)
+		return views
+
 	def place(self, label):
 		if label == "unknown":
 			self.event("abstain", destination="inspection_table")
 			error = self._park_held() if self.held is not None else None
 			if error:
 				return error
+			if self.realistic:  # the brick must be seen back on the table
+				if self.brick_est is None and self._perceive():
+					return "INSPECTION_TABLE_PARK_UNVERIFIED"
+				self.actual_destination = "inspection_table"
+				return None
 			position = self.cell.brick_pos()
 			if (
 				np.linalg.norm(position[:2] - self._park_xy) > 0.03
@@ -980,7 +1226,7 @@ class TwinMujoco:
 			return error
 		ex = self.expert
 		q_lift, _ = self.held
-		ex.bowl_xy = np.array(self.layout.pink if label == "defective" else self.layout.green)
+		ex.bowl_xy = np.array(self.bowls["pink" if label == "defective" else "green"])
 		if not self._straight_clear(ex.last, q_lift, held=True):
 			return "PLACE_RETURN_PATH_BLOCKED"
 
@@ -999,9 +1245,22 @@ class TwinMujoco:
 		position = self.cell.brick_pos()
 		for name, xy in (("green", self.layout.green), ("pink", self.layout.pink)):
 			if np.linalg.norm(position[:2] - xy) < BOWL_R and position[2] < 0.055:
-				self.actual_destination = name
+				self.actual_destination = name  # ground truth, read only by evaluate in realistic
 				break
-		if self.actual_destination != ("pink" if label == "defective" else "green"):
+		target = "pink" if label == "defective" else "green"
+		if self.realistic:
+			self._grip_from_brick = None
+			self.brick_est = None
+			depth = self._top_depth()
+			fill = {
+				n: bowl_fill(depth, self._baseline_depth, self._cam_k, self._cam_est, xy)
+				for n, xy in self.bowls.items()
+			}
+			self.event("placement_check", fill_pixels=fill)
+			if not bowl_filled(fill[target]):
+				return "PLACEMENT_UNVERIFIED"
+			return None  # the motion-health check is part of the final evaluation
+		if self.actual_destination != target:
 			return "PLACEMENT_UNVERIFIED"
 		health = self._health(ex.bowl_xy)
 		if health["verdict"] != "SUCCESS":

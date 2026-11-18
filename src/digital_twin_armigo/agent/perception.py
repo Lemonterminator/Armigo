@@ -13,8 +13,10 @@ and, whenever the brick lies on the table and a skill needs it, locates it in a 
 6. if a side comes out shorter than the Duplo size, something nearer the camera (usually the arm) may hide part of
    the top face: extend the rectangle towards the side whose missing strip the depth image shows covered.
 
-The brick is assumed to rest upright on the table, so its height comes from the size class. The pose of a brick in
-the hand, the bowl positions and the face-visibility counts are still the simulator's.
+The brick is assumed to rest upright on the table, so its height comes from the size class.
+
+:func:`locate_bowls` finds the two bowls by colour and fits a circle to the 3D points of each bowl's outer rim, and
+:func:`bowl_fill` tells whether something now lies in a bowl by comparing the depth image with one taken before.
 """
 
 from __future__ import annotations
@@ -42,12 +44,23 @@ TABLE_BAND_M = 0.03  # first guess of table points around z = 0
 TABLE_INLIER_M = 0.003
 MIN_DEFICIT_M = 0.003  # a fitted side this much shorter than the brick is checked for occlusion
 OCCLUDER_GAP_M = 0.01  # a pixel is covered when its depth is this much nearer than the hidden top face
+# Bowl colours as OpenCV HSV bounds (H 0-180): hue low, hue high, minimum saturation, minimum value.
+BOWL_HSV = {"green": (45, 85, 70, 30), "pink": (150, 178, 40, 90)}
+BOWL_MIN_PIXELS = 3000
+RIM_INLIER_M = 0.004
+FILL_GAP_M = 0.008  # a bowl pixel is filled when it came this much nearer the camera
+FILL_MIN_PIXELS = 500  # a 2x2 brick in a bowl shows about 1400; arm edges and noise up to about 300
 
 
 @dataclass(frozen=True)
 class PerceptionCfg:
 	calibration: CalibrationCfg = field(default_factory=CalibrationCfg)
 	depth_noise_m: float = 0.0015  # σ at 0.5 m; grows with the square of the depth, as a stereo camera's does
+
+	@classmethod
+	def realistic(cls) -> PerceptionCfg:
+		"""``config/agent_bench/perception/realistic.json``: joint noise 0.1°, zero-offset σ 0.5°, offsets solved."""
+		return cls(calibration=CalibrationCfg(joint_noise_deg=0.1, joint_bias_deg=0.5, offsets=True))
 
 	@classmethod
 	def from_env(cls) -> PerceptionCfg | None:
@@ -182,3 +195,86 @@ def locate_brick(
 	table_z = float(centre @ plane[:2] + plane[2])
 	pos = np.array([centre[0], centre[1], table_z + size[2] / 2 + 0.0005])  # resting upright on the table
 	return BrickEstimate(pos, yaw, size, (float(long_side), float(short_side)), len(top), tuple(extended))
+
+
+@dataclass
+class BowlEstimate:
+	xy: np.ndarray  # rim centre, robot frame (m)
+	radius_m: float
+	pixels: int
+	rim_points: int
+
+
+def _plane_heights(p: np.ndarray, bowls_hint=()) -> np.ndarray | None:
+	"""Heights of robot-frame points ``p`` (n, 3) above the table plane fitted to them."""
+	r = np.hypot(p[:, 0], p[:, 1])
+	near = np.isfinite(p).all(axis=1) & (r > REACH_M[0]) & (r < 0.45) & (np.abs(p[:, 2]) < TABLE_BAND_M)
+	plane = table_plane(p[near])
+	if plane is None:
+		return None
+	return p[:, 2] - (p[:, :2] @ plane[:2] + plane[2])
+
+
+def locate_bowls(
+	rgb: np.ndarray, depth: np.ndarray, k: np.ndarray, world_from_cam: np.ndarray
+) -> dict[str, BowlEstimate | None]:
+	"""The green and pink bowls in a top image: the largest blob of each colour, then a circle fitted to the 3D points
+	of its outer contour that stand on the rim (the contour also runs along occluders and the image edge; those
+	points sit lower or off the circle and are dropped by the height cut and the inlier refit)."""
+	import cv2
+
+	hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
+	pts = depth_points(depth, k, world_from_cam)
+	heights = _plane_heights(pts.reshape(-1, 3))
+	out: dict[str, BowlEstimate | None] = {}
+	for name, (lo, hi, smin, vmin) in BOWL_HSV.items():
+		out[name] = None
+		mask = (hsv[..., 0] >= lo) & (hsv[..., 0] <= hi) & (hsv[..., 1] >= smin) & (hsv[..., 2] >= vmin)
+		n, labels, stats, _ = cv2.connectedComponentsWithStats(mask.astype(np.uint8), connectivity=8)
+		if n < 2:
+			continue
+		best = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+		area = int(stats[best, cv2.CC_STAT_AREA])
+		if area < BOWL_MIN_PIXELS:
+			continue
+		comp = labels == best
+		contours, _ = cv2.findContours(comp.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+		edge = max(contours, key=len)[:, 0]
+		rim = pts[edge[:, 1], edge[:, 0]]
+		if heights is not None:
+			h = heights.reshape(depth.shape)
+			blob_top = float(np.percentile(h[comp], 95))
+			rim = rim[h[edge[:, 1], edge[:, 0]] > 0.6 * blob_top]
+		rim = rim[np.isfinite(rim).all(axis=1)]
+		if len(rim) < 20:
+			continue
+		keep = np.ones(len(rim), bool)
+		for _ in range(4):
+			a = np.column_stack([2 * rim[keep, :2], np.ones(int(keep.sum()))])
+			(cx, cy, c), *_ = np.linalg.lstsq(a, (rim[keep, :2] ** 2).sum(axis=1), rcond=None)
+			radius = math.sqrt(max(c + cx * cx + cy * cy, 0.0))
+			keep = np.abs(np.hypot(rim[:, 0] - cx, rim[:, 1] - cy) - radius) < RIM_INLIER_M
+			if keep.sum() < 10:
+				break
+		if abs(radius - BOWL_R) > 0.015:
+			continue
+		out[name] = BowlEstimate(np.array([cx, cy]), float(radius), area, int(keep.sum()))
+	return out
+
+
+def bowl_fill(
+	depth: np.ndarray, baseline: np.ndarray, k: np.ndarray, world_from_cam: np.ndarray, xy, margin_m: float = 0.015
+) -> int:
+	"""Pixels inside the bowl at ``xy`` that came at least FILL_GAP_M nearer the camera than in ``baseline`` and lie
+	low (under 6 cm above the table, so the arm passing over does not count)."""
+	p = depth_points(depth, k, world_from_cam)
+	heights = _plane_heights(p.reshape(-1, 3))
+	if heights is None:
+		return 0
+	inside = np.hypot(p[..., 0] - xy[0], p[..., 1] - xy[1]) < BOWL_R - margin_m
+	low = heights.reshape(depth.shape) < 0.06
+	return int(np.count_nonzero(inside & low & (depth < baseline - FILL_GAP_M)))
+
+
+def bowl_filled(count: int) -> bool:
+	return count >= FILL_MIN_PIXELS
