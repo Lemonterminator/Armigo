@@ -174,7 +174,22 @@ def aggregate(results):
 	from collections import Counter
 
 	failures = Counter(failure["code"] for result in results for failure in result["failures"])
+	llm = [x.get("llm") or {} for x in results]
+	consulted = sum(x.get("consulted", 0) for x in llm)
+	adopted = sum(x.get("adopted", 0) for x in llm)
+	reasons = Counter()
+	tokens = []
+	for x in llm:
+		reasons.update(x.get("fallback_reasons") or {})
+		tokens.extend(x.get("prompt_tokens") or [])
 	return {
+		"llm_consulted": consulted,
+		"llm_adopted": adopted,
+		"llm_adoption_rate": round(adopted / consulted, 4) if consulted else None,
+		"fallback_reasons": dict(sorted(reasons.items())),
+		"llm_prompt_tokens_median": statistics.median(tokens) if tokens else None,
+		"llm_prompt_tokens_max": max(tokens) if tokens else None,
+		"llm_latency_s_total": round(sum(x.get("latency_s_total", 0.0) for x in llm), 3),
 		"episodes": len(results),
 		"successes": sum(x["verdict"] == "SUCCESS" for x in results),
 		"labels_correct": sum(x["label_correct"] for x in results),

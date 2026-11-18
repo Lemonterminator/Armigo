@@ -11,12 +11,14 @@ from collections import deque
 from contextlib import contextmanager
 from dataclasses import dataclass
 from pathlib import Path
+from typing import ClassVar
 
 import numpy as np
 
 from ..benchmarks import SENSITIVITY_MATRIX
 from ..camera import CameraPose, look_from
 from ..constants import BOWL_R, FPS, PHASES, REST_U, SO101_MJCF_DIR
+from ..inspection import assert_no_defect_leakage
 from ..joints import normalized_to_rad
 from ..metrics import evaluate_episode_health
 from ..mujoco_cell import Cell
@@ -239,17 +241,104 @@ class TwinMujoco:
 			"pinch_normal_n": rounded(self.ep.last("pinch_normal")) if self.ep.n_frames else [0.0, 0.0],
 		}
 
-	def choose(self, allowed, views, failures):
-		context = {
-			"geometry": self._geometry(),
-			"views": views,
-			"failures": failures,
-			"spent_sim_frames": self.total_frames,
+	SKILL_NOTES: ClassVar[dict[str, str]] = {
+		"scan_wrist": "move the wrist camera over the brick to read the side and top faces (0-4) not yet cleared",
+		"present_bottom": "grasp the brick and show its bottom face (5) to the top camera",
+		"stop": "give up: the episode ends as a failure with the brick unsorted",
+	}
+
+	def decision_context(self, allowed, views, failures, notes=None):
+		"""Compact, leak-checked state for the LLM: coverage, per-view scores, failures, budgets, checkpoints."""
+		covered = decision(views)[1]
+		cell = self.cell
+		brick = cell.brick_pos()
+		policy = getattr(self, "policy", None)  # set by whoever owns the Policy; absent means limits are unknown
+		budget = {
+			"wrist_views_used": self.wrist_count,
+			"bottom_views_used": self.bottom_count,
+			"rewinds_used": self.rewinds,
+			"frames_left": MAX_TOTAL_FRAMES - self.total_frames,
 		}
+		if policy is not None:
+			budget["wrist_views_left"] = policy.max_wrist_views - self.wrist_count
+			budget["bottom_views_left"] = policy.max_bottom_views - self.bottom_count
+			budget["rewinds_left"] = policy.max_rewinds - self.rewinds
+		context = {
+			"covered_faces": sorted(covered),
+			"missing_faces": [f for f in range(6) if f not in covered],
+			"views": [
+				{
+					"id": v["id"],
+					"camera": v["camera"],
+					"faces": v["faces"],
+					"score": None if v["score"] is None else round(v["score"], 3),
+					"threshold": round(v["threshold"], 3),
+					"margin": None if v["score"] is None else round(v["score"] - v["threshold"], 3),
+				}
+				for v in views
+			],
+			"failures": [{k: f[k] for k in ("code", "skill", "reason_codes") if k in f} for f in failures],
+			"budget": budget,
+			"grasped": self.held is not None,
+			"brick": {"xy_m": np.asarray(brick[:2]).round(3).tolist(), "z_m": round(float(brick[2]), 3)},
+		}
+		described = {k: self.SKILL_NOTES[k] for k in allowed if k in self.SKILL_NOTES}
+		checkpoints = []
+		for c in self.checkpoints:
+			if c.id in allowed:
+				faces = sorted(decision(c.views)[1])
+				checkpoints.append({"id": c.id, "frame": c.frame, "faces_covered": faces})
+				described[c.id] = f"rewind to frame {c.frame} with faces {faces} covered"
+		if checkpoints:
+			context["checkpoints"] = checkpoints
+		context["choice_notes"] = {**described, **{k: str(v) for k, v in (notes or {}).items() if k in allowed}}
+		# Nothing about the defect, its face or the label may reach the model.
+		assert_no_defect_leakage(context)
+		return context
+
+	def _note_llm(self, source, info):
+		stats = getattr(self, "_llm_stats", None)
+		if stats is None:
+			stats = self._llm_stats = {
+				"consulted": 0,
+				"adopted": 0,
+				"fallback_reasons": {},
+				"prompt_tokens": [],
+				"latency_s_total": 0.0,
+				"attempts": 0,
+			}
+		stats["consulted"] += 1
+		stats["adopted"] += source == "llm"
+		if info.get("reason"):
+			stats["fallback_reasons"][info["reason"]] = stats["fallback_reasons"].get(info["reason"], 0) + 1
+		stats["prompt_tokens"].append(int(info.get("prompt_tokens") or 0))
+		stats["latency_s_total"] = round(stats["latency_s_total"] + float(info.get("latency_s") or 0.0), 4)
+		stats["attempts"] += int(info.get("attempts") or 0)
+
+	def _llm_summary(self):
+		stats = getattr(self, "_llm_stats", None) or {
+			"consulted": 0,
+			"adopted": 0,
+			"fallback_reasons": {},
+			"prompt_tokens": [],
+			"latency_s_total": 0.0,
+			"attempts": 0,
+		}
+		tokens = stats["prompt_tokens"]
+		return {
+			**stats,
+			"prompt_tokens_median": float(np.median(tokens)) if tokens else None,
+			"prompt_tokens_max": max(tokens) if tokens else None,
+		}
+
+	def choose(self, allowed, views, failures, notes=None):
+		info = {}
 		if self.llm is None or len(allowed) == 1 and not failures:
 			action, source = allowed[0], "policy"
 		else:
-			action, source = select_skill(self.llm, allowed, context)
+			context = self.decision_context(allowed, views, failures, notes)
+			action, source, info = select_skill(self.llm, allowed, context)
+			self._note_llm(source, info)
 		self.event(
 			"decision",
 			choices=allowed,
@@ -257,6 +346,10 @@ class TwinMujoco:
 			source=source,
 			evidence=[v["id"] for v in views],
 			prior_failure=bool(failures),
+			fallback_reason=info.get("reason"),
+			prompt_tokens=info.get("prompt_tokens"),
+			latency_s=info.get("latency_s"),
+			attempts=info.get("attempts"),
 		)
 		return action
 
@@ -588,6 +681,7 @@ class TwinMujoco:
 			"evidence": [v["id"] for v in views],
 			"cleared_faces": sorted(decision(views)[1]),
 			"health": health,
+			"llm": self._llm_summary(),
 			"student_eligible": bool(ok and health.get("verdict") == "SUCCESS" and not self.rewinds),
 			"placement_evidence": next(
 				(v["id"] for v in views if v["score"] is not None and v["score"] >= v["threshold"]), None

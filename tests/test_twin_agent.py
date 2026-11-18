@@ -20,8 +20,8 @@ def test_negative_decisions_need_scored_coverage_of_all_six_faces():
 
 def test_llm_cannot_invent_a_motion_or_override_policy_constraints():
 	llm = FakeLLM(['{"skill":"place_in_pink"}'])
-	action, source = select_skill(llm, ["scan_wrist", "present_bottom"], {})
-	assert (action, source) == ("scan_wrist", "fallback")
+	action, source, info = select_skill(llm, ["scan_wrist", "present_bottom"], {})
+	assert (action, source, info["reason"]) == ("scan_wrist", "fallback", "illegal_choice")
 	with pytest.raises(ValueError):
 		Policy(max_rewinds=True)
 	with pytest.raises(ValueError):
