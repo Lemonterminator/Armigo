@@ -121,7 +121,9 @@ class MujocoCapture(MotionCapture):
 		from digital_twin_armigo.mujoco_cell._mj import mujoco
 
 		m = cell.model
-		self.geoms = [g for g in range(m.ngeom) if int(m.geom_group[g]) not in (3, 4)]
+		# Only what a MuJoCo camera shows by default (groups 0-2): not collision (3, 4) nor the hidden face probes and
+		# normal-brick defect cross (5).
+		self.geoms = [g for g in range(m.ngeom) if int(m.geom_group[g]) < 3]
 		nodes = []
 		meshes = {}
 		for g in self.geoms:

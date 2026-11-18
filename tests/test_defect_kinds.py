@@ -137,3 +137,19 @@ def test_hidden_defect_leaves_the_colour_image_unchanged(bench, kind):
 			mujoco.mj_forward(cell.model, cell.data)
 			imgs.append(cell.rgb("top").copy())
 	assert np.array_equal(imgs[0], imgs[1])
+
+
+def test_render_capture_leaves_out_the_hidden_probes_and_cross(bench):
+	"""Offline renders get what a camera sees: no face probes, no hidden cross of a normal brick."""
+	from digital_twin_armigo.catalog.capture import MujocoCapture
+	from digital_twin_armigo.constants import SO101_MJCF_DIR
+	from digital_twin_armigo.mujoco_cell import Cell
+
+	names = {}
+	for defective in (False, True):
+		lay = _layout(bench, face=4, defective=defective, seed=1)
+		with Cell(lay, SO101_MJCF_DIR, assisted_grasp=False, face_probes=True) as cell:
+			names[defective] = {n["name"] for n in MujocoCapture(cell).scene["nodes"]}
+	assert not any(n.startswith("face_probe") for v in names.values() for n in v)
+	assert not any(n.startswith("defect_") for n in names[False])
+	assert any(n.startswith("defect_") for n in names[True])
