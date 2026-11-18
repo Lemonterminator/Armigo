@@ -13,111 +13,20 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 from pathlib import Path
 
 import cv2
 import numpy as np
 
 from digital_twin_armigo.camera import CameraPose
-from digital_twin_armigo.constants import CELL_MARKERS, HANDOFF_Q, REST_U, SO101_MJCF_DIR, TOP_FULL
+from digital_twin_armigo.constants import CELL_MARKERS, REST_U, TOP_FULL
 from digital_twin_armigo.joints import normalized_to_rad
 from digital_twin_armigo.mujoco_cell import handeye as he
-from digital_twin_armigo.mujoco_cell._mj import mujoco
-from digital_twin_armigo.mujoco_cell.cell import Cell
+from digital_twin_armigo.mujoco_cell.handeye_rig import Rig
 from digital_twin_armigo.mujoco_cell.layout import sample_layout
 
 NOMINAL_CAMERA = Path("config/sim/top_camera_grasp.json")
-# Arm poses: offsets from the hand-off pose (pan, lift, elbow, wrist flex, wrist roll), radians.
-POSE_SPREAD = np.array([0.6, 0.35, 0.35, 0.5, 0.8])
-NOMINAL_CARD = he.transform(np.eye(3), np.array([0.05, 0.0, 0.004]))  # beyond the jaw tips, face along gripper +z
-MIN_CARD_MARKERS = 3
 MARKER_Z = 0.0008  # top of the cell marker geoms above their layout z
-
-
-def rot_xyz(rx: float, ry: float, rz: float) -> np.ndarray:
-	cx, sx, cy, sy, cz, sz = math.cos(rx), math.sin(rx), math.cos(ry), math.sin(ry), math.cos(rz), math.sin(rz)
-	x = np.array([[1, 0, 0], [0, cx, -sx], [0, sx, cx]])
-	y = np.array([[cy, 0, sy], [0, 1, 0], [-sy, 0, cy]])
-	z = np.array([[cz, -sz, 0], [sz, cz, 0], [0, 0, 1]])
-	return z @ y @ x
-
-
-class Rig:
-	"""A cell with the calibration card; renders the top camera with the card following the gripper."""
-
-	def __init__(self, seed: int, card_jitter: bool):
-		raw = json.loads(NOMINAL_CAMERA.read_text(encoding="utf-8"))["camera"]
-		rng = np.random.default_rng(seed)
-		self.layout = sample_layout(rng, CameraPose(**raw), defective=False)
-		he.write_card_texture(SO101_MJCF_DIR)
-		self.cell = Cell(self.layout, SO101_MJCF_DIR, extra_xml=he.card_xml())
-		m = self.cell.model
-		body = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, "calib_card")
-		self.mocap = int(m.body_mocapid[body])
-		self.scratch = mujoco.MjData(m)  # forward kinematics of measured joints, apart from the rendered state
-		jitter = np.random.default_rng(seed + 10_000)
-		self.grip_from_card = NOMINAL_CARD.copy()
-		if card_jitter:  # clamped by hand: a few degrees and millimetres off
-			self.grip_from_card = NOMINAL_CARD @ he.transform(
-				rot_xyz(*np.radians(jitter.uniform(-5, 5, 3))), jitter.uniform(-0.005, 0.005, 3)
-			)
-		self.k = he.intrinsics(self.layout.top, TOP_FULL)
-		mujoco.mj_forward(m, self.cell.data)
-		self.truth = he.camera_truth(m, self.cell.data, "top")
-		pan = m.joint("shoulder_pan").id
-		self.pan_anchor = self.cell.data.xanchor[pan].copy()
-		self.pan_axis = self.cell.data.xaxis[pan].copy()
-
-	def robot_from_world(self, pan_bias: float) -> np.ndarray:
-		"""The frame the robot believes in when its pan reading is ``pan_bias`` too high: the world turned about the
-		pan axis. A camera found in this frame is what the robot needs, since it also moves in it."""
-		rot, _ = cv2.Rodrigues(self.pan_axis * pan_bias)
-		return he.transform(rot, self.pan_anchor - rot @ self.pan_anchor)
-
-	def grip(self, q: np.ndarray, data=None) -> np.ndarray:
-		"""World-from-gripper-frame for arm joints ``q`` (5 values)."""
-		d = self.scratch if data is None else data
-		d.qpos[self.cell.qadr[:5]] = q
-		mujoco.mj_kinematics(self.cell.model, d)
-		return he.transform(d.site_xmat[self.cell.site].reshape(3, 3).copy(), d.site_xpos[self.cell.site].copy())
-
-	def render(self, q: np.ndarray, card: bool = True) -> np.ndarray:
-		full = np.array([*q, 0.6])
-		self.cell.set_joints(full)
-		d = self.cell.data
-		if card:
-			tf = self.grip(q, d) @ self.grip_from_card
-		else:
-			tf = he.transform(np.eye(3), np.array([0.0, 0.0, -1.0]))  # under the table
-		d.mocap_pos[self.mocap] = tf[:3, 3]
-		quat = np.zeros(4)
-		mujoco.mju_mat2Quat(quat, tf[:3, :3].flatten())
-		d.mocap_quat[self.mocap] = quat
-		mujoco.mj_forward(self.cell.model, d)
-		return self.cell.rgb("top")
-
-
-def collect(
-	rig: Rig, n: int, rng: np.random.Generator, pixel_noise: float, spread: float = 1.0, max_tries: int = 800
-):
-	"""Random reachable arm poses where the top camera sees at least MIN_CARD_MARKERS card markers."""
-	poses = []
-	lo, hi = rig.cell.jnt_range[:5, 0], rig.cell.jnt_range[:5, 1]
-	tries = 0
-	while len(poses) < n and tries < max_tries:
-		tries += 1
-		q = np.clip(np.array(HANDOFF_Q) + rng.uniform(-1, 1, 5) * POSE_SPREAD * spread, lo, hi)
-		card = rig.grip(q) @ rig.grip_from_card
-		if rig.grip(q)[2, 3] < 0.08 or card[2, 3] < 0.06:
-			continue
-		rgb = rig.render(q)
-		if pixel_noise > 0:
-			rgb = np.clip(rgb + rng.normal(0, pixel_noise, rgb.shape), 0, 255).astype(np.uint8)
-		obj, img, seen = he.card_correspondences(he.detect_markers(rgb))
-		if seen >= MIN_CARD_MARKERS:
-			poses.append((q, obj, img, rgb))
-	return poses, tries
 
 
 def workspace_error_mm(k: np.ndarray, truth: np.ndarray, est: np.ndarray, z: float = 0.0096) -> dict:
@@ -179,16 +88,13 @@ def score(rig: Rig, cal: he.Calibration, frame: np.ndarray, bias: np.ndarray, fo
 
 def run_seed(seed: int, args, joint_noise_deg: float, joint_bias_deg: float, keep_images: Path | None):
 	rng = np.random.default_rng(seed + 20_000)
-	rig = Rig(seed, card_jitter=True)
+	raw = json.loads(NOMINAL_CAMERA.read_text(encoding="utf-8"))["camera"]
+	rig = Rig(sample_layout(np.random.default_rng(seed), CameraPose(**raw), defective=False), seed)
 	try:
-		poses, tries = collect(rig, args.poses, rng, args.pixel_noise, args.spread)
+		poses, tries = rig.collect(args.poses, rng, args.pixel_noise, args.spread)
 		if len(poses) < 3:
 			return {"seed": seed, "ok": False, "poses": len(poses), "tries": tries}
-		bias = np.radians(rng.normal(0, joint_bias_deg, 5)) if joint_bias_deg else np.zeros(5)
-		obs = []
-		for q, obj, img, _ in poses:
-			q_meas = q + bias + np.radians(rng.normal(0, joint_noise_deg, 5))
-			obs.append(he.Observation(rig.grip(q_meas), obj, img, q=q_meas))
+		obs, bias = rig.observations(poses, rng, joint_noise_deg, joint_bias_deg)
 		frame = rig.robot_from_world(bias[0])
 		found = he.detect_markers(rig.render(np.array(normalized_to_rad(np.array(REST_U)))[:5], card=False))
 		result = {
@@ -217,7 +123,7 @@ def run_seed(seed: int, args, joint_noise_deg: float, joint_bias_deg: float, kee
 			cv2.imwrite(str(keep_images / f"poses-seed{seed}.jpg"), cv2.resize(grid, None, fx=0.5, fy=0.5))
 		return result
 	finally:
-		rig.cell.close()
+		rig.close()
 
 
 def summarise(rows: list[dict]) -> dict:

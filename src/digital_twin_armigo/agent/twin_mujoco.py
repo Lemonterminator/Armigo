@@ -26,6 +26,7 @@ from ..metrics import evaluate_episode_health, motion_smoothness
 from ..mujoco_cell import Cell
 from ..mujoco_cell._mj import mujoco
 from ..mujoco_cell.episode import PhysicsEpisode, observe
+from ..mujoco_cell.handeye_rig import calibrate_layout
 from ..mujoco_cell.inspection_planning import path_min_z
 from ..mujoco_cell.inspection_views import capture_view, detector_crop
 from ..mujoco_cell.layout import sample_layout
@@ -33,6 +34,7 @@ from ..mujoco_cell.orbit_scan import OrbitParams, plan_orbit_scan
 from ..mujoco_cell.physics_expert import MIN_JERK_PEAK_RATIO, ExpertParams, _min_jerk
 from ..mujoco_cell.table_relocation import RelocateExpert, RelocateParams, plan_bottom_view, plan_table_scan
 from ..physics import NonIdealityCfg, load_physics_spec
+from .perception import PerceptionCfg, locate_brick, yaw_error_deg
 from .twin_graph import Policy, decision, select_skill
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -338,6 +340,73 @@ class TwinMujoco:
 		self.execution_error = None
 		self.record.start(self.cell)
 		self.record.initial(self.cell, INITIAL_Q)
+		# Brick perception (opt-in, see .perception): the top camera is calibrated before the episode, and the brick
+		# is located in its depth image whenever a skill needs it on the table.
+		self.perception = PerceptionCfg.from_env()
+		self.brick_est = None
+		self._belief_obs = False
+		self._park_xy = np.asarray(layout.brick_xy, dtype=np.float64)
+		if self.perception is not None:
+			seed = int(getattr(layout, "defect_seed", 0))
+			self._cam_k, self._cam_est, info = calibrate_layout(layout, seed, self.perception.calibration)
+			self._depth_rng = np.random.default_rng(seed + 30_000)
+			self.event("camera_calibrated", **info)
+
+	def _top_depth(self):
+		r = self.cell.renderer
+		r.enable_depth_rendering()
+		try:
+			r.update_scene(self.cell.data, "top")
+			depth = r.render().astype(np.float64)
+		finally:
+			r.disable_depth_rendering()
+		sigma = self.perception.depth_noise_m * (depth / 0.5) ** 2
+		return depth + self._depth_rng.normal(0.0, 1.0, depth.shape) * sigma
+
+	def _perceive(self):
+		"""Locate the brick on the table through the calibrated top camera; None, or a failure code."""
+		if self.perception is None:
+			return None
+		est = locate_brick(self._top_depth(), self._cam_k, self._cam_est, [self.layout.green, self.layout.pink])
+		if est is None:
+			self.event("brick_perceived", found=False)
+			return "BRICK_NOT_FOUND"
+		self.brick_est = est
+		# Truth is logged for scoring only; nothing in the agent reads it back.
+		rot = self.cell.data.xmat[self.cell.brick_body].reshape(3, 3)
+		true_yaw = math.atan2(rot[1, 0], rot[0, 0])
+		self.event(
+			"brick_perceived",
+			found=True,
+			position_m=est.pos.round(5).tolist(),
+			yaw_deg=round(math.degrees(est.yaw), 3),
+			footprint_mm=[round(v * 1000, 2) for v in est.footprint_m],
+			top_points=est.top_points,
+			occlusion_extended_mm=list(est.extended_mm),
+			error_xy_mm=round(float(np.linalg.norm(est.pos[:2] - self.cell.brick_pos()[:2]) * 1000), 3),
+			error_yaw_deg=round(yaw_error_deg(est.yaw, true_yaw, self.layout.brick_size), 3),
+			size_correct=bool(np.allclose(est.size, self.layout.brick_size)),
+		)
+		return None
+
+	@contextmanager
+	def _belief(self):
+		"""Show planners that read the brick from the simulation the perceived pose instead (brick on the table)."""
+		if self.brick_est is None or self.held is not None:
+			yield
+			return
+		m, d = self.cell.model, self.cell.data
+		adr = self.cell.brick_qadr
+		saved = d.qpos[adr : adr + 7].copy()
+		x, y, z, w = self.brick_est.quat_xyzw()
+		d.qpos[adr : adr + 3] = self.brick_est.pos
+		d.qpos[adr + 3 : adr + 7] = (w, x, y, z)
+		mujoco.mj_kinematics(m, d)
+		try:
+			yield
+		finally:
+			d.qpos[adr : adr + 7] = saved
+			mujoco.mj_forward(m, d)
 
 	def close(self):
 		self.cell.close()
@@ -357,6 +426,9 @@ class TwinMujoco:
 			if self.on_frame is not None:
 				self.on_frame(self)
 			obs = observe(self.cell, self.ep)
+			if self._belief_obs and self.brick_est is not None:
+				obs["brick_pos"] = self.brick_est.pos.copy()
+				obs["brick_quat"] = self.brick_est.quat_xyzw()
 			target, phase = expert.act(obs)
 			if expert.done:
 				return None
@@ -647,13 +719,16 @@ class TwinMujoco:
 	def _park_held(self):
 		q_lift, roll = self.held
 		ex = self.expert
+		# Put the brick back where it was found: the perceived spot, or its layout position without perception.
+		if self.brick_est is not None:
+			self._park_xy = self.brick_est.pos[:2].copy()
 		if not self._straight_clear(ex.last, q_lift, held=True):
 			return "PARK_PATH_BLOCKED"
 
 		def park():
 			yield from ex._carry(ex._move(q_lift, ex._carry_secs(q_lift, ex.p.show_move_s), "show_move"))
 			if not ex.lost:
-				yield from ex._put_down(np.asarray(self.layout.brick_xy), roll, q_lift)
+				yield from ex._put_down(self._park_xy, roll, q_lift)
 			if not ex.lost:
 				yield from ex._go_ready()
 
@@ -669,6 +744,8 @@ class TwinMujoco:
 			error = self._park_held()
 			if error:
 				return error
+		if error := self._perceive():
+			return error
 		ex, cell = self.expert, self.cell
 		ex.kin.data.qpos[:] = cell.data.qpos
 		attempt = min(self.wrist_count - 1 + self.rewinds, 2)
@@ -710,7 +787,7 @@ class TwinMujoco:
 		side and top face not cleared yet, else the hover scan of :func:`plan_table_scan`."""
 		ex, cell = self.expert, self.cell
 		need = [f for f in range(5) if f not in decision(previous)[1]]
-		with blind_geometry(cell):
+		with self._belief(), blind_geometry(cell):
 			plan = plan_orbit_scan(
 				cell,
 				ex.kin,
@@ -729,7 +806,7 @@ class TwinMujoco:
 			{"heights": (0.07, 0.085, 0.10), "offset_m": 0.02},
 			{"heights": (0.055, 0.08, 0.095), "offset_m": 0.04},
 		)
-		with blind_geometry(cell):
+		with self._belief(), blind_geometry(cell):
 			candidates, mode = plan_table_scan(
 				cell, ex.kin, ex.last, gripper=ex.p.open_g, min_px=WRIST_MIN_PX, **modes[attempt]
 			)
@@ -739,9 +816,15 @@ class TwinMujoco:
 		ex = self.expert
 		ex.grasp_retries = ex.block_replans = 0
 		ex._active_open_g = float(ex.p.open_g)
+		if error := self._perceive():
+			return error
 
 		def grasp_and_lift():
-			grasp = yield from ex._grasp()
+			self._belief_obs = True  # the grasp is planned on the perceived pose
+			try:
+				grasp = yield from ex._grasp()
+			finally:
+				self._belief_obs = False
 			if grasp is not None:
 				q_lift = yield from ex._lift(grasp)
 				self.held = (q_lift, grasp.roll)
@@ -887,7 +970,7 @@ class TwinMujoco:
 				return error
 			position = self.cell.brick_pos()
 			if (
-				np.linalg.norm(position[:2] - self.layout.brick_xy) > 0.03
+				np.linalg.norm(position[:2] - self._park_xy) > 0.03
 				or position[2] > self.layout.brick_size[2] / 2 + 0.01
 			):
 				return "INSPECTION_TABLE_PARK_UNVERIFIED"

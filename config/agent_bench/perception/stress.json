@@ -1,0 +1,1 @@
+{"calibration": {"poses": 40, "spread": 2.0, "joint_noise_deg": 0.3, "joint_bias_deg": 1.0, "offsets": false}, "depth_noise_m": 0.0015}
