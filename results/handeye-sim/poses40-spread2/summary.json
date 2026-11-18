@@ -1,0 +1,8883 @@
+{
+ "config": {
+  "seeds": "20",
+  "first_seed": "900001",
+  "poses": "40",
+  "spread": "2.0",
+  "pixel_noise": "2.0",
+  "conditions": "0:0,0.3:0,0:0.5,0:1.0,0.3:0.5",
+  "out": "results\\handeye-sim\\poses40-spread2"
+ },
+ "conditions": {
+  "noise0.0_bias0.0": {
+   "summary": {
+    "seeds": 20,
+    "solved": 20,
+    "poses": {
+     "median": 40.0,
+     "p90": 40.0,
+     "max": 40.0
+    },
+    "fixed": {
+     "rms_px": {
+      "median": 0.5401318638711534,
+      "p90": 0.7088037307789073,
+      "max": 0.7589784016302542
+     },
+     "cam_pos_err_mm": {
+      "median": 0.5613067150349778,
+      "p90": 0.7266907209719835,
+      "max": 0.9461869512794664
+     },
+     "cam_rot_err_deg": {
+      "median": 0.011241918138929326,
+      "p90": 0.020193473230657368,
+      "max": 0.028566579721399383
+     },
+     "workspace_mean_mm": {
+      "median": 0.5186048846310273,
+      "p90": 0.636807906971943,
+      "max": 0.9872390599759394
+     },
+     "workspace_max_mm": {
+      "median": 0.5985079280998199,
+      "p90": 0.658883805052129,
+      "max": 1.0133962565949945
+     },
+     "marker_pnp_err_mm": {
+      "median": 6.517238574260606,
+      "p90": 17.167762008151904,
+      "max": 70.87105571948597
+     },
+     "marker_plane_err_mm": {
+      "median": 0.8592490677926411,
+      "p90": 1.2404235889803754,
+      "max": 2.181017357746327
+     },
+     "markers_detected": "12/69",
+     "markers_in_view": 51
+    },
+    "offsets": {
+     "rms_px": {
+      "median": 0.5382465441770421,
+      "p90": 0.7080746383758822,
+      "max": 0.7562125495230405
+     },
+     "cam_pos_err_mm": {
+      "median": 0.920507676567322,
+      "p90": 1.172163944424643,
+      "max": 1.4879500926259268
+     },
+     "cam_rot_err_deg": {
+      "median": 0.06344263877918357,
+      "p90": 0.08410297408568454,
+      "max": 0.1062610102005294
+     },
+     "workspace_mean_mm": {
+      "median": 0.6802117363216871,
+      "p90": 0.894048698602523,
+      "max": 1.2688624597105593
+     },
+     "workspace_max_mm": {
+      "median": 0.7507947302810332,
+      "p90": 0.9870507928621625,
+      "max": 1.3925475981387043
+     },
+     "marker_pnp_err_mm": {
+      "median": 6.306321594860663,
+      "p90": 16.66363582207426,
+      "max": 70.58841578050784
+     },
+     "marker_plane_err_mm": {
+      "median": 0.9039599685927204,
+      "p90": 1.5211507851897812,
+      "max": 2.3492330143459474
+     },
+     "markers_detected": "12/69",
+     "markers_in_view": 51,
+     "offset_abs_err_deg": {
+      "median": 0.03185,
+      "p90": 0.09503,
+      "max": 0.1856
+     }
+    }
+   },
+   "rows": [
+    {
+     "seed": 900001,
+     "ok": true,
+     "poses": 40,
+     "tries": 436,
+     "corners": 588,
+     "bias_deg": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "fixed": {
+      "rms_px": 0.7589784016302542,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.5698208313901608,
+      "cam_rot_err_deg": 0.016552999444584708,
+      "workspace_mm": {
+       "points": 312,
+       "mean": 0.5987496102329629,
+       "p95": 0.6246092087643902,
+       "max": 0.6287464876562494
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 7.991775999410046,
+        "plane_error_mm": 1.095827687273344
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.7562125495230405,
+      "iterations": 5,
+      "cam_pos_err_mm": 1.1693002999837199,
+      "cam_rot_err_deg": 0.1002464396324163,
+      "workspace_mm": {
+       "points": 312,
+       "mean": 0.7807189576897235,
+       "p95": 0.8807281170256103,
+       "max": 0.9390440431444097
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 7.368871510279058,
+        "plane_error_mm": 1.2536200703312088
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.0016,
+       -0.1087,
+       -0.0004
+      ]
+     }
+    },
+    {
+     "seed": 900002,
+     "ok": true,
+     "poses": 40,
+     "tries": 531,
+     "corners": 592,
+     "bias_deg": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "fixed": {
+      "rms_px": 0.7339718443702195,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.45291258581037214,
+      "cam_rot_err_deg": 0.020031552958815434,
+      "workspace_mm": {
+       "points": 341,
+       "mean": 0.27238829169955914,
+       "p95": 0.30251100434306466,
+       "max": 0.30974806085743356
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 3.515541779406206,
+        "plane_error_mm": 0.44535999664085485
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.7321584539130325,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.9452908490550439,
+      "cam_rot_err_deg": 0.06810115605625182,
+      "workspace_mm": {
+       "points": 341,
+       "mean": 0.3718008669025419,
+       "p95": 0.47189208167991004,
+       "max": 0.5320858973504612
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 3.051256145236846,
+        "plane_error_mm": 0.5862169327354401
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -0.032,
+       -0.0621,
+       -0.0032
+      ]
+     }
+    },
+    {
+     "seed": 900003,
+     "ok": true,
+     "poses": 40,
+     "tries": 341,
+     "corners": 592,
+     "bias_deg": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "fixed": {
+      "rms_px": 0.476175844450845,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.5804470008218712,
+      "cam_rot_err_deg": 0.019445223994239716,
+      "workspace_mm": {
+       "points": 357,
+       "mean": 0.6342993241292727,
+       "p95": 0.6519338339952269,
+       "max": 0.6575048950424289
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.4719898719056608,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.9959513349318051,
+      "cam_rot_err_deg": 0.0823092556916032,
+      "workspace_mm": {
+       "points": 357,
+       "mean": 0.8886452105830449,
+       "p95": 0.9436652103699602,
+       "max": 0.9739595568484202
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.0168,
+       -0.095,
+       0.0083
+      ]
+     }
+    },
+    {
+     "seed": 900004,
+     "ok": true,
+     "poses": 40,
+     "tries": 433,
+     "corners": 624,
+     "bias_deg": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "fixed": {
+      "rms_px": 0.5425037247737731,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.6989062528564203,
+      "cam_rot_err_deg": 0.013729650070458857,
+      "workspace_mm": {
+       "points": 355,
+       "mean": 0.6131465613847616,
+       "p95": 0.6388844148468732,
+       "max": 0.6434252365304459
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.5411283704625166,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.8957245040796001,
+      "cam_rot_err_deg": 0.06319422570294572,
+      "workspace_mm": {
+       "points": 355,
+       "mean": 0.6836619211006997,
+       "p95": 0.7221154331535976,
+       "max": 0.7409556051903122
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -0.013,
+       -0.0642,
+       0.0041
+      ]
+     }
+    },
+    {
+     "seed": 900005,
+     "ok": true,
+     "poses": 40,
+     "tries": 180,
+     "corners": 600,
+     "bias_deg": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "fixed": {
+      "rms_px": 0.6683569609000491,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.676790859173019,
+      "cam_rot_err_deg": 0.005621111215623557,
+      "workspace_mm": {
+       "points": 389,
+       "mean": 0.6593851525559753,
+       "p95": 0.6696114625250067,
+       "max": 0.6712939951394286
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.66749706455333,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.7354910759163032,
+      "cam_rot_err_deg": 0.023858764338895246,
+      "workspace_mm": {
+       "points": 389,
+       "mean": 0.71991857133798,
+       "p95": 0.7411891310199485,
+       "max": 0.7558305280557902
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.033,
+       -0.0709,
+       0.0123
+      ]
+     }
+    },
+    {
+     "seed": 900006,
+     "ok": true,
+     "poses": 40,
+     "tries": 369,
+     "corners": 596,
+     "bias_deg": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "fixed": {
+      "rms_px": 0.7060072737132059,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.453020006302935,
+      "cam_rot_err_deg": 0.011228299339828746,
+      "workspace_mm": {
+       "points": 361,
+       "mean": 0.3356323393817633,
+       "p95": 0.35787985349200474,
+       "max": 0.3596813117659555
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 2.1624627818083586,
+        "plane_error_mm": 0.820224696021424
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.7053986588717543,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.5310836781567309,
+      "cam_rot_err_deg": 0.03135751698283212,
+      "workspace_mm": {
+       "points": 361,
+       "mean": 0.3596420197102331,
+       "p95": 0.39895971805429903,
+       "max": 0.42431899586063143
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 1.8999057340122996,
+        "plane_error_mm": 0.8334348897694243
+       }
+      ],
+      "offset_err_deg": [
+       -0.0486,
+       0.0183,
+       -0.0237
+      ]
+     }
+    },
+    {
+     "seed": 900007,
+     "ok": true,
+     "poses": 40,
+     "tries": 412,
+     "corners": 604,
+     "bias_deg": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "fixed": {
+      "rms_px": 0.5377600029685337,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.5850742812401099,
+      "cam_rot_err_deg": 0.012391165827917631,
+      "workspace_mm": {
+       "points": 348,
+       "mean": 0.5712208750203461,
+       "p95": 0.619834953712813,
+       "max": 0.6272671592473072
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 70.87105571948597,
+        "plane_error_mm": 2.181017357746327
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.5360510944724707,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.7536993506231058,
+      "cam_rot_err_deg": 0.041835499218055475,
+      "workspace_mm": {
+       "points": 348,
+       "mean": 0.756403038357669,
+       "p95": 0.8212964295344486,
+       "max": 0.8479732895279556
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 70.58841578050784,
+        "plane_error_mm": 2.3492330143459474
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.0406,
+       -0.0913,
+       0.0084
+      ]
+     }
+    },
+    {
+     "seed": 900008,
+     "ok": true,
+     "poses": 40,
+     "tries": 382,
+     "corners": 624,
+     "bias_deg": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "fixed": {
+      "rms_px": 0.6363021844857818,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.3302784838278984,
+      "cam_rot_err_deg": 0.008642975856189087,
+      "workspace_mm": {
+       "points": 368,
+       "mean": 0.3562755024718161,
+       "p95": 0.3776669384170845,
+       "max": 0.38434734899967565
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 5.694302627804086,
+        "plane_error_mm": 0.6064787568452624
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.6356267849851507,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.365991879068946,
+      "cam_rot_err_deg": 0.022818553749255368,
+      "workspace_mm": {
+       "points": 368,
+       "mean": 0.412363539314284,
+       "p95": 0.44565224990341334,
+       "max": 0.46210423013597723
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 5.608477457186276,
+        "plane_error_mm": 0.6601995169856526
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -0.0024,
+       0.0136,
+       -0.0317
+      ]
+     }
+    },
+    {
+     "seed": 900009,
+     "ok": true,
+     "poses": 40,
+     "tries": 314,
+     "corners": 592,
+     "bias_deg": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "fixed": {
+      "rms_px": 0.6799519397000376,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.26278561356133345,
+      "cam_rot_err_deg": 0.011255536938029905,
+      "workspace_mm": {
+       "points": 402,
+       "mean": 0.3174505879757587,
+       "p95": 0.3391515044671259,
+       "max": 0.35195469641213206
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 7.340174520717126,
+        "plane_error_mm": 0.6192545054535114
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.6781079023465921,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.6365476772281949,
+      "cam_rot_err_deg": 0.05086702919468568,
+      "workspace_mm": {
+       "points": 402,
+       "mean": 0.5593192422088474,
+       "p95": 0.6202562362216784,
+       "max": 0.6658043339893419
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 7.00416573253505,
+        "plane_error_mm": 0.8879139039010108
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.0198,
+       -0.0447,
+       -0.0229
+      ]
+     }
+    },
+    {
+     "seed": 900010,
+     "ok": true,
+     "poses": 40,
+     "tries": 464,
+     "corners": 592,
+     "bias_deg": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "fixed": {
+      "rms_px": 0.45479469580520193,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.5708250570391439,
+      "cam_rot_err_deg": 0.011158511611463574,
+      "workspace_mm": {
+       "points": 362,
+       "mean": 0.5678235676853114,
+       "p95": 0.6145847184579859,
+       "max": 0.6275929957010709
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 5.5651403240780715,
+        "plane_error_mm": 0.9485842174773702
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.4499008219202485,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.9734073757415592,
+      "cam_rot_err_deg": 0.08217142848606643,
+      "workspace_mm": {
+       "points": 362,
+       "mean": 0.7704922309520521,
+       "p95": 0.8458758418062265,
+       "max": 0.8729769012932498
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 5.038874706545776,
+        "plane_error_mm": 1.1365117757846683
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -0.0115,
+       -0.061,
+       -0.0204
+      ]
+     }
+    },
+    {
+     "seed": 900011,
+     "ok": true,
+     "poses": 40,
+     "tries": 386,
+     "corners": 608,
+     "bias_deg": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "fixed": {
+      "rms_px": 0.44650270436385453,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.5527925986797946,
+      "cam_rot_err_deg": 0.004451267938828294,
+      "workspace_mm": {
+       "points": 377,
+       "mean": 0.46178264457900015,
+       "p95": 0.4922764650630481,
+       "max": 0.5041551679719191
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.44207465257914774,
+      "iterations": 5,
+      "cam_pos_err_mm": 1.0826668829505044,
+      "cam_rot_err_deg": 0.07574624624321018,
+      "workspace_mm": {
+       "points": 377,
+       "mean": 0.5735668138766494,
+       "p95": 0.6267744057659135,
+       "max": 0.6915282047907126
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -0.0281,
+       -0.1114,
+       0.0409
+      ]
+     }
+    },
+    {
+     "seed": 900012,
+     "ok": true,
+     "poses": 40,
+     "tries": 292,
+     "corners": 576,
+     "bias_deg": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "fixed": {
+      "rms_px": 0.5027316153455312,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.3692361299005451,
+      "cam_rot_err_deg": 0.02165075567723475,
+      "workspace_mm": {
+       "points": 369,
+       "mean": 0.4741750287355877,
+       "p95": 0.5141366322610617,
+       "max": 0.5270687277965809
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.5017443681702499,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.7204834876457312,
+      "cam_rot_err_deg": 0.06975494697391989,
+      "workspace_mm": {
+       "points": 369,
+       "mean": 0.5491087807932551,
+       "p95": 0.6339299792968974,
+       "max": 0.6603620009458888
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -0.0205,
+       -0.0228,
+       -0.0116
+      ]
+     }
+    },
+    {
+     "seed": 900013,
+     "ok": true,
+     "poses": 40,
+     "tries": 410,
+     "corners": 592,
+     "bias_deg": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "fixed": {
+      "rms_px": 0.484520097574628,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.5203961345470348,
+      "cam_rot_err_deg": 0.00839706438987372,
+      "workspace_mm": {
+       "points": 381,
+       "mean": 0.3853191947618367,
+       "p95": 0.4284620506148652,
+       "max": 0.4400681980357125
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 13.719696605625272,
+        "plane_error_mm": 0.6515754893959016
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.4822812478511771,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.7305386379493797,
+      "cam_rot_err_deg": 0.03283644875441451,
+      "workspace_mm": {
+       "points": 381,
+       "mean": 0.5810284486379065,
+       "p95": 0.6163592969866606,
+       "max": 0.6522941756660113
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 13.397832116364219,
+        "plane_error_mm": 0.8754768621247127
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.0311,
+       -0.0824,
+       0.0004
+      ]
+     }
+    },
+    {
+     "seed": 900014,
+     "ok": true,
+     "poses": 40,
+     "tries": 292,
+     "corners": 600,
+     "bias_deg": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "fixed": {
+      "rms_px": 0.5303727957803649,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.4893230478128245,
+      "cam_rot_err_deg": 0.012812629010265156,
+      "workspace_mm": {
+       "points": 363,
+       "mean": 0.5361325742076785,
+       "p95": 0.5610038569021681,
+       "max": 0.5697486969523325
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.5280140169686713,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.7619469409063679,
+      "cam_rot_err_deg": 0.05820268622654303,
+      "workspace_mm": {
+       "points": 363,
+       "mean": 0.6767615515426744,
+       "p95": 0.7576984064098269,
+       "max": 0.8001720172675072
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.0267,
+       -0.0953,
+       0.011
+      ]
+     }
+    },
+    {
+     "seed": 900015,
+     "ok": true,
+     "poses": 40,
+     "tries": 434,
+     "corners": 588,
+     "bias_deg": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "fixed": {
+      "rms_px": 0.6978915310009709,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.8589541222159415,
+      "cam_rot_err_deg": 0.028566579721399383,
+      "workspace_mm": {
+       "points": 350,
+       "mean": 0.5010771950543761,
+       "p95": 0.5974015160829632,
+       "max": 0.6281433275250561
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.6947953976394894,
+      "iterations": 5,
+      "cam_pos_err_mm": 1.19793674439295,
+      "cam_rot_err_deg": 0.02129265092794489,
+      "workspace_mm": {
+       "points": 350,
+       "mean": 0.9426800907778254,
+       "p95": 1.0549069794701629,
+       "max": 1.1048719169858412
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.0911,
+       -0.1015,
+       -0.0392
+      ]
+     }
+    },
+    {
+     "seed": 900016,
+     "ok": true,
+     "poses": 40,
+     "tries": 331,
+     "corners": 600,
+     "bias_deg": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "fixed": {
+      "rms_px": 0.44344496835384073,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.688912397071034,
+      "cam_rot_err_deg": 0.0075529404996348935,
+      "workspace_mm": {
+       "points": 357,
+       "mean": 0.5990663193200101,
+       "p95": 0.6407638530993552,
+       "max": 0.6502568925094377
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 2.8864074164538733,
+        "plane_error_mm": 0.8982734395638582
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.4390588108577087,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.9651204206901198,
+      "cam_rot_err_deg": 0.06369105185542141,
+      "workspace_mm": {
+       "points": 357,
+       "mean": 0.6985037620301823,
+       "p95": 0.7492095168649957,
+       "max": 0.7968949864595809
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 2.4562206934649473,
+        "plane_error_mm": 1.012529894806493
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.0356,
+       -0.1422,
+       0.0253
+      ]
+     }
+    },
+    {
+     "seed": 900017,
+     "ok": true,
+     "poses": 40,
+     "tries": 433,
+     "corners": 596,
+     "bias_deg": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "fixed": {
+      "rms_px": 0.561968341830842,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.7119947875004324,
+      "cam_rot_err_deg": 0.006240359899409243,
+      "workspace_mm": {
+       "points": 326,
+       "mean": 0.6199752558847881,
+       "p95": 0.6453633851104433,
+       "max": 0.6461764177546244
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.5597210892864077,
+      "iterations": 5,
+      "cam_pos_err_mm": 1.0850324470894854,
+      "cam_rot_err_deg": 0.0717588132928615,
+      "workspace_mm": {
+       "points": 326,
+       "mean": 0.6505138862038439,
+       "p95": 0.6960093299017278,
+       "max": 0.7457589325062762
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -0.0325,
+       -0.06,
+       0.0027
+      ]
+     }
+    },
+    {
+     "seed": 900018,
+     "ok": true,
+     "poses": 40,
+     "tries": 356,
+     "corners": 604,
+     "bias_deg": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "fixed": {
+      "rms_px": 0.5456518437431227,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.9461869512794664,
+      "cam_rot_err_deg": 0.01570011710296573,
+      "workspace_mm": {
+       "points": 381,
+       "mean": 0.9872390599759394,
+       "p95": 1.006326301723374,
+       "max": 1.0133962565949945
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 11.196953146094657,
+        "plane_error_mm": 1.2546718731462867
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.5404419938816136,
+      "iterations": 5,
+      "cam_pos_err_mm": 1.4879500926259268,
+      "cam_rot_err_deg": 0.1062610102005294,
+      "workspace_mm": {
+       "points": 381,
+       "mean": 1.2688624597105593,
+       "p95": 1.3559944609911587,
+       "max": 1.3925475981387043
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 10.556479736771427,
+        "plane_error_mm": 1.550876420174067
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.0395,
+       -0.1856,
+       0.0454
+      ]
+     }
+    },
+    {
+     "seed": 900019,
+     "ok": true,
+     "poses": 40,
+     "tries": 343,
+     "corners": 596,
+     "bias_deg": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "fixed": {
+      "rms_px": 0.516145767172745,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.4351467963029219,
+      "cam_rot_err_deg": 0.0031631959872976245,
+      "workspace_mm": {
+       "points": 385,
+       "mean": 0.3859651782808839,
+       "p95": 0.40954712523576203,
+       "max": 0.4192646626465942
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 17.550880386210416,
+        "plane_error_mm": 0.4098366610102069
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.5108435721980213,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.9798016254539215,
+      "cam_rot_err_deg": 0.08052924327285062,
+      "workspace_mm": {
+       "points": 385,
+       "mean": 0.7557331406062169,
+       "p95": 0.837664107883472,
+       "max": 0.8810415720968092
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 17.026502900486484,
+        "plane_error_mm": 0.7610366628098312
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -0.0119,
+       -0.0384,
+       -0.0401
+      ]
+     }
+    },
+    {
+     "seed": 900020,
+     "ok": true,
+     "poses": 40,
+     "tries": 285,
+     "corners": 608,
+     "bias_deg": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "fixed": {
+      "rms_px": 0.5113301351532288,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.3168335050091849,
+      "cam_rot_err_deg": 0.006965277030664829,
+      "workspace_mm": {
+       "points": 383,
+       "mean": 0.3174096412276442,
+       "p95": 0.32796619226893675,
+       "max": 0.3337520840627999
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 4.6999979576441,
+        "plane_error_mm": 1.112189031487173
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.508962834861359,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.6006543335440439,
+      "cam_rot_err_deg": 0.03802534514981405,
+      "workspace_mm": {
+       "points": 383,
+       "mean": 0.5217432647180735,
+       "p95": 0.5461183901171366,
+       "max": 0.5593431389488343
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 4.345221706905528,
+        "plane_error_mm": 0.92000603328443
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.0207,
+       -0.035,
+       -0.0368
+      ]
+     }
+    }
+   ]
+  },
+  "noise0.3_bias0.0": {
+   "summary": {
+    "seeds": 20,
+    "solved": 20,
+    "poses": {
+     "median": 40.0,
+     "p90": 40.0,
+     "max": 40.0
+    },
+    "fixed": {
+     "rms_px": {
+      "median": 3.0453425205487323,
+      "p90": 3.489802076659463,
+      "max": 4.148660843476929
+     },
+     "cam_pos_err_mm": {
+      "median": 5.082331738307973,
+      "p90": 8.13016047587753,
+      "max": 9.116578612291928
+     },
+     "cam_rot_err_deg": {
+      "median": 0.427701795362508,
+      "p90": 0.5785315076902218,
+      "max": 0.6661497639203362
+     },
+     "workspace_mean_mm": {
+      "median": 3.9509193754833714,
+      "p90": 5.366612228809526,
+      "max": 6.63126610103904
+     },
+     "workspace_max_mm": {
+      "median": 5.630025030151835,
+      "p90": 7.724260845783767,
+      "max": 9.438454936703732
+     },
+     "marker_pnp_err_mm": {
+      "median": 7.3174072442593445,
+      "p90": 19.074256603629816,
+      "max": 71.68646618390905
+     },
+     "marker_plane_err_mm": {
+      "median": 3.7099117707700557,
+      "p90": 6.071116947095729,
+      "max": 7.796912859639234
+     },
+     "markers_detected": "12/69",
+     "markers_in_view": 51
+    },
+    "offsets": {
+     "rms_px": {
+      "median": 2.9729887460001443,
+      "p90": 3.4817393209944205,
+      "max": 4.131052187301064
+     },
+     "cam_pos_err_mm": {
+      "median": 7.488690311780866,
+      "p90": 11.14728746868337,
+      "max": 14.869270633989629
+     },
+     "cam_rot_err_deg": {
+      "median": 0.49473043255271976,
+      "p90": 0.845839798132942,
+      "max": 1.2792990602720142
+     },
+     "workspace_mean_mm": {
+      "median": 4.163131804251701,
+      "p90": 6.236123922502349,
+      "max": 6.395626852566531
+     },
+     "workspace_max_mm": {
+      "median": 5.731110743424345,
+      "p90": 7.842560626234591,
+      "max": 10.316208010286964
+     },
+     "marker_pnp_err_mm": {
+      "median": 8.544564295096517,
+      "p90": 19.07330761689917,
+      "max": 72.14782700222175
+     },
+     "marker_plane_err_mm": {
+      "median": 4.016128779772385,
+      "p90": 5.905041175024889,
+      "max": 7.678564775282289
+     },
+     "markers_detected": "12/69",
+     "markers_in_view": 51,
+     "offset_abs_err_deg": {
+      "median": 0.65045,
+      "p90": 1.71036,
+      "max": 3.8669
+     }
+    }
+   },
+   "rows": [
+    {
+     "seed": 900001,
+     "ok": true,
+     "poses": 40,
+     "tries": 436,
+     "corners": 588,
+     "bias_deg": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "fixed": {
+      "rms_px": 3.1347459228017023,
+      "iterations": 5,
+      "cam_pos_err_mm": 3.7368401887355978,
+      "cam_rot_err_deg": 0.5268200932301423,
+      "workspace_mm": {
+       "points": 312,
+       "mean": 3.5170075725696424,
+       "p95": 4.432671224102916,
+       "max": 4.7910119147471795
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 7.2884016456276886,
+        "plane_error_mm": 3.8552967153038225
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 3.0925740990936283,
+      "iterations": 5,
+      "cam_pos_err_mm": 13.866378271400974,
+      "cam_rot_err_deg": 1.2068265008253272,
+      "workspace_mm": {
+       "points": 312,
+       "mean": 1.3694606135316651,
+       "p95": 2.703029234414262,
+       "max": 3.165857791824161
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 4.271754741145264,
+        "plane_error_mm": 0.8750606241827891
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -1.7708,
+       0.7007,
+       0.323
+      ]
+     }
+    },
+    {
+     "seed": 900002,
+     "ok": true,
+     "poses": 40,
+     "tries": 531,
+     "corners": 592,
+     "bias_deg": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "fixed": {
+      "rms_px": 2.1771179190321432,
+      "iterations": 5,
+      "cam_pos_err_mm": 7.01984826899529,
+      "cam_rot_err_deg": 0.6661497639203362,
+      "workspace_mm": {
+       "points": 341,
+       "mean": 4.149655651217411,
+       "p95": 5.831203460426133,
+       "max": 6.481195462011152
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 6.508283259596384,
+        "plane_error_mm": 3.6151085188591425
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 2.1755359087327877,
+      "iterations": 5,
+      "cam_pos_err_mm": 7.95442588016843,
+      "cam_rot_err_deg": 0.6994667985807486,
+      "workspace_mm": {
+       "points": 341,
+       "mean": 4.634744126115235,
+       "p95": 6.2824331371215605,
+       "max": 6.862534183258741
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 6.838783376762938,
+        "plane_error_mm": 3.974807467735143
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -0.273,
+       0.2238,
+       -0.0172
+      ]
+     }
+    },
+    {
+     "seed": 900003,
+     "ok": true,
+     "poses": 40,
+     "tries": 341,
+     "corners": 592,
+     "bias_deg": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "fixed": {
+      "rms_px": 3.3299713743410706,
+      "iterations": 4,
+      "cam_pos_err_mm": 6.743461295567839,
+      "cam_rot_err_deg": 0.3607356968100051,
+      "workspace_mm": {
+       "points": 357,
+       "mean": 5.005036326733893,
+       "p95": 6.7189078794307395,
+       "max": 7.095187328560849
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 3.2954523665576767,
+      "iterations": 5,
+      "cam_pos_err_mm": 7.963783306192019,
+      "cam_rot_err_deg": 0.41064059574814965,
+      "workspace_mm": {
+       "points": 357,
+       "mean": 5.476254561883323,
+       "p95": 6.991561566078075,
+       "max": 7.353171950644548
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.9741,
+       -1.5529,
+       0.7079
+      ]
+     }
+    },
+    {
+     "seed": 900004,
+     "ok": true,
+     "poses": 40,
+     "tries": 433,
+     "corners": 624,
+     "bias_deg": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "fixed": {
+      "rms_px": 3.0543683861967392,
+      "iterations": 5,
+      "cam_pos_err_mm": 3.2483992620991597,
+      "cam_rot_err_deg": 0.569539934778431,
+      "workspace_mm": {
+       "points": 355,
+       "mean": 5.315185149432969,
+       "p95": 7.908263468294709,
+       "max": 9.438454936703732
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 3.0387072633728596,
+      "iterations": 5,
+      "cam_pos_err_mm": 3.6830486292192077,
+      "cam_rot_err_deg": 0.5500849328430303,
+      "workspace_mm": {
+       "points": 355,
+       "mean": 5.876438504302012,
+       "p95": 8.754829897525562,
+       "max": 10.316208010286964
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -0.1516,
+       0.7524,
+       -0.5621
+      ]
+     }
+    },
+    {
+     "seed": 900005,
+     "ok": true,
+     "poses": 40,
+     "tries": 180,
+     "corners": 600,
+     "bias_deg": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "fixed": {
+      "rms_px": 2.9072828579755163,
+      "iterations": 5,
+      "cam_pos_err_mm": 1.8094921944071298,
+      "cam_rot_err_deg": 0.34308021417889184,
+      "workspace_mm": {
+       "points": 389,
+       "mean": 3.5778164652556863,
+       "p95": 4.5989437703598535,
+       "max": 4.894300308498616
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 2.900183139276541,
+      "iterations": 5,
+      "cam_pos_err_mm": 2.592842811107646,
+      "cam_rot_err_deg": 0.40781473327931306,
+      "workspace_mm": {
+       "points": 389,
+       "mean": 4.185042917530671,
+       "p95": 5.238980472950085,
+       "max": 5.456170010885052
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.1951,
+       -0.1903,
+       -0.108
+      ]
+     }
+    },
+    {
+     "seed": 900006,
+     "ok": true,
+     "poses": 40,
+     "tries": 369,
+     "corners": 596,
+     "bias_deg": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "fixed": {
+      "rms_px": 2.456687276522808,
+      "iterations": 5,
+      "cam_pos_err_mm": 5.111833544687508,
+      "cam_rot_err_deg": 0.6594556638963373,
+      "workspace_mm": {
+       "points": 361,
+       "mean": 4.464511734553466,
+       "p95": 5.679031339108774,
+       "max": 5.964325686747513
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 6.372413440074277,
+        "plane_error_mm": 4.007547017731605
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 2.3186503979034843,
+      "iterations": 5,
+      "cam_pos_err_mm": 4.039882503180965,
+      "cam_rot_err_deg": 0.28841914232478677,
+      "workspace_mm": {
+       "points": 361,
+       "mean": 5.443242884044422,
+       "p95": 5.864980879141512,
+       "max": 6.006051475963638
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 7.6892940955976155,
+        "plane_error_mm": 5.042532611253063
+       }
+      ],
+      "offset_err_deg": [
+       -1.4719,
+       2.6589,
+       -1.5176
+      ]
+     }
+    },
+    {
+     "seed": 900007,
+     "ok": true,
+     "poses": 40,
+     "tries": 412,
+     "corners": 604,
+     "bias_deg": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "fixed": {
+      "rms_px": 2.7022033507348766,
+      "iterations": 5,
+      "cam_pos_err_mm": 7.650163631172897,
+      "cam_rot_err_deg": 0.36363964529299847,
+      "workspace_mm": {
+       "points": 348,
+       "mean": 4.940954097575298,
+       "p95": 5.869817434893793,
+       "max": 6.094051388739328
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 71.68646618390905,
+        "plane_error_mm": 3.407121377956738
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 2.6903019959901266,
+      "iterations": 5,
+      "cam_pos_err_mm": 9.976882178668449,
+      "cam_rot_err_deg": 0.4656157384126589,
+      "workspace_mm": {
+       "points": 348,
+       "mean": 6.346002582818356,
+       "p95": 7.257015301519696,
+       "max": 7.520074370464998
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 72.14782700222175,
+        "plane_error_mm": 4.788655429481195
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -0.6494,
+       0.4763,
+       0.0816
+      ]
+     }
+    },
+    {
+     "seed": 900008,
+     "ok": true,
+     "poses": 40,
+     "tries": 382,
+     "corners": 624,
+     "bias_deg": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "fixed": {
+      "rms_px": 4.148660843476929,
+      "iterations": 5,
+      "cam_pos_err_mm": 8.0369517598222,
+      "cam_rot_err_deg": 0.5400732604877259,
+      "workspace_mm": {
+       "points": 368,
+       "mean": 4.018045227550333,
+       "p95": 4.800514636062001,
+       "max": 5.076584822296229
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 7.992227797352898,
+        "plane_error_mm": 3.8047150226809694
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 4.131052187301064,
+      "iterations": 5,
+      "cam_pos_err_mm": 3.5474271328938767,
+      "cam_rot_err_deg": 0.3181050027060845,
+      "workspace_mm": {
+       "points": 368,
+       "mean": 3.101226932231208,
+       "p95": 4.183963481442592,
+       "max": 4.380546191283491
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 9.399834494595417,
+        "plane_error_mm": 2.9118676327693565
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       1.1547,
+       -0.8819,
+       0.2895
+      ]
+     }
+    },
+    {
+     "seed": 900009,
+     "ok": true,
+     "poses": 40,
+     "tries": 314,
+     "corners": 592,
+     "bias_deg": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "fixed": {
+      "rms_px": 2.9444443493759835,
+      "iterations": 5,
+      "cam_pos_err_mm": 3.817516687690354,
+      "cam_rot_err_deg": 0.30424766746697973,
+      "workspace_mm": {
+       "points": 402,
+       "mean": 3.0820586516116912,
+       "p95": 4.360085628787448,
+       "max": 4.540684290171874
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 5.872402135719868,
+        "plane_error_mm": 4.612839599082645
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 2.753922735442351,
+      "iterations": 5,
+      "cam_pos_err_mm": 7.931568590038119,
+      "cam_rot_err_deg": 0.5417158824836041,
+      "workspace_mm": {
+       "points": 402,
+       "mean": 2.379841127944937,
+       "p95": 4.518548259475045,
+       "max": 5.118206387083577
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 11.487088996332934,
+        "plane_error_mm": 4.057450091809627
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -1.581,
+       3.8669,
+       -1.7388
+      ]
+     }
+    },
+    {
+     "seed": 900010,
+     "ok": true,
+     "poses": 40,
+     "tries": 464,
+     "corners": 592,
+     "bias_deg": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "fixed": {
+      "rms_px": 3.310039613022254,
+      "iterations": 5,
+      "cam_pos_err_mm": 6.162832703574051,
+      "cam_rot_err_deg": 0.5214225127780644,
+      "workspace_mm": {
+       "points": 362,
+       "mean": 2.854948721648951,
+       "p95": 3.8302896380318545,
+       "max": 4.188479034880544
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 5.682271049088768,
+        "plane_error_mm": 2.227384612562213
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 3.2668671534571527,
+      "iterations": 5,
+      "cam_pos_err_mm": 8.02321930488245,
+      "cam_rot_err_deg": 0.6252046682664038,
+      "workspace_mm": {
+       "points": 362,
+       "mean": 3.2108897494348105,
+       "p95": 3.923209851683111,
+       "max": 4.203041574076476
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 6.030632293821886,
+        "plane_error_mm": 2.6556327685913943
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -1.1669,
+       1.6598,
+       -0.693
+      ]
+     }
+    },
+    {
+     "seed": 900011,
+     "ok": true,
+     "poses": 40,
+     "tries": 386,
+     "corners": 608,
+     "bias_deg": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "fixed": {
+      "rms_px": 3.0363166549007254,
+      "iterations": 5,
+      "cam_pos_err_mm": 6.667201854523836,
+      "cam_rot_err_deg": 0.38265746859580985,
+      "workspace_mm": {
+       "points": 377,
+       "mean": 5.829455943198534,
+       "p95": 7.595885226576913,
+       "max": 8.020831165888001
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 2.946801701645262,
+      "iterations": 5,
+      "cam_pos_err_mm": 14.869270633989629,
+      "cam_rot_err_deg": 1.2792990602720142,
+      "workspace_mm": {
+       "points": 377,
+       "mean": 6.395626852566531,
+       "p95": 7.843934184547895,
+       "max": 9.008199814725534
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -1.6701,
+       0.0504,
+       0.1428
+      ]
+     }
+    },
+    {
+     "seed": 900012,
+     "ok": true,
+     "poses": 40,
+     "tries": 292,
+     "corners": 576,
+     "bias_deg": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "fixed": {
+      "rms_px": 3.3417812411210313,
+      "iterations": 4,
+      "cam_pos_err_mm": 5.0528299319284375,
+      "cam_rot_err_deg": 0.5325131896765932,
+      "workspace_mm": {
+       "points": 369,
+       "mean": 3.379210905897487,
+       "p95": 4.108561679696749,
+       "max": 4.297981955367459
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 3.286210625278105,
+      "iterations": 6,
+      "cam_pos_err_mm": 10.845166268381409,
+      "cam_rot_err_deg": 0.7437745355330935,
+      "workspace_mm": {
+       "points": 369,
+       "mean": 3.835378891923647,
+       "p95": 4.3753393083677246,
+       "max": 4.826280045658994
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       1.7072,
+       -1.1684,
+       0.6515
+      ]
+     }
+    },
+    {
+     "seed": 900013,
+     "ok": true,
+     "poses": 40,
+     "tries": 410,
+     "corners": 592,
+     "bias_deg": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "fixed": {
+      "rms_px": 3.3633553154373206,
+      "iterations": 5,
+      "cam_pos_err_mm": 2.535816252075161,
+      "cam_rot_err_deg": 0.4026103353924255,
+      "workspace_mm": {
+       "points": 381,
+       "mean": 4.384791026406274,
+       "p95": 6.244715122071265,
+       "max": 7.15112854486285
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 15.239071769521678,
+        "plane_error_mm": 3.5614699114637247
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 3.358803973024527,
+      "iterations": 6,
+      "cam_pos_err_mm": 2.444040069516798,
+      "cam_rot_err_deg": 0.42187454419397824,
+      "workspace_mm": {
+       "points": 381,
+       "mean": 5.001904572312809,
+       "p95": 6.805398005977513,
+       "max": 7.713045160846707
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 16.215890999444998,
+        "plane_error_mm": 4.322953284970777
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -0.0583,
+       -0.0204,
+       0.2229
+      ]
+     }
+    },
+    {
+     "seed": 900014,
+     "ok": true,
+     "poses": 40,
+     "tries": 292,
+     "corners": 600,
+     "bias_deg": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "fixed": {
+      "rms_px": 3.4648333793241566,
+      "iterations": 5,
+      "cam_pos_err_mm": 1.9269270240236422,
+      "cam_rot_err_deg": 0.10712588473904723,
+      "workspace_mm": {
+       "points": 363,
+       "mean": 1.4270437407094954,
+       "p95": 1.64766826634017,
+       "max": 1.7529056485983687
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 3.4578072300105185,
+      "iterations": 5,
+      "cam_pos_err_mm": 2.4316701962589056,
+      "cam_rot_err_deg": 0.07756045599007316,
+      "workspace_mm": {
+       "points": 363,
+       "mean": 2.091138387071433,
+       "p95": 2.4356410871493765,
+       "max": 2.471427162614527
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -0.2168,
+       -0.245,
+       0.3762
+      ]
+     }
+    },
+    {
+     "seed": 900015,
+     "ok": true,
+     "poses": 40,
+     "tries": 434,
+     "corners": 588,
+     "bias_deg": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "fixed": {
+      "rms_px": 3.7145203526772175,
+      "iterations": 5,
+      "cam_pos_err_mm": 4.146121051525886,
+      "cam_rot_err_deg": 0.4808095368906071,
+      "workspace_mm": {
+       "points": 350,
+       "mean": 3.2705723820542087,
+       "p95": 5.592926936913078,
+       "max": 5.977841328870224
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 3.697128139849536,
+      "iterations": 6,
+      "cam_pos_err_mm": 7.531538220578397,
+      "cam_rot_err_deg": 0.8057301645004541,
+      "workspace_mm": {
+       "points": 350,
+       "mean": 4.14122069097273,
+       "p95": 6.128409532457518,
+       "max": 6.8100010699450015
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.6606,
+       0.1452,
+       0.0112
+      ]
+     }
+    },
+    {
+     "seed": 900016,
+     "ok": true,
+     "poses": 40,
+     "tries": 331,
+     "corners": 600,
+     "bias_deg": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "fixed": {
+      "rms_px": 2.986038803763061,
+      "iterations": 5,
+      "cam_pos_err_mm": 9.116578612291928,
+      "cam_rot_err_deg": 0.32678178287747167,
+      "workspace_mm": {
+       "points": 357,
+       "mean": 6.63126610103904,
+       "p95": 7.437154545120604,
+       "max": 7.691308587994407
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 4.586182278339071,
+        "plane_error_mm": 6.233147763541626
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 2.9519298932565565,
+      "iterations": 6,
+      "cam_pos_err_mm": 7.36124136572693,
+      "cam_rot_err_deg": 0.22954411998351865,
+      "workspace_mm": {
+       "points": 357,
+       "mean": 6.223915182467238,
+       "p95": 6.945939516962966,
+       "max": 7.113180081076568
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 4.3960688339663205,
+        "plane_error_mm": 6.000875459888424
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -1.1249,
+       1.8802,
+       -0.9021
+      ]
+     }
+    },
+    {
+     "seed": 900017,
+     "ok": true,
+     "poses": 40,
+     "tries": 433,
+     "corners": 596,
+     "bias_deg": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "fixed": {
+      "rms_px": 2.939514645820086,
+      "iterations": 5,
+      "cam_pos_err_mm": 6.61339458441785,
+      "cam_rot_err_deg": 0.3347337085513087,
+      "workspace_mm": {
+       "points": 326,
+       "mean": 2.9852106008048986,
+       "p95": 3.764983816477204,
+       "max": 3.9759191774211895
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 2.928428513789443,
+      "iterations": 5,
+      "cam_pos_err_mm": 7.4458424029833346,
+      "cam_rot_err_deg": 0.4980799825450548,
+      "workspace_mm": {
+       "points": 326,
+       "mean": 2.3889312330662364,
+       "p95": 3.3374307614355194,
+       "max": 3.588610781979386
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -0.0959,
+       0.0317,
+       0.3008
+      ]
+     }
+    },
+    {
+     "seed": 900018,
+     "ok": true,
+     "poses": 40,
+     "tries": 356,
+     "corners": 604,
+     "bias_deg": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "fixed": {
+      "rms_px": 3.0568090516625706,
+      "iterations": 5,
+      "cam_pos_err_mm": 8.969038920375482,
+      "cam_rot_err_deg": 0.4527932553325905,
+      "workspace_mm": {
+       "points": 381,
+       "mean": 3.88379352341641,
+       "p95": 5.011226860136427,
+       "max": 5.2957243735561566
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 16.38990563823331,
+        "plane_error_mm": 3.46289850184801
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 2.9940475987437316,
+      "iterations": 5,
+      "cam_pos_err_mm": 9.384750268090059,
+      "cam_rot_err_deg": 0.538419785038964,
+      "workspace_mm": {
+       "points": 381,
+       "mean": 1.8600130981426768,
+       "p95": 3.178179725112076,
+       "max": 3.882775601294982
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 19.390798352171856,
+        "plane_error_mm": 1.458225803046299
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       1.3268,
+       0.5697,
+       -0.8585
+      ]
+     }
+    },
+    {
+     "seed": 900019,
+     "ok": true,
+     "poses": 40,
+     "tries": 343,
+     "corners": 596,
+     "bias_deg": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "fixed": {
+      "rms_px": 2.6350858728354245,
+      "iterations": 5,
+      "cam_pos_err_mm": 3.8484419525247424,
+      "cam_rot_err_deg": 0.4599237668521943,
+      "workspace_mm": {
+       "points": 385,
+       "mean": 2.0309636897080634,
+       "p95": 3.074652976094757,
+       "max": 3.5732522413046315
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 19.372517822007204,
+        "plane_error_mm": 2.8595756639119827
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 2.569496063233564,
+      "iterations": 5,
+      "cam_pos_err_mm": 5.897268294248025,
+      "cam_rot_err_deg": 0.4913808825603847,
+      "workspace_mm": {
+       "points": 385,
+       "mean": 1.7028122503071492,
+       "p95": 3.059018168525091,
+       "max": 3.2842321851118923
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 14.8571340453249,
+        "plane_error_mm": 1.3063506194277867
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -0.8254,
+       0.3106,
+       -0.4637
+      ]
+     }
+    },
+    {
+     "seed": 900020,
+     "ok": true,
+     "poses": 40,
+     "tries": 285,
+     "corners": 608,
+     "bias_deg": [
+      0.0,
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ],
+     "fixed": {
+      "rms_px": 2.9628499709637808,
+      "iterations": 5,
+      "cam_pos_err_mm": 1.491712796162599,
+      "cam_rot_err_deg": 0.3908707414731408,
+      "workspace_mm": {
+       "points": 383,
+       "mean": 4.484110326666383,
+       "p95": 6.457893688720724,
+       "max": 7.2324208448620535
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 7.346412842891001,
+        "plane_error_mm": 7.796912859639234
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 2.9030530108905763,
+      "iterations": 6,
+      "cam_pos_err_mm": 7.210889755624491,
+      "cam_rot_err_deg": 0.37338714142556,
+      "workspace_mm": {
+       "points": 383,
+       "mean": 4.976251233357394,
+       "p95": 6.910355689840083,
+       "max": 7.334307035504798
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 6.229418206449144,
+        "plane_error_mm": 7.678564775282289
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -1.7549,
+       1.5659,
+       -0.5646
+      ]
+     }
+    }
+   ]
+  },
+  "noise0.0_bias0.5": {
+   "summary": {
+    "seeds": 20,
+    "solved": 20,
+    "poses": {
+     "median": 40.0,
+     "p90": 40.0,
+     "max": 40.0
+    },
+    "fixed": {
+     "rms_px": {
+      "median": 0.7930895253080745,
+      "p90": 1.072267653394071,
+      "max": 1.401842790635706
+     },
+     "cam_pos_err_mm": {
+      "median": 5.42844947283064,
+      "p90": 14.862144978470557,
+      "max": 21.825064189806508
+     },
+     "cam_rot_err_deg": {
+      "median": 0.44160983069130355,
+      "p90": 1.2678736574654275,
+      "max": 1.9079146624897703
+     },
+     "workspace_mean_mm": {
+      "median": 1.156163758554689,
+      "p90": 3.1362389636267785,
+      "max": 4.423444588951325
+     },
+     "workspace_max_mm": {
+      "median": 2.3722690000105153,
+      "p90": 4.587948038222546,
+      "max": 6.337533660436754
+     },
+     "marker_pnp_err_mm": {
+      "median": 5.632700549634457,
+      "p90": 17.71918419744614,
+      "max": 69.39387974568055
+     },
+     "marker_plane_err_mm": {
+      "median": 1.5578537776556953,
+      "p90": 3.2562761023018734,
+      "max": 3.544233617206753
+     },
+     "markers_detected": "12/69",
+     "markers_in_view": 51
+    },
+    "offsets": {
+     "rms_px": {
+      "median": 0.538246546601644,
+      "p90": 0.7080746389879545,
+      "max": 0.7562125496963888
+     },
+     "cam_pos_err_mm": {
+      "median": 0.9208193024146081,
+      "p90": 1.172506898360721,
+      "max": 1.4881370835214927
+     },
+     "cam_rot_err_deg": {
+      "median": 0.06345877676724462,
+      "p90": 0.08411389818365912,
+      "max": 0.10629921563844824
+     },
+     "workspace_mean_mm": {
+      "median": 0.6803161180926259,
+      "p90": 0.8939344311838834,
+      "max": 1.268870198206166
+     },
+     "workspace_max_mm": {
+      "median": 0.7507223180390293,
+      "p90": 0.9870411736973336,
+      "max": 1.393197037575024
+     },
+     "marker_pnp_err_mm": {
+      "median": 6.306228043203701,
+      "p90": 16.663495247851493,
+      "max": 70.58824528935483
+     },
+     "marker_plane_err_mm": {
+      "median": 0.9039902612020585,
+      "p90": 1.5210051754353353,
+      "max": 2.34915190051712
+     },
+     "markers_detected": "12/69",
+     "markers_in_view": 51,
+     "offset_abs_err_deg": {
+      "median": 0.03195,
+      "p90": 0.09504,
+      "max": 0.1855
+     }
+    }
+   },
+   "rows": [
+    {
+     "seed": 900001,
+     "ok": true,
+     "poses": 40,
+     "tries": 436,
+     "corners": 588,
+     "bias_deg": [
+      0.3248,
+      -0.4354,
+      -0.5724,
+      -0.4267,
+      -0.1434
+     ],
+     "fixed": {
+      "rms_px": 1.0620604250522416,
+      "iterations": 5,
+      "cam_pos_err_mm": 14.603673047288263,
+      "cam_rot_err_deg": 1.251542724225931,
+      "workspace_mm": {
+       "points": 313,
+       "mean": 3.0350822384243945,
+       "p95": 3.8764806190676544,
+       "max": 4.504229251773898
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 2.7392853810040823,
+        "plane_error_mm": 3.2668001252694263
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.7562125496963888,
+      "iterations": 5,
+      "cam_pos_err_mm": 1.1696792631199833,
+      "cam_rot_err_deg": 0.1002825646761025,
+      "workspace_mm": {
+       "points": 313,
+       "mean": 0.7804784035877197,
+       "p95": 0.8793009774082923,
+       "max": 0.9368953976834548
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 7.3686571712388576,
+        "plane_error_mm": 1.2536074024745125
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.0016,
+       -0.1087,
+       -0.0004
+      ]
+     }
+    },
+    {
+     "seed": 900002,
+     "ok": true,
+     "poses": 40,
+     "tries": 531,
+     "corners": 592,
+     "bias_deg": [
+      -0.5949,
+      -0.2026,
+      -0.2659,
+      -0.2269,
+      -1.1897
+     ],
+     "fixed": {
+      "rms_px": 0.8190552782315773,
+      "iterations": 5,
+      "cam_pos_err_mm": 6.987762062253389,
+      "cam_rot_err_deg": 0.5830628216050199,
+      "workspace_mm": {
+       "points": 340,
+       "mean": 1.4050601973013082,
+       "p95": 1.8595583308895414,
+       "max": 2.2122601676414066
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 1.3870350203713568,
+        "plane_error_mm": 1.9631575608525724
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.7321584539491485,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.9455270653571924,
+      "cam_rot_err_deg": 0.06812337085790815,
+      "workspace_mm": {
+       "points": 340,
+       "mean": 0.37217108746294575,
+       "p95": 0.4726707796698058,
+       "max": 0.5319816516539563
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 3.051171199189312,
+        "plane_error_mm": 0.586214224557165
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -0.0321,
+       -0.0621,
+       -0.0032
+      ]
+     }
+    },
+    {
+     "seed": 900003,
+     "ok": true,
+     "poses": 40,
+     "tries": 341,
+     "corners": 592,
+     "bias_deg": [
+      -0.5171,
+      -0.0365,
+      0.3,
+      0.0704,
+      -0.1488
+     ],
+     "fixed": {
+      "rms_px": 0.5939844111575624,
+      "iterations": 5,
+      "cam_pos_err_mm": 3.2635157336621616,
+      "cam_rot_err_deg": 0.28856618867811845,
+      "workspace_mm": {
+       "points": 356,
+       "mean": 0.7608979899743534,
+       "p95": 0.9757029778702955,
+       "max": 1.0603560350185577
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.4719898723995169,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.9959789013724066,
+      "cam_rot_err_deg": 0.08231737968449872,
+      "workspace_mm": {
+       "points": 356,
+       "mean": 0.8885562433358725,
+       "p95": 0.9434358857493867,
+       "max": 0.9739126384854428
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.0167,
+       -0.095,
+       0.0083
+      ]
+     }
+    },
+    {
+     "seed": 900004,
+     "ok": true,
+     "poses": 40,
+     "tries": 433,
+     "corners": 624,
+     "bias_deg": [
+      0.3376,
+      -0.5949,
+      -0.7436,
+      -0.843,
+      -0.6156
+     ],
+     "fixed": {
+      "rms_px": 1.401842790635706,
+      "iterations": 5,
+      "cam_pos_err_mm": 21.825064189806508,
+      "cam_rot_err_deg": 1.9079146624897703,
+      "workspace_mm": {
+       "points": 356,
+       "mean": 4.046649490448218,
+       "p95": 5.568722841971939,
+       "max": 6.337533660436754
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.5411283709625769,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.8961115394720237,
+      "cam_rot_err_deg": 0.06324739050936667,
+      "workspace_mm": {
+       "points": 356,
+       "mean": 0.6836459936403035,
+       "p95": 0.7220964400894314,
+       "max": 0.7409755284682975
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -0.013,
+       -0.0642,
+       0.0041
+      ]
+     }
+    },
+    {
+     "seed": 900005,
+     "ok": true,
+     "poses": 40,
+     "tries": 180,
+     "corners": 600,
+     "bias_deg": [
+      -0.0384,
+      0.5072,
+      0.2498,
+      0.2435,
+      0.2532
+     ],
+     "fixed": {
+      "rms_px": 0.9459017246613014,
+      "iterations": 5,
+      "cam_pos_err_mm": 11.041889356295625,
+      "cam_rot_err_deg": 0.8535745903875387,
+      "workspace_mm": {
+       "points": 389,
+       "mean": 1.223909173215837,
+       "p95": 2.250697685885651,
+       "max": 2.9308760016350677
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.667497064819267,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.7355697754678612,
+      "cam_rot_err_deg": 0.023814652053279716,
+      "workspace_mm": {
+       "points": 389,
+       "mean": 0.7200197766908968,
+       "p95": 0.7412640783129598,
+       "max": 0.755874911433086
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.0331,
+       -0.0709,
+       0.0123
+      ]
+     }
+    },
+    {
+     "seed": 900006,
+     "ok": true,
+     "poses": 40,
+     "tries": 369,
+     "corners": 596,
+     "bias_deg": [
+      0.2234,
+      0.5135,
+      0.1978,
+      -0.2278,
+      0.3499
+     ],
+     "fixed": {
+      "rms_px": 0.753293281858013,
+      "iterations": 5,
+      "cam_pos_err_mm": 5.442425233216359,
+      "cam_rot_err_deg": 0.3828303235339883,
+      "workspace_mm": {
+       "points": 362,
+       "mean": 0.9164130017046183,
+       "p95": 1.3064531135870283,
+       "max": 1.6219536356142705
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 4.600205082588694,
+        "plane_error_mm": 1.2831834570162823
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.7053986595478219,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.5307710668801691,
+      "cam_rot_err_deg": 0.031313450963026714,
+      "workspace_mm": {
+       "points": 362,
+       "mean": 0.3596324544961252,
+       "p95": 0.39898270336231956,
+       "max": 0.4243229699384621
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 1.900126504869563,
+        "plane_error_mm": 0.8335366150738038
+       }
+      ],
+      "offset_err_deg": [
+       -0.0485,
+       0.0183,
+       -0.0237
+      ]
+     }
+    },
+    {
+     "seed": 900007,
+     "ok": true,
+     "poses": 40,
+     "tries": 412,
+     "corners": 604,
+     "bias_deg": [
+      -0.3536,
+      -0.7042,
+      0.1754,
+      0.0751,
+      -0.237
+     ],
+     "fixed": {
+      "rms_px": 0.5754829886940188,
+      "iterations": 5,
+      "cam_pos_err_mm": 5.414473712444921,
+      "cam_rot_err_deg": 0.4307197643877299,
+      "workspace_mm": {
+       "points": 347,
+       "mean": 0.5233341992357754,
+       "p95": 1.0350446341497557,
+       "max": 1.2569972909788036
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 69.39387974568055,
+        "plane_error_mm": 2.0530843404984145
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.5360510979190929,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.7537594913079644,
+      "cam_rot_err_deg": 0.04191305727887828,
+      "workspace_mm": {
+       "points": 347,
+       "mean": 0.7564318809413763,
+       "p95": 0.8199520470759991,
+       "max": 0.8489141510462955
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 70.58824528935483,
+        "plane_error_mm": 2.34915190051712
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.0404,
+       -0.0911,
+       0.0084
+      ]
+     }
+    },
+    {
+     "seed": 900008,
+     "ok": true,
+     "poses": 40,
+     "tries": 382,
+     "corners": 624,
+     "bias_deg": [
+      -1.236,
+      -1.1913,
+      0.0271,
+      -0.4417,
+      0.2804
+     ],
+     "fixed": {
+      "rms_px": 1.1641327084705333,
+      "iterations": 5,
+      "cam_pos_err_mm": 17.18839235911117,
+      "cam_rot_err_deg": 1.4148520566208944,
+      "workspace_mm": {
+       "points": 362,
+       "mean": 1.714823314588359,
+       "p95": 3.0223428511095385,
+       "max": 3.8091513914263473
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 1.6582893612394132,
+        "plane_error_mm": 0.9578982704880167
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.6356267883136146,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.3660478908781107,
+      "cam_rot_err_deg": 0.022900521547702793,
+      "workspace_mm": {
+       "points": 362,
+       "mean": 0.4122791668844807,
+       "p95": 0.4455223355095391,
+       "max": 0.46158074561730383
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 5.608210055704818,
+        "plane_error_mm": 0.6600034696929489
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -0.0026,
+       0.0138,
+       -0.0318
+      ]
+     }
+    },
+    {
+     "seed": 900009,
+     "ok": true,
+     "poses": 40,
+     "tries": 314,
+     "corners": 592,
+     "bias_deg": [
+      0.2989,
+      0.7165,
+      0.1429,
+      -0.0913,
+      -0.6377
+     ],
+     "fixed": {
+      "rms_px": 0.8155885958345093,
+      "iterations": 4,
+      "cam_pos_err_mm": 8.063090577233577,
+      "cam_rot_err_deg": 0.6308842850139611,
+      "workspace_mm": {
+       "points": 402,
+       "mean": 0.8531602936096467,
+       "p95": 1.820673021177959,
+       "max": 2.4231765207444136
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 10.348421192813799,
+        "plane_error_mm": 0.7811209202835961
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.678107903003595,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.6362993666139104,
+      "cam_rot_err_deg": 0.05082841289137561,
+      "workspace_mm": {
+       "points": 402,
+       "mean": 0.5592911719490201,
+       "p95": 0.6199635750913683,
+       "max": 0.6644748220467507
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 7.004246030702584,
+        "plane_error_mm": 0.8879909980537752
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.0199,
+       -0.0448,
+       -0.0229
+      ]
+     }
+    },
+    {
+     "seed": 900010,
+     "ok": true,
+     "poses": 40,
+     "tries": 464,
+     "corners": 592,
+     "bias_deg": [
+      1.2514,
+      0.1491,
+      0.1669,
+      -0.1019,
+      0.7175
+     ],
+     "fixed": {
+      "rms_px": 0.4802326048356175,
+      "iterations": 5,
+      "cam_pos_err_mm": 2.5583784062850587,
+      "cam_rot_err_deg": 0.18010125332893234,
+      "workspace_mm": {
+       "points": 366,
+       "mean": 0.7159392409153182,
+       "p95": 0.9017850707018573,
+       "max": 1.0275048619542888
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 6.66519601668022,
+        "plane_error_mm": 1.0435760849611544
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.4499008220829785,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.9733104796757281,
+      "cam_rot_err_deg": 0.08216064205945549,
+      "workspace_mm": {
+       "points": 366,
+       "mean": 0.7716269356688633,
+       "p95": 0.8512703909600102,
+       "max": 0.8781449001048794
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 5.0389400105305295,
+        "plane_error_mm": 1.1365376046327282
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -0.0115,
+       -0.061,
+       -0.0205
+      ]
+     }
+    },
+    {
+     "seed": 900011,
+     "ok": true,
+     "poses": 40,
+     "tries": 386,
+     "corners": 608,
+     "bias_deg": [
+      -0.2526,
+      0.3557,
+      -0.3743,
+      0.0948,
+      0.9789
+     ],
+     "fixed": {
+      "rms_px": 0.4590885161255868,
+      "iterations": 5,
+      "cam_pos_err_mm": 1.5836593845348579,
+      "cam_rot_err_deg": 0.08288421919840813,
+      "workspace_mm": {
+       "points": 377,
+       "mean": 0.8145867419478101,
+       "p95": 0.9085788803147797,
+       "max": 0.9208346453805879
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.4420746536753832,
+      "iterations": 5,
+      "cam_pos_err_mm": 1.0825226357755884,
+      "cam_rot_err_deg": 0.07572121736257814,
+      "workspace_mm": {
+       "points": 377,
+       "mean": 0.5735111132075499,
+       "p95": 0.6264158412271196,
+       "max": 0.6911603699634972
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -0.028,
+       -0.1115,
+       0.041
+      ]
+     }
+    },
+    {
+     "seed": 900012,
+     "ok": true,
+     "poses": 40,
+     "tries": 292,
+     "corners": 576,
+     "bias_deg": [
+      0.5436,
+      0.6953,
+      -0.2764,
+      -0.9728,
+      0.3544
+     ],
+     "fixed": {
+      "rms_px": 0.9916449162414497,
+      "iterations": 5,
+      "cam_pos_err_mm": 4.198968831352766,
+      "cam_rot_err_deg": 0.4524998969948772,
+      "workspace_mm": {
+       "points": 370,
+       "mean": 4.423444588951325,
+       "p95": 5.0812809236188725,
+       "max": 5.341417116260366
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.5017443708896706,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.719822216483989,
+      "cam_rot_err_deg": 0.069687754033484,
+      "workspace_mm": {
+       "points": 370,
+       "mean": 0.5491865016986681,
+       "p95": 0.6342268886792599,
+       "max": 0.6599773231245614
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -0.0204,
+       -0.0229,
+       -0.0116
+      ]
+     }
+    },
+    {
+     "seed": 900013,
+     "ok": true,
+     "poses": 40,
+     "tries": 410,
+     "corners": 592,
+     "bias_deg": [
+      -0.7589,
+      0.2251,
+      -0.1302,
+      0.1486,
+      -0.1328
+     ],
+     "fixed": {
+      "rms_px": 0.5100089800586712,
+      "iterations": 5,
+      "cam_pos_err_mm": 2.625582703399617,
+      "cam_rot_err_deg": 0.21269962825386135,
+      "workspace_mm": {
+       "points": 379,
+       "mean": 0.2534033308132854,
+       "p95": 0.467505060387749,
+       "max": 0.5457196267718133
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 14.563048967040316,
+        "plane_error_mm": 0.21104969251308892
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.48228124812985357,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.7305216117008796,
+      "cam_rot_err_deg": 0.03280747945023227,
+      "workspace_mm": {
+       "points": 379,
+       "mean": 0.5810112561127612,
+       "p95": 0.6163323309736312,
+       "max": 0.6525220863359855
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 13.397840773815139,
+        "plane_error_mm": 0.8754882998713225
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.0312,
+       -0.0825,
+       0.0004
+      ]
+     }
+    },
+    {
+     "seed": 900014,
+     "ok": true,
+     "poses": 40,
+     "tries": 292,
+     "corners": 600,
+     "bias_deg": [
+      -0.2109,
+      0.2196,
+      0.0399,
+      0.3426,
+      0.1168
+     ],
+     "fixed": {
+      "rms_px": 0.7049847824807163,
+      "iterations": 5,
+      "cam_pos_err_mm": 5.854169696715783,
+      "cam_rot_err_deg": 0.5192809861947865,
+      "workspace_mm": {
+       "points": 363,
+       "mean": 1.0884183438935409,
+       "p95": 1.7819142563085966,
+       "max": 2.216458063887362
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.5280140170207908,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.761878693147275,
+      "cam_rot_err_deg": 0.058188249754520284,
+      "workspace_mm": {
+       "points": 363,
+       "mean": 0.6769862425449483,
+       "p95": 0.7582798708602538,
+       "max": 0.8009661319192171
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.0268,
+       -0.0954,
+       0.0111
+      ]
+     }
+    },
+    {
+     "seed": 900015,
+     "ok": true,
+     "poses": 40,
+     "tries": 434,
+     "corners": 588,
+     "bias_deg": [
+      0.4603,
+      0.1965,
+      0.2303,
+      0.2574,
+      0.8941
+     ],
+     "fixed": {
+      "rms_px": 0.8353112362902195,
+      "iterations": 5,
+      "cam_pos_err_mm": 6.522020190416279,
+      "cam_rot_err_deg": 0.5932066744647598,
+      "workspace_mm": {
+       "points": 353,
+       "mean": 1.6951844577781747,
+       "p95": 2.19984156636573,
+       "max": 2.380648478272229
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.6947953976205681,
+      "iterations": 5,
+      "cam_pos_err_mm": 1.197955615527359,
+      "cam_rot_err_deg": 0.02128416858899393,
+      "workspace_mm": {
+       "points": 353,
+       "mean": 0.9423381218159809,
+       "p95": 1.055151934290046,
+       "max": 1.1051979906043485
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.0911,
+       -0.1015,
+       -0.0392
+      ]
+     }
+    },
+    {
+     "seed": 900016,
+     "ok": true,
+     "poses": 40,
+     "tries": 331,
+     "corners": 600,
+     "bias_deg": [
+      0.2068,
+      0.273,
+      0.2823,
+      -1.067,
+      -0.0001
+     ],
+     "fixed": {
+      "rms_px": 0.9517784117690529,
+      "iterations": 5,
+      "cam_pos_err_mm": 3.7120253782335797,
+      "cam_rot_err_deg": 0.3739833272497581,
+      "workspace_mm": {
+       "points": 358,
+       "mean": 2.913885488343013,
+       "p95": 3.367668056718438,
+       "max": 3.501054847430877
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 2.5219139033967024,
+        "plane_error_mm": 3.544233617206753
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.43905881475862857,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.9648639330002631,
+      "cam_rot_err_deg": 0.06367016302512257,
+      "workspace_mm": {
+       "points": 358,
+       "mean": 0.6986885496958769,
+       "p95": 0.749436782777718,
+       "max": 0.7970741336903087
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 2.4564199948915837,
+        "plane_error_mm": 1.0125917453775817
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.0355,
+       -0.142,
+       0.0252
+      ]
+     }
+    },
+    {
+     "seed": 900017,
+     "ok": true,
+     "poses": 40,
+     "tries": 433,
+     "corners": 596,
+     "bias_deg": [
+      -0.378,
+      0.2969,
+      0.4138,
+      0.1214,
+      0.6099
+     ],
+     "fixed": {
+      "rms_px": 0.7715409320055082,
+      "iterations": 5,
+      "cam_pos_err_mm": 8.969283802797428,
+      "cam_rot_err_deg": 0.6698994598710787,
+      "workspace_mm": {
+       "points": 325,
+       "mean": 1.0697987718591828,
+       "p95": 2.4434702271885795,
+       "max": 3.0314585058428793
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.5597210895890081,
+      "iterations": 5,
+      "cam_pos_err_mm": 1.0848527723104835,
+      "cam_rot_err_deg": 0.07174276266219555,
+      "workspace_mm": {
+       "points": 325,
+       "mean": 0.6504854827091509,
+       "p95": 0.6960582925952351,
+       "max": 0.7455697246449726
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -0.0325,
+       -0.0599,
+       0.0027
+      ]
+     }
+    },
+    {
+     "seed": 900018,
+     "ok": true,
+     "poses": 40,
+     "tries": 356,
+     "corners": 604,
+     "bias_deg": [
+      -0.3456,
+      -0.372,
+      0.2322,
+      0.4496,
+      0.1414
+     ],
+     "fixed": {
+      "rms_px": 0.7586099949948036,
+      "iterations": 5,
+      "cam_pos_err_mm": 2.7554198125129967,
+      "cam_rot_err_deg": 0.26201329113536875,
+      "workspace_mm": {
+       "points": 381,
+       "mean": 1.911794524209876,
+       "p95": 2.249729381795473,
+       "max": 2.3638895217488014
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 14.110603100820711,
+        "plane_error_mm": 1.8325240982951083
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.5404419952841949,
+      "iterations": 5,
+      "cam_pos_err_mm": 1.4881370835214927,
+      "cam_rot_err_deg": 0.10629921563844824,
+      "workspace_mm": {
+       "points": 381,
+       "mean": 1.268870198206166,
+       "p95": 1.3564193903767896,
+       "max": 1.393197037575024
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 10.55642804870118,
+        "plane_error_mm": 1.5507160390976489
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.0394,
+       -0.1855,
+       0.0454
+      ]
+     }
+    },
+    {
+     "seed": 900019,
+     "ok": true,
+     "poses": 40,
+     "tries": 343,
+     "corners": 596,
+     "bias_deg": [
+      -0.0876,
+      -0.5931,
+      -0.6936,
+      1.0497,
+      -0.3147
+     ],
+     "fixed": {
+      "rms_px": 0.8146381186106408,
+      "iterations": 5,
+      "cam_pos_err_mm": 5.099024498935109,
+      "cam_rot_err_deg": 0.25038192622568217,
+      "workspace_mm": {
+       "points": 385,
+       "mean": 2.9745272101263653,
+       "p95": 3.248676292970817,
+       "max": 3.3373982149068744
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 18.06986588971345,
+        "plane_error_mm": 3.161559895593898
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.5108435765004778,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.980166644774504,
+      "cam_rot_err_deg": 0.08056277494833304,
+      "workspace_mm": {
+       "points": 385,
+       "mean": 0.7555766185680063,
+       "p95": 0.837664909969116,
+       "max": 0.8812610277535728
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 17.02634574496664,
+        "plane_error_mm": 0.76080330136472
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -0.0119,
+       -0.0386,
+       -0.0399
+      ]
+     }
+    },
+    {
+     "seed": 900020,
+     "ok": true,
+     "poses": 40,
+     "tries": 285,
+     "corners": 608,
+     "bias_deg": [
+      0.0713,
+      0.0933,
+      -0.1085,
+      -0.1185,
+      0.7777
+     ],
+     "fixed": {
+      "rms_px": 0.5185278978920187,
+      "iterations": 5,
+      "cam_pos_err_mm": 1.3140295164843472,
+      "cam_rot_err_deg": 0.09062953094835936,
+      "workspace_mm": {
+       "points": 383,
+       "mean": 0.9588488873408726,
+       "p95": 1.0059736814847742,
+       "max": 1.0476108008326088
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 3.7077154460117505,
+        "plane_error_mm": 0.5758684829484711
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.5089628348916889,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.6006343515798972,
+      "cam_rot_err_deg": 0.03801787286509607,
+      "workspace_mm": {
+       "points": 383,
+       "mean": 0.5217483952573848,
+       "p95": 0.5461051381144905,
+       "max": 0.5592288959088164
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 4.345225789169375,
+        "plane_error_mm": 0.9199895243503416
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.0207,
+       -0.035,
+       -0.0368
+      ]
+     }
+    }
+   ]
+  },
+  "noise0.0_bias1.0": {
+   "summary": {
+    "seeds": 20,
+    "solved": 20,
+    "poses": {
+     "median": 40.0,
+     "p90": 40.0,
+     "max": 40.0
+    },
+    "fixed": {
+     "rms_px": {
+      "median": 1.1093437672246944,
+      "p90": 1.8247263891071406,
+      "max": 2.633672006560093
+     },
+     "cam_pos_err_mm": {
+      "median": 10.82596580940336,
+      "p90": 29.90799979083928,
+      "max": 43.92668616956303
+     },
+     "cam_rot_err_deg": {
+      "median": 0.8686830555158432,
+      "p90": 2.533172128476331,
+      "max": 3.8116187276985003
+     },
+     "workspace_mean_mm": {
+      "median": 2.433606306410312,
+      "p90": 6.388913570446632,
+      "max": 8.210234725604698
+     },
+     "workspace_max_mm": {
+      "median": 5.1828060637744775,
+      "p90": 8.295532745801921,
+      "max": 11.576915787799035
+     },
+     "marker_pnp_err_mm": {
+      "median": 8.867852344480188,
+      "p90": 18.83820531748828,
+      "max": 67.93674088734838
+     },
+     "marker_plane_err_mm": {
+      "median": 1.9505485466584975,
+      "p90": 5.991366260900668,
+      "max": 6.6281050871213765
+     },
+     "markers_detected": "12/69",
+     "markers_in_view": 51
+    },
+    "offsets": {
+     "rms_px": {
+      "median": 0.5382465525576858,
+      "p90": 0.7080746406581679,
+      "max": 0.7562125503671094
+     },
+     "cam_pos_err_mm": {
+      "median": 0.9211311006166306,
+      "p90": 1.1728498840702108,
+      "max": 1.488324540830488
+     },
+     "cam_rot_err_deg": {
+      "median": 0.06347491854039361,
+      "p90": 0.08412482606993027,
+      "max": 0.1063374490205317
+     },
+     "workspace_mean_mm": {
+      "median": 0.6803654880109826,
+      "p90": 0.8940751129936224,
+      "max": 1.2682386206223706
+     },
+     "workspace_max_mm": {
+      "median": 0.7506476081365222,
+      "p90": 0.98703754265196,
+      "max": 1.3938526591222435
+     },
+     "marker_pnp_err_mm": {
+      "median": 6.306134507124408,
+      "p90": 16.66335472793608,
+      "max": 70.58807481317751
+     },
+     "marker_plane_err_mm": {
+      "median": 0.9040205695703143,
+      "p90": 1.5208596917836106,
+      "max": 2.3490707896846033
+     },
+     "markers_detected": "12/69",
+     "markers_in_view": 51,
+     "offset_abs_err_deg": {
+      "median": 0.032,
+      "p90": 0.09494999999999999,
+      "max": 0.1854
+     }
+    }
+   },
+   "rows": [
+    {
+     "seed": 900001,
+     "ok": true,
+     "poses": 40,
+     "tries": 436,
+     "corners": 588,
+     "bias_deg": [
+      0.6495,
+      -0.8708,
+      -1.1449,
+      -0.8533,
+      -0.2867
+     ],
+     "fixed": {
+      "rms_px": 1.714438149691002,
+      "iterations": 5,
+      "cam_pos_err_mm": 29.39888863095014,
+      "cam_rot_err_deg": 2.501234677527083,
+      "workspace_mm": {
+       "points": 314,
+       "mean": 5.476670590508205,
+       "p95": 7.053585659504058,
+       "max": 8.1101887631453
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 9.210795946006995,
+        "plane_error_mm": 5.554619935425226
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.7562125503671094,
+      "iterations": 5,
+      "cam_pos_err_mm": 1.1700582643686503,
+      "cam_rot_err_deg": 0.1003186862878463,
+      "workspace_mm": {
+       "points": 314,
+       "mean": 0.7804717845653172,
+       "p95": 0.879662924630265,
+       "max": 0.9347697795990321
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 7.368442829148829,
+        "plane_error_mm": 1.253594781710551
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.0015,
+       -0.1087,
+       -0.0003
+      ]
+     }
+    },
+    {
+     "seed": 900002,
+     "ok": true,
+     "poses": 40,
+     "tries": 531,
+     "corners": 592,
+     "bias_deg": [
+      -1.1899,
+      -0.4052,
+      -0.5317,
+      -0.4537,
+      -2.3793
+     ],
+     "fixed": {
+      "rms_px": 1.0687905961435964,
+      "iterations": 5,
+      "cam_pos_err_mm": 14.202546586618354,
+      "cam_rot_err_deg": 1.1870084927576239,
+      "workspace_mm": {
+       "points": 338,
+       "mean": 2.517935426799,
+       "p95": 3.4299350590258917,
+       "max": 4.142479142620755
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 4.181236859544932,
+        "plane_error_mm": 3.4508783703274406
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.7321584541028383,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.9457631966099179,
+      "cam_rot_err_deg": 0.06814557418188233,
+      "workspace_mm": {
+       "points": 338,
+       "mean": 0.37227098688617904,
+       "p95": 0.4739219878167746,
+       "max": 0.5318190320480958
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 3.051086264813558,
+        "plane_error_mm": 0.5862115577255925
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -0.0321,
+       -0.0621,
+       -0.0032
+      ]
+     }
+    },
+    {
+     "seed": 900003,
+     "ok": true,
+     "poses": 40,
+     "tries": 341,
+     "corners": 592,
+     "bias_deg": [
+      -1.0343,
+      -0.0729,
+      0.6,
+      0.1408,
+      -0.2977
+     ],
+     "fixed": {
+      "rms_px": 0.8108062553711191,
+      "iterations": 5,
+      "cam_pos_err_mm": 6.534937178355574,
+      "cam_rot_err_deg": 0.5937042009649773,
+      "workspace_mm": {
+       "points": 356,
+       "mean": 2.129641412427039,
+       "p95": 2.5746994348191845,
+       "max": 2.753669086972351
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.4719898734602725,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.9960065607013047,
+      "cam_rot_err_deg": 0.08232550826793956,
+      "workspace_mm": {
+       "points": 356,
+       "mean": 0.888633698134543,
+       "p95": 0.9426105529525366,
+       "max": 0.9738738243052106
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.0167,
+       -0.0949,
+       0.0082
+      ]
+     }
+    },
+    {
+     "seed": 900004,
+     "ok": true,
+     "poses": 40,
+     "tries": 433,
+     "corners": 624,
+     "bias_deg": [
+      0.6751,
+      -1.1898,
+      -1.4872,
+      -1.686,
+      -1.2311
+     ],
+     "fixed": {
+      "rms_px": 2.633672006560093,
+      "iterations": 6,
+      "cam_pos_err_mm": 43.92668616956303,
+      "cam_rot_err_deg": 3.8116187276985003,
+      "workspace_mm": {
+       "points": 357,
+       "mean": 7.317292266190913,
+       "p95": 10.273766402226785,
+       "max": 11.576915787799035
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.5411283725523692,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.8964990046233433,
+      "cam_rot_err_deg": 0.06330057041707728,
+      "workspace_mm": {
+       "points": 357,
+       "mean": 0.6836529446657981,
+       "p95": 0.7216453775860979,
+       "max": 0.7409904362553609
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -0.0131,
+       -0.0642,
+       0.0041
+      ]
+     }
+    },
+    {
+     "seed": 900005,
+     "ok": true,
+     "poses": 40,
+     "tries": 180,
+     "corners": 600,
+     "bias_deg": [
+      -0.0769,
+      1.0143,
+      0.4995,
+      0.4869,
+      0.5065
+     ],
+     "fixed": {
+      "rms_px": 1.4809682278073626,
+      "iterations": 6,
+      "cam_pos_err_mm": 21.750062690554067,
+      "cam_rot_err_deg": 1.7090425777984295,
+      "workspace_mm": {
+       "points": 389,
+       "mean": 2.3492771860216237,
+       "p95": 4.422131146029493,
+       "max": 5.729328965265444
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.66749706593073,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.7356489655521203,
+      "cam_rot_err_deg": 0.023770541100910897,
+      "workspace_mm": {
+       "points": 389,
+       "mean": 0.7201209536679928,
+       "p95": 0.7413389151908492,
+       "max": 0.7559190353261701
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.0332,
+       -0.071,
+       0.0123
+      ]
+     }
+    },
+    {
+     "seed": 900006,
+     "ok": true,
+     "poses": 40,
+     "tries": 369,
+     "corners": 596,
+     "bias_deg": [
+      0.4468,
+      1.0269,
+      0.3956,
+      -0.4557,
+      0.6998
+     ],
+     "fixed": {
+      "rms_px": 0.870998113921458,
+      "iterations": 5,
+      "cam_pos_err_mm": 10.656368477718013,
+      "cam_rot_err_deg": 0.7548045603370352,
+      "workspace_mm": {
+       "points": 363,
+       "mean": 1.6148806815589296,
+       "p95": 2.5118696961519738,
+       "max": 3.1919939050892245
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 7.065641778785492,
+        "plane_error_mm": 1.8190281708488212
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.7053986613865378,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.5304591099271732,
+      "cam_rot_err_deg": 0.031269395831322246,
+      "workspace_mm": {
+       "points": 363,
+       "mean": 0.3596814116842466,
+       "p95": 0.3990011088630121,
+       "max": 0.42432550216330267
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 1.9003472212942076,
+        "plane_error_mm": 0.8336383496835991
+       }
+      ],
+      "offset_err_deg": [
+       -0.0484,
+       0.0183,
+       -0.0237
+      ]
+     }
+    },
+    {
+     "seed": 900007,
+     "ok": true,
+     "poses": 40,
+     "tries": 412,
+     "corners": 604,
+     "bias_deg": [
+      -0.7071,
+      -1.4085,
+      0.3507,
+      0.1502,
+      -0.4739
+     ],
+     "fixed": {
+      "rms_px": 0.6779239463576083,
+      "iterations": 5,
+      "cam_pos_err_mm": 10.995563141088708,
+      "cam_rot_err_deg": 0.8568064178967745,
+      "workspace_mm": {
+       "points": 346,
+       "mean": 1.2028532873798155,
+       "p95": 2.1126534725895327,
+       "max": 2.569872327084823
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 67.93674088734838,
+        "plane_error_mm": 2.082068922468174
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.5360511067275266,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.7538210966430603,
+      "cam_rot_err_deg": 0.041990622419324754,
+      "workspace_mm": {
+       "points": 346,
+       "mean": 0.7565179131150666,
+       "p95": 0.8206612262111644,
+       "max": 0.8498676935037389
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 70.58807481317751,
+        "plane_error_mm": 2.3490707896846033
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.0401,
+       -0.091,
+       0.0083
+      ]
+     }
+    },
+    {
+     "seed": 900008,
+     "ok": true,
+     "poses": 40,
+     "tries": 382,
+     "corners": 624,
+     "bias_deg": [
+      -2.472,
+      -2.3825,
+      0.0541,
+      -0.8833,
+      0.5609
+     ],
+     "fixed": {
+      "rms_px": 2.046403400625387,
+      "iterations": 5,
+      "cam_pos_err_mm": 34.49000022984148,
+      "cam_rot_err_deg": 2.8206091870195573,
+      "workspace_mm": {
+       "points": 359,
+       "mean": 3.170186364778838,
+       "p95": 5.9240678333712555,
+       "max": 7.435110558493026
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 8.524908742953382,
+        "plane_error_mm": 1.3227550139940647
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.6356267985261125,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.36610727100401463,
+      "cam_rot_err_deg": 0.022982488196654747,
+      "workspace_mm": {
+       "points": 359,
+       "mean": 0.4123451837091634,
+       "p95": 0.4466682199475406,
+       "max": 0.4640256183713469
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 5.6079426891776984,
+        "plane_error_mm": 0.6598074287453921
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -0.0028,
+       0.0139,
+       -0.0319
+      ]
+     }
+    },
+    {
+     "seed": 900009,
+     "ok": true,
+     "poses": 40,
+     "tries": 314,
+     "corners": 592,
+     "bias_deg": [
+      0.5978,
+      1.4331,
+      0.2859,
+      -0.1826,
+      -1.2753
+     ],
+     "fixed": {
+      "rms_px": 1.106783796956938,
+      "iterations": 4,
+      "cam_pos_err_mm": 16.094043689452526,
+      "cam_rot_err_deg": 1.2700278658081405,
+      "workspace_mm": {
+       "points": 402,
+       "mean": 1.718011838760297,
+       "p95": 3.628521913821979,
+       "max": 4.8506580972536835
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 13.44872869013935,
+        "plane_error_mm": 1.7523446605807693
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.6781079051377767,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.6360514280214419,
+      "cam_rot_err_deg": 0.05078979776829391,
+      "workspace_mm": {
+       "points": 402,
+       "mean": 0.5592662434568515,
+       "p95": 0.6196736309530722,
+       "max": 0.6631554855559845
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 7.004326325071119,
+        "plane_error_mm": 0.888068117015097
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.02,
+       -0.0448,
+       -0.0229
+      ]
+     }
+    },
+    {
+     "seed": 900010,
+     "ok": true,
+     "poses": 40,
+     "tries": 464,
+     "corners": 592,
+     "bias_deg": [
+      2.5029,
+      0.2983,
+      0.3338,
+      -0.2039,
+      1.435
+     ],
+     "fixed": {
+      "rms_px": 0.5303295381627812,
+      "iterations": 5,
+      "cam_pos_err_mm": 4.849569147926516,
+      "cam_rot_err_deg": 0.3639838234708644,
+      "workspace_mm": {
+       "points": 370,
+       "mean": 0.9361045255077027,
+       "p95": 1.47121712167237,
+       "max": 1.7553934661852215
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 7.7687486544598885,
+        "plane_error_mm": 1.1441053393594878
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.4499008224912998,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.973213627965703,
+      "cam_rot_err_deg": 0.08214985677204108,
+      "workspace_mm": {
+       "points": 370,
+       "mean": 0.772542251370728,
+       "p95": 0.853447560090126,
+       "max": 0.8834795402156864
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 5.039005277028846,
+        "plane_error_mm": 1.1365635253697501
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -0.0115,
+       -0.061,
+       -0.0205
+      ]
+     }
+    },
+    {
+     "seed": 900011,
+     "ok": true,
+     "poses": 40,
+     "tries": 386,
+     "corners": 608,
+     "bias_deg": [
+      -0.5051,
+      0.7115,
+      -0.7487,
+      0.1895,
+      1.9578
+     ],
+     "fixed": {
+      "rms_px": 0.5078459752352237,
+      "iterations": 5,
+      "cam_pos_err_mm": 2.7108832438979724,
+      "cam_rot_err_deg": 0.1624432387700647,
+      "workspace_mm": {
+       "points": 377,
+       "mean": 1.1798247304802874,
+       "p95": 1.3362623173791572,
+       "max": 1.363783932853357
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.44207465794745315,
+      "iterations": 5,
+      "cam_pos_err_mm": 1.0823783974429122,
+      "cam_rot_err_deg": 0.07569618399063466,
+      "workspace_mm": {
+       "points": 377,
+       "mean": 0.5734567702067879,
+       "p95": 0.626053138445258,
+       "max": 0.6907928922107236
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -0.0279,
+       -0.1116,
+       0.041
+      ]
+     }
+    },
+    {
+     "seed": 900012,
+     "ok": true,
+     "poses": 40,
+     "tries": 292,
+     "corners": 576,
+     "bias_deg": [
+      1.0873,
+      1.3905,
+      -0.5528,
+      -1.9456,
+      0.7087
+     ],
+     "fixed": {
+      "rms_px": 1.8000956100495573,
+      "iterations": 5,
+      "cam_pos_err_mm": 8.06725753267505,
+      "cam_rot_err_deg": 0.880559693134912,
+      "workspace_mm": {
+       "points": 372,
+       "mean": 8.210234725604698,
+       "p95": 9.463701361724974,
+       "max": 9.963628589711476
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.5017443789550345,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.7191616308635967,
+      "cam_rot_err_deg": 0.06962055794301922,
+      "workspace_mm": {
+       "points": 372,
+       "mean": 0.5493424053845086,
+       "p95": 0.6340352449250147,
+       "max": 0.6596019220239692
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -0.0202,
+       -0.0229,
+       -0.0116
+      ]
+     }
+    },
+    {
+     "seed": 900013,
+     "ok": true,
+     "poses": 40,
+     "tries": 410,
+     "corners": 592,
+     "bias_deg": [
+      -1.5178,
+      0.4501,
+      -0.2605,
+      0.2971,
+      -0.2656
+     ],
+     "fixed": {
+      "rms_px": 0.5648460893618905,
+      "iterations": 5,
+      "cam_pos_err_mm": 5.012893161648991,
+      "cam_rot_err_deg": 0.41843571797441764,
+      "workspace_mm": {
+       "points": 376,
+       "mean": 0.514892467138792,
+       "p95": 0.960431781759426,
+       "max": 1.223305555568374
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 15.421975242783263,
+        "plane_error_mm": 0.5278850208037847
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.48228124965261665,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.7305044114673681,
+      "cam_rot_err_deg": 0.032778514386720456,
+      "workspace_mm": {
+       "points": 376,
+       "mean": 0.5809374878643646,
+       "p95": 0.6163846518364772,
+       "max": 0.652731943038665
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 13.39784980666162,
+        "plane_error_mm": 0.8754993088631778
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.0312,
+       -0.0826,
+       0.0004
+      ]
+     }
+    },
+    {
+     "seed": 900014,
+     "ok": true,
+     "poses": 40,
+     "tries": 292,
+     "corners": 600,
+     "bias_deg": [
+      -0.4218,
+      0.4392,
+      0.0799,
+      0.6852,
+      0.2335
+     ],
+     "fixed": {
+      "rms_px": 1.038293606570636,
+      "iterations": 5,
+      "cam_pos_err_mm": 11.597649405211978,
+      "cam_rot_err_deg": 1.0473665365464737,
+      "workspace_mm": {
+       "points": 362,
+       "mean": 2.6858785248672365,
+       "p95": 4.196412370074378,
+       "max": 5.111789042582526
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.5280140174883503,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.7618104400566728,
+      "cam_rot_err_deg": 0.05817380853462049,
+      "workspace_mm": {
+       "points": 362,
+       "mean": 0.6770780313561673,
+       "p95": 0.7589543155605245,
+       "max": 0.8017632575010709
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.0268,
+       -0.0954,
+       0.0111
+      ]
+     }
+    },
+    {
+     "seed": 900015,
+     "ok": true,
+     "poses": 40,
+     "tries": 434,
+     "corners": 588,
+     "bias_deg": [
+      0.9205,
+      0.393,
+      0.4605,
+      0.5147,
+      1.7882
+     ],
+     "fixed": {
+      "rms_px": 1.1119037374924505,
+      "iterations": 5,
+      "cam_pos_err_mm": 12.770258448262325,
+      "cam_rot_err_deg": 1.1605581322853356,
+      "workspace_mm": {
+       "points": 353,
+       "mean": 3.893149059389303,
+       "p95": 4.876108128083761,
+       "max": 5.253823084966429
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.6947953976974307,
+      "iterations": 5,
+      "cam_pos_err_mm": 1.1979744613842545,
+      "cam_rot_err_deg": 0.021275701232215647,
+      "workspace_mm": {
+       "points": 353,
+       "mean": 0.9430478467253369,
+       "p95": 1.0554398118923574,
+       "max": 1.1055110077727026
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.0912,
+       -0.1015,
+       -0.0392
+      ]
+     }
+    },
+    {
+     "seed": 900016,
+     "ok": true,
+     "poses": 40,
+     "tries": 331,
+     "corners": 600,
+     "bias_deg": [
+      0.4135,
+      0.546,
+      0.5646,
+      -2.134,
+      -0.0003
+     ],
+     "fixed": {
+      "rms_px": 1.776709421063016,
+      "iterations": 5,
+      "cam_pos_err_mm": 7.263183711792982,
+      "cam_rot_err_deg": 0.7417238604118774,
+      "workspace_mm": {
+       "points": 359,
+       "mean": 5.107872078847511,
+       "p95": 5.984246213123268,
+       "max": 6.253129085567855
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 4.9719081830422605,
+        "plane_error_mm": 6.039893630397939
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.4390588242784538,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.964607422952898,
+      "cam_rot_err_deg": 0.06364926666370996,
+      "workspace_mm": {
+       "points": 359,
+       "mean": 0.6988421410085716,
+       "p95": 0.7496439917562023,
+       "max": 0.7972523769746864
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 2.4566193599823287,
+        "plane_error_mm": 1.012653524435952
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.0355,
+       -0.1418,
+       0.0251
+      ]
+     }
+    },
+    {
+     "seed": 900017,
+     "ok": true,
+     "poses": 40,
+     "tries": 433,
+     "corners": 596,
+     "bias_deg": [
+      -0.756,
+      0.5938,
+      0.8276,
+      0.2427,
+      1.2198
+     ],
+     "fixed": {
+      "rms_px": 1.161903392213413,
+      "iterations": 5,
+      "cam_pos_err_mm": 17.70084830120121,
+      "cam_rot_err_deg": 1.336378108361103,
+      "workspace_mm": {
+       "points": 324,
+       "mean": 2.073126812753519,
+       "p95": 4.814296739268734,
+       "max": 5.995760370983405
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.5597210903386063,
+      "iterations": 5,
+      "cam_pos_err_mm": 1.0846731509278145,
+      "cam_rot_err_deg": 0.07172671651906885,
+      "workspace_mm": {
+       "points": 324,
+       "mean": 0.6504077282222208,
+       "p95": 0.6961275337268995,
+       "max": 0.7453761809468743
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -0.0325,
+       -0.0599,
+       0.0027
+      ]
+     }
+    },
+    {
+     "seed": 900018,
+     "ok": true,
+     "poses": 40,
+     "tries": 356,
+     "corners": 604,
+     "bias_deg": [
+      -0.6912,
+      -0.744,
+      0.4644,
+      0.8993,
+      0.2829
+     ],
+     "fixed": {
+      "rms_px": 1.1431309286991824,
+      "iterations": 5,
+      "cam_pos_err_mm": 5.829472953223161,
+      "cam_rot_err_deg": 0.5384234248077057,
+      "workspace_mm": {
+       "points": 379,
+       "mean": 4.840925613614598,
+       "p95": 5.51655635473396,
+       "max": 5.788427399741941
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 17.343884493890595,
+        "plane_error_mm": 4.952371798741639
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.5404419983878451,
+      "iterations": 5,
+      "cam_pos_err_mm": 1.488324540830488,
+      "cam_rot_err_deg": 0.1063374490205317,
+      "workspace_mm": {
+       "points": 379,
+       "mean": 1.2682386206223706,
+       "p95": 1.3553786020215464,
+       "max": 1.3938526591222435
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 10.556376175050902,
+        "plane_error_mm": 1.5505557929028393
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.0393,
+       -0.1854,
+       0.0454
+      ]
+     }
+    },
+    {
+     "seed": 900019,
+     "ok": true,
+     "poses": 40,
+     "tries": 343,
+     "corners": 596,
+     "bias_deg": [
+      -0.1752,
+      -1.1861,
+      -1.3872,
+      2.0995,
+      -0.6294
+     ],
+     "fixed": {
+      "rms_px": 1.3371094325012618,
+      "iterations": 5,
+      "cam_pos_err_mm": 10.423466153401957,
+      "cam_rot_err_deg": 0.4972876234700407,
+      "workspace_mm": {
+       "points": 385,
+       "mean": 6.285760382030599,
+       "p95": 6.846105147148007,
+       "max": 7.012768984717967
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 19.00424096455469,
+        "plane_error_mm": 6.6281050871213765
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.5108435894913719,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.9805318223350651,
+      "cam_rot_err_deg": 0.08059630119278773,
+      "workspace_mm": {
+       "points": 385,
+       "mean": 0.755420583644758,
+       "p95": 0.8376662176361415,
+       "max": 0.8814812739354708
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 17.026188608077685,
+        "plane_error_mm": 0.7605699365564269
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -0.0119,
+       -0.0388,
+       -0.0398
+      ]
+     }
+    },
+    {
+     "seed": 900020,
+     "ok": true,
+     "poses": 40,
+     "tries": 285,
+     "corners": 608,
+     "bias_deg": [
+      0.1426,
+      0.1865,
+      -0.217,
+      -0.2371,
+      1.5554
+     ],
+     "fixed": {
+      "rms_px": 0.565676651725855,
+      "iterations": 5,
+      "cam_pos_err_mm": 2.4799825266437923,
+      "cam_rot_err_deg": 0.1784305631580912,
+      "workspace_mm": {
+       "points": 384,
+       "mean": 1.6020441365500127,
+       "p95": 1.6941338540441595,
+       "max": 1.7860071271710933
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 2.8061097575734717,
+        "plane_error_mm": 0.5747682330458219
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 0.5089628350521772,
+      "iterations": 5,
+      "cam_pos_err_mm": 0.6006143907627437,
+      "cam_rot_err_deg": 0.03801040072231416,
+      "workspace_mm": {
+       "points": 384,
+       "mean": 0.5218517663401262,
+       "p95": 0.5461711874462354,
+       "max": 0.5594430295778661
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 4.34522987075879,
+        "plane_error_mm": 0.9199730221255316
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.0208,
+       -0.035,
+       -0.0368
+      ]
+     }
+    }
+   ]
+  },
+  "noise0.3_bias0.5": {
+   "summary": {
+    "seeds": 20,
+    "solved": 20,
+    "poses": {
+     "median": 40.0,
+     "p90": 40.0,
+     "max": 40.0
+    },
+    "fixed": {
+     "rms_px": {
+      "median": 3.2320677414282466,
+      "p90": 3.8205091416027006,
+      "max": 4.18575605963743
+     },
+     "cam_pos_err_mm": {
+      "median": 6.599938094044933,
+      "p90": 16.413864304383196,
+      "max": 23.742698833055247
+     },
+     "cam_rot_err_deg": {
+      "median": 0.5500792530500432,
+      "p90": 1.6553060367515573,
+      "max": 2.043195817584204
+     },
+     "workspace_mean_mm": {
+      "median": 2.2094893205240247,
+      "p90": 4.867554339273346,
+      "max": 9.798064649746163
+     },
+     "workspace_max_mm": {
+      "median": 4.03698929397028,
+      "p90": 7.9870761379518775,
+      "max": 12.498817069727053
+     },
+     "marker_pnp_err_mm": {
+      "median": 6.197935689612205,
+      "p90": 18.12814243592478,
+      "max": 70.50241012230946
+     },
+     "marker_plane_err_mm": {
+      "median": 2.796764656503174,
+      "p90": 3.8613927130963424,
+      "max": 6.101353660664213
+     },
+     "markers_detected": "12/69",
+     "markers_in_view": 51
+    },
+    "offsets": {
+     "rms_px": {
+      "median": 3.144331918185455,
+      "p90": 3.5724332549140008,
+      "max": 4.038262115314735
+     },
+     "cam_pos_err_mm": {
+      "median": 8.55129625520535,
+      "p90": 16.380253686564892,
+      "max": 20.710651126026644
+     },
+     "cam_rot_err_deg": {
+      "median": 0.8141694871874963,
+      "p90": 1.4133573288610781,
+      "max": 1.5518920455001144
+     },
+     "workspace_mean_mm": {
+      "median": 2.7266771523024547,
+      "p90": 4.278054448897047,
+      "max": 6.593449212626454
+     },
+     "workspace_max_mm": {
+      "median": 4.482870963023651,
+      "p90": 6.536477702008659,
+      "max": 8.461761262864078
+     },
+     "marker_pnp_err_mm": {
+      "median": 7.571361956092934,
+      "p90": 17.79847325182495,
+      "max": 67.9049148892001
+     },
+     "marker_plane_err_mm": {
+      "median": 3.238725797596304,
+      "p90": 3.8793730921825804,
+      "max": 4.347797980624514
+     },
+     "markers_detected": "12/69",
+     "markers_in_view": 51,
+     "offset_abs_err_deg": {
+      "median": 0.60705,
+      "p90": 1.51442,
+      "max": 3.4026
+     }
+    }
+   },
+   "rows": [
+    {
+     "seed": 900001,
+     "ok": true,
+     "poses": 40,
+     "tries": 436,
+     "corners": 588,
+     "bias_deg": [
+      0.3248,
+      -0.4354,
+      -0.5724,
+      -0.4267,
+      -0.1434
+     ],
+     "fixed": {
+      "rms_px": 2.8997385131577254,
+      "iterations": 5,
+      "cam_pos_err_mm": 15.931824711292101,
+      "cam_rot_err_deg": 1.6445396222557278,
+      "workspace_mm": {
+       "points": 313,
+       "mean": 7.011356392562256,
+       "p95": 10.149416260284253,
+       "max": 12.498817069727053
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 6.224102122037681,
+        "plane_error_mm": 6.101353660664213
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 2.7240161685596767,
+      "iterations": 5,
+      "cam_pos_err_mm": 5.36487873335481,
+      "cam_rot_err_deg": 0.8154179608505405,
+      "workspace_mm": {
+       "points": 313,
+       "mean": 3.8741472555285363,
+       "p95": 5.90775863709187,
+       "max": 7.312502464105176
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 5.6330020064843955,
+        "plane_error_mm": 3.239958138257275
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -0.5933,
+       -0.285,
+       0.6098
+      ]
+     }
+    },
+    {
+     "seed": 900002,
+     "ok": true,
+     "poses": 40,
+     "tries": 531,
+     "corners": 592,
+     "bias_deg": [
+      -0.5949,
+      -0.2026,
+      -0.2659,
+      -0.2269,
+      -1.1897
+     ],
+     "fixed": {
+      "rms_px": 2.1933661219547687,
+      "iterations": 5,
+      "cam_pos_err_mm": 10.556349770834533,
+      "cam_rot_err_deg": 0.8085829001261291,
+      "workspace_mm": {
+       "points": 340,
+       "mean": 1.2240962214393423,
+       "p95": 2.423057904155225,
+       "max": 3.1009277584944135
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 2.6485048462840513,
+        "plane_error_mm": 2.0010144185082317
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 2.127351130638476,
+      "iterations": 6,
+      "cam_pos_err_mm": 5.7793031345156445,
+      "cam_rot_err_deg": 0.409721304862707,
+      "workspace_mm": {
+       "points": 340,
+       "mean": 2.119557291684626,
+       "p95": 2.5668884444862425,
+       "max": 2.8299957702391896
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 2.340487113886437,
+        "plane_error_mm": 2.328160344574827
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -0.218,
+       -0.2249,
+       0.328
+      ]
+     }
+    },
+    {
+     "seed": 900003,
+     "ok": true,
+     "poses": 40,
+     "tries": 341,
+     "corners": 592,
+     "bias_deg": [
+      -0.5171,
+      -0.0365,
+      0.3,
+      0.0704,
+      -0.1488
+     ],
+     "fixed": {
+      "rms_px": 4.18575605963743,
+      "iterations": 5,
+      "cam_pos_err_mm": 3.3578487965454413,
+      "cam_rot_err_deg": 0.2739138534882881,
+      "workspace_mm": {
+       "points": 356,
+       "mean": 0.6648556403297036,
+       "p95": 1.6085525882842577,
+       "max": 2.2009665690525093
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 4.038262115314735,
+      "iterations": 5,
+      "cam_pos_err_mm": 16.193566515021235,
+      "cam_rot_err_deg": 1.5518920455001144,
+      "workspace_mm": {
+       "points": 356,
+       "mean": 4.147886526422746,
+       "p95": 5.4990450686194565,
+       "max": 6.211519904579194
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -0.2387,
+       -1.418,
+       0.5015
+      ]
+     }
+    },
+    {
+     "seed": 900004,
+     "ok": true,
+     "poses": 40,
+     "tries": 433,
+     "corners": 624,
+     "bias_deg": [
+      0.3376,
+      -0.5949,
+      -0.7436,
+      -0.843,
+      -0.6156
+     ],
+     "fixed": {
+      "rms_px": 3.2749650970732245,
+      "iterations": 5,
+      "cam_pos_err_mm": 23.742698833055247,
+      "cam_rot_err_deg": 2.043195817584204,
+      "workspace_mm": {
+       "points": 356,
+       "mean": 3.8118036165611944,
+       "p95": 6.138079720598925,
+       "max": 7.751118125293607
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 3.026294547184065,
+      "iterations": 6,
+      "cam_pos_err_mm": 4.270059786141733,
+      "cam_rot_err_deg": 0.45005635989225523,
+      "workspace_mm": {
+       "points": 356,
+       "mean": 1.7229129892051203,
+       "p95": 3.2312264910832122,
+       "max": 3.626075492041709
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.0188,
+       -0.2318,
+       0.0417
+      ]
+     }
+    },
+    {
+     "seed": 900005,
+     "ok": true,
+     "poses": 40,
+     "tries": 180,
+     "corners": 600,
+     "bias_deg": [
+      -0.0384,
+      0.5072,
+      0.2498,
+      0.2435,
+      0.2532
+     ],
+     "fixed": {
+      "rms_px": 3.0443755027938213,
+      "iterations": 5,
+      "cam_pos_err_mm": 12.54671809188698,
+      "cam_rot_err_deg": 1.172753817819015,
+      "workspace_mm": {
+       "points": 389,
+       "mean": 3.4612601158969367,
+       "p95": 5.7574601201208315,
+       "max": 6.911603250918104
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 2.9022483147666045,
+      "iterations": 5,
+      "cam_pos_err_mm": 18.060438230457784,
+      "cam_rot_err_deg": 1.4766417927699136,
+      "workspace_mm": {
+       "points": 389,
+       "mean": 3.3375561126818822,
+       "p95": 5.859805651216295,
+       "max": 6.429477014985405
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -0.6043,
+       3.4026,
+       -1.4968
+      ]
+     }
+    },
+    {
+     "seed": 900006,
+     "ok": true,
+     "poses": 40,
+     "tries": 369,
+     "corners": 596,
+     "bias_deg": [
+      0.2234,
+      0.5135,
+      0.1978,
+      -0.2278,
+      0.3499
+     ],
+     "fixed": {
+      "rms_px": 2.703654244400749,
+      "iterations": 5,
+      "cam_pos_err_mm": 7.41502569308649,
+      "cam_rot_err_deg": 0.5264849081601678,
+      "workspace_mm": {
+       "points": 362,
+       "mean": 1.6401008958330106,
+       "p95": 3.019836214514107,
+       "max": 3.255887572281649
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 5.832069991895017,
+        "plane_error_mm": 2.635773273438257
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 2.6682815043989043,
+      "iterations": 5,
+      "cam_pos_err_mm": 13.168194838017008,
+      "cam_rot_err_deg": 0.8865152854470288,
+      "workspace_mm": {
+       "points": 362,
+       "mean": 3.470007768203025,
+       "p95": 4.693124960116597,
+       "max": 4.991123806041541
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 6.418696761567074,
+        "plane_error_mm": 4.347797980624514
+       }
+      ],
+      "offset_err_deg": [
+       1.8746,
+       -0.9321,
+       -0.0835
+      ]
+     }
+    },
+    {
+     "seed": 900007,
+     "ok": true,
+     "poses": 40,
+     "tries": 412,
+     "corners": 604,
+     "bias_deg": [
+      -0.3536,
+      -0.7042,
+      0.1754,
+      0.0751,
+      -0.237
+     ],
+     "fixed": {
+      "rms_px": 3.273784829105292,
+      "iterations": 4,
+      "cam_pos_err_mm": 6.061195215619888,
+      "cam_rot_err_deg": 0.559863966257149,
+      "workspace_mm": {
+       "points": 347,
+       "mean": 1.020779082830732,
+       "p95": 1.5784512432571542,
+       "max": 1.6961666879314095
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 70.50241012230946,
+        "plane_error_mm": 3.2560271052380547
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 3.2558308300354803,
+      "iterations": 6,
+      "cam_pos_err_mm": 13.963017793401697,
+      "cam_rot_err_deg": 1.2267253008937111,
+      "workspace_mm": {
+       "points": 347,
+       "mean": 1.4138150210712441,
+       "p95": 2.533766858294092,
+       "max": 2.860533452624831
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 67.9049148892001,
+        "plane_error_mm": 3.8918956581274733
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -1.673,
+       0.698,
+       -0.2215
+      ]
+     }
+    },
+    {
+     "seed": 900008,
+     "ok": true,
+     "poses": 40,
+     "tries": 382,
+     "corners": 624,
+     "bias_deg": [
+      -1.236,
+      -1.1913,
+      0.0271,
+      -0.4417,
+      0.2804
+     ],
+     "fixed": {
+      "rms_px": 3.982192830985367,
+      "iterations": 5,
+      "cam_pos_err_mm": 20.752220642202964,
+      "cam_rot_err_deg": 1.752203767214022,
+      "workspace_mm": {
+       "points": 362,
+       "mean": 1.8414319232655014,
+       "p95": 3.84828915580035,
+       "max": 5.291098975949538
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 1.8825397232235181,
+        "plane_error_mm": 1.101587812547914
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 3.6421217917904714,
+      "iterations": 5,
+      "cam_pos_err_mm": 6.482032320983791,
+      "cam_rot_err_deg": 0.4067978164486072,
+      "workspace_mm": {
+       "points": 362,
+       "mean": 1.2027859792360953,
+       "p95": 2.39185385506228,
+       "max": 2.739404990603149
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 11.033249636557414,
+        "plane_error_mm": 0.19416497263383722
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -0.5889,
+       2.6777,
+       -1.3989
+      ]
+     }
+    },
+    {
+     "seed": 900009,
+     "ok": true,
+     "poses": 40,
+     "tries": 314,
+     "corners": 592,
+     "bias_deg": [
+      0.2989,
+      0.7165,
+      0.1429,
+      -0.0913,
+      -0.6377
+     ],
+     "fixed": {
+      "rms_px": 3.0964924209954563,
+      "iterations": 5,
+      "cam_pos_err_mm": 9.034928120087455,
+      "cam_rot_err_deg": 0.733239553020063,
+      "workspace_mm": {
+       "points": 402,
+       "mean": 2.1144707867441532,
+       "p95": 3.233645471886597,
+       "max": 3.856899905835927
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 12.418183733989133,
+        "plane_error_mm": 1.6095402615631136
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 2.9956813377390956,
+      "iterations": 6,
+      "cam_pos_err_mm": 2.75889175194769,
+      "cam_rot_err_deg": 0.04041671849791379,
+      "workspace_mm": {
+       "points": 402,
+       "mean": 1.2986068434509503,
+       "p95": 1.8198682277196117,
+       "max": 1.9888192146863093
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 10.203384118655993,
+        "plane_error_mm": 0.26014391575318035
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -1.1664,
+       2.493,
+       -1.4786
+      ]
+     }
+    },
+    {
+     "seed": 900010,
+     "ok": true,
+     "poses": 40,
+     "tries": 464,
+     "corners": 592,
+     "bias_deg": [
+      1.2514,
+      0.1491,
+      0.1669,
+      -0.1019,
+      0.7175
+     ],
+     "fixed": {
+      "rms_px": 3.2380672015981355,
+      "iterations": 4,
+      "cam_pos_err_mm": 2.8078706787672987,
+      "cam_rot_err_deg": 0.26367861097349216,
+      "workspace_mm": {
+       "points": 366,
+       "mean": 3.242999192813223,
+       "p95": 3.9687134692138195,
+       "max": 4.299263792894446
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 6.171769257186728,
+        "plane_error_mm": 3.675295206839002
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 3.195664812281973,
+      "iterations": 5,
+      "cam_pos_err_mm": 6.604046706256962,
+      "cam_rot_err_deg": 0.7074116475048642,
+      "workspace_mm": {
+       "points": 366,
+       "mean": 3.488353280392214,
+       "p95": 4.254788293389456,
+       "max": 4.480050274198828
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 3.2904314376690165,
+        "plane_error_mm": 3.7666699986785432
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.2122,
+       -1.1507,
+       0.5229
+      ]
+     }
+    },
+    {
+     "seed": 900011,
+     "ok": true,
+     "poses": 40,
+     "tries": 386,
+     "corners": 608,
+     "bias_deg": [
+      -0.2526,
+      0.3557,
+      -0.3743,
+      0.0948,
+      0.9789
+     ],
+     "fixed": {
+      "rms_px": 3.2475615356622405,
+      "iterations": 5,
+      "cam_pos_err_mm": 3.3891684321241584,
+      "cam_rot_err_deg": 0.5860635898171801,
+      "workspace_mm": {
+       "points": 377,
+       "mean": 2.805509378883719,
+       "p95": 4.107131749025925,
+       "max": 4.844978811855951
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 3.242298121092508,
+      "iterations": 6,
+      "cam_pos_err_mm": 6.926566729847202,
+      "cam_rot_err_deg": 0.7912247115143957,
+      "workspace_mm": {
+       "points": 377,
+       "mean": 2.9664046591510225,
+       "p95": 4.924042434175141,
+       "max": 6.122148701962682
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.9159,
+       -0.634,
+       0.1113
+      ]
+     }
+    },
+    {
+     "seed": 900012,
+     "ok": true,
+     "poses": 40,
+     "tries": 292,
+     "corners": 576,
+     "bias_deg": [
+      0.5436,
+      0.6953,
+      -0.2764,
+      -0.9728,
+      0.3544
+     ],
+     "fixed": {
+      "rms_px": 3.8025442872268487,
+      "iterations": 5,
+      "cam_pos_err_mm": 5.188022369069369,
+      "cam_rot_err_deg": 0.5402945398429375,
+      "workspace_mm": {
+       "points": 370,
+       "mean": 1.494185235489901,
+       "p95": 2.392416587210004,
+       "max": 2.7404507046751547
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 3.5646900841499485,
+      "iterations": 6,
+      "cam_pos_err_mm": 11.158027023523054,
+      "cam_rot_err_deg": 0.6199148124340066,
+      "workspace_mm": {
+       "points": 370,
+       "mean": 5.449565751165732,
+       "p95": 5.92209922237459,
+       "max": 6.00716684337313
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -1.4672,
+       0.666,
+       0.3283
+      ]
+     }
+    },
+    {
+     "seed": 900013,
+     "ok": true,
+     "poses": 40,
+     "tries": 410,
+     "corners": 592,
+     "bias_deg": [
+      -0.7589,
+      0.2251,
+      -0.1302,
+      0.1486,
+      -0.1328
+     ],
+     "fixed": {
+      "rms_px": 3.3433318079216554,
+      "iterations": 5,
+      "cam_pos_err_mm": 5.350112750774568,
+      "cam_rot_err_deg": 0.4972091396287906,
+      "workspace_mm": {
+       "points": 379,
+       "mean": 2.304507854303896,
+       "p95": 3.3621113165478818,
+       "max": 3.9127888185250006
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 12.204597574981173,
+        "plane_error_mm": 2.957756039568091
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 3.338724417467469,
+      "iterations": 5,
+      "cam_pos_err_mm": 4.5227633364080475,
+      "cam_rot_err_deg": 0.4043278057945733,
+      "workspace_mm": {
+       "points": 379,
+       "mean": 2.486949645453887,
+       "p95": 3.811001223047841,
+       "max": 4.245935488826704
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 11.203387488926214,
+        "plane_error_mm": 3.2374934569353337
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.2611,
+       -0.5969,
+       0.3738
+      ]
+     }
+    },
+    {
+     "seed": 900014,
+     "ok": true,
+     "poses": 40,
+     "tries": 292,
+     "corners": 600,
+     "bias_deg": [
+      -0.2109,
+      0.2196,
+      0.0399,
+      0.3426,
+      0.1168
+     ],
+     "fixed": {
+      "rms_px": 3.1327582321130767,
+      "iterations": 5,
+      "cam_pos_err_mm": 2.0581130450928624,
+      "cam_rot_err_deg": 0.3476523116716449,
+      "workspace_mm": {
+       "points": 363,
+       "mean": 4.629354111130129,
+       "p95": 5.931232448644575,
+       "max": 6.616720214144537
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 3.082174851394999,
+      "iterations": 5,
+      "cam_pos_err_mm": 10.565217957562218,
+      "cam_rot_err_deg": 1.0153574483741399,
+      "workspace_mm": {
+       "points": 363,
+       "mean": 3.855237838478572,
+       "p95": 5.423990877201848,
+       "max": 6.450252728442378
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.7029,
+       1.256,
+       -0.5665
+      ]
+     }
+    },
+    {
+     "seed": 900015,
+     "ok": true,
+     "poses": 40,
+     "tries": 434,
+     "corners": 588,
+     "bias_deg": [
+      0.4603,
+      0.1965,
+      0.2303,
+      0.2574,
+      0.8941
+     ],
+     "fixed": {
+      "rms_px": 3.3689401141053,
+      "iterations": 5,
+      "cam_pos_err_mm": 9.85716184424648,
+      "cam_rot_err_deg": 0.08055705714232694,
+      "workspace_mm": {
+       "points": 353,
+       "mean": 9.798064649746163,
+       "p95": 10.06312132488486,
+       "max": 10.11069825187628
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 3.256572547238484,
+      "iterations": 6,
+      "cam_pos_err_mm": 20.710651126026644,
+      "cam_rot_err_deg": 1.4063257217600962,
+      "workspace_mm": {
+       "points": 353,
+       "mean": 6.593449212626454,
+       "p95": 7.757149748034674,
+       "max": 8.461761262864078
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -1.1613,
+       0.7689,
+       -0.6796
+      ]
+     }
+    },
+    {
+     "seed": 900016,
+     "ok": true,
+     "poses": 40,
+     "tries": 331,
+     "corners": 600,
+     "bias_deg": [
+      0.2068,
+      0.273,
+      0.2823,
+      -1.067,
+      -0.0001
+     ],
+     "fixed": {
+      "rms_px": 3.226068281258358,
+      "iterations": 5,
+      "cam_pos_err_mm": 6.935493008585665,
+      "cam_rot_err_deg": 0.8172258179522239,
+      "workspace_mm": {
+       "points": 358,
+       "mean": 2.936329331241436,
+       "p95": 4.715232785038062,
+       "max": 5.185448399926727
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 4.548492896249514,
+        "plane_error_mm": 3.5959678413728398
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 3.1669546257970196,
+      "iterations": 5,
+      "cam_pos_err_mm": 14.071956079181343,
+      "cam_rot_err_deg": 1.2785739438652004,
+      "workspace_mm": {
+       "points": 358,
+       "mean": 1.5974849729494713,
+       "p95": 3.0250868883109607,
+       "max": 3.646844191247245
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 2.7332809929685173,
+        "plane_error_mm": 1.3969006140977869
+       },
+       {
+        "id": 16,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -1.0605,
+       0.5415,
+       -0.5146
+      ]
+     }
+    },
+    {
+     "seed": 900017,
+     "ok": true,
+     "poses": 40,
+     "tries": 433,
+     "corners": 596,
+     "bias_deg": [
+      -0.378,
+      0.2969,
+      0.4138,
+      0.1214,
+      0.6099
+     ],
+     "fixed": {
+      "rms_px": 2.720539483156357,
+      "iterations": 5,
+      "cam_pos_err_mm": 6.2643831795042,
+      "cam_rot_err_deg": 0.12767549271997575,
+      "workspace_mm": {
+       "points": 325,
+       "mean": 1.380523778443501,
+       "p95": 2.3069587037738435,
+       "max": 2.590768965691897
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 2.6145730710047697,
+      "iterations": 5,
+      "cam_pos_err_mm": 7.9320521258091095,
+      "cam_rot_err_deg": 0.8129210135244521,
+      "workspace_mm": {
+       "points": 325,
+       "mean": 1.5433947266477481,
+       "p95": 2.9891197122222297,
+       "max": 3.467560045134112
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.4716,
+       -0.4729,
+       -0.184
+      ]
+     }
+    },
+    {
+     "seed": 900018,
+     "ok": true,
+     "poses": 40,
+     "tries": 356,
+     "corners": 604,
+     "bias_deg": [
+      -0.3456,
+      -0.372,
+      0.2322,
+      0.4496,
+      0.1414
+     ],
+     "fixed": {
+      "rms_px": 3.2885335187393667,
+      "iterations": 5,
+      "cam_pos_err_mm": 3.8380013342301478,
+      "cam_rot_err_deg": 0.36690264902882674,
+      "workspace_mm": {
+       "points": 381,
+       "mean": 1.2071260962784485,
+       "p95": 1.8157202821646172,
+       "max": 2.325517860478109
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 13.264596054509344,
+        "plane_error_mm": 1.2754558040192676
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 3.123983026639166,
+      "iterations": 6,
+      "cam_pos_err_mm": 9.17054038460159,
+      "cam_rot_err_deg": 0.8574402324646158,
+      "workspace_mm": {
+       "points": 381,
+       "mean": 3.3488593730019542,
+       "p95": 4.4156190159534034,
+       "max": 4.805396772726944
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 8.724027150618795,
+        "plane_error_mm": 3.7526757904873786
+       },
+       {
+        "id": 11,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       -1.3649,
+       2.0593,
+       -1.3782
+      ]
+     }
+    },
+    {
+     "seed": 900019,
+     "ok": true,
+     "poses": 40,
+     "tries": 343,
+     "corners": 596,
+     "bias_deg": [
+      -0.0876,
+      -0.5931,
+      -0.6936,
+      1.0497,
+      -0.3147
+     ],
+     "fixed": {
+      "rms_px": 3.1720317087405916,
+      "iterations": 5,
+      "cam_pos_err_mm": 1.812783577651646,
+      "cam_rot_err_deg": 0.17774093065715652,
+      "workspace_mm": {
+       "points": 385,
+       "mean": 2.9120999997655463,
+       "p95": 3.7790527914337733,
+       "max": 4.16118976941556
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 18.66853647830427,
+        "plane_error_mm": 3.8820702137916023
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 3.1646808097317445,
+      "iterations": 5,
+      "cam_pos_err_mm": 1.5101796352296137,
+      "cam_rot_err_deg": 0.31160963002859804,
+      "workspace_mm": {
+       "points": 385,
+       "mean": 2.1721785112225462,
+       "p95": 3.1360301474559713,
+       "max": 3.5004367347336838
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 18.5312605588137,
+        "plane_error_mm": 3.278547563805752
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 16,
+        "in_view": false,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.0698,
+       -1.3034,
+       1.1956
+      ]
+     }
+    },
+    {
+     "seed": 900020,
+     "ok": true,
+     "poses": 40,
+     "tries": 285,
+     "corners": 608,
+     "bias_deg": [
+      0.0713,
+      0.0933,
+      -0.1085,
+      -0.1185,
+      0.7777
+     ],
+     "fixed": {
+      "rms_px": 2.5925540680546164,
+      "iterations": 5,
+      "cam_pos_err_mm": 11.742555095356696,
+      "cam_rot_err_deg": 0.9250840102061114,
+      "workspace_mm": {
+       "points": 383,
+       "mean": 1.589062137646779,
+       "p95": 3.277447602398299,
+       "max": 3.8909916144532337
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 3.7948653239063668,
+        "plane_error_mm": 2.3171177866074824
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ]
+     },
+     "offsets": {
+      "rms_px": 2.5756094400873364,
+      "iterations": 5,
+      "cam_pos_err_mm": 11.439001007990292,
+      "cam_rot_err_deg": 0.8385081879366283,
+      "workspace_mm": {
+       "points": 383,
+       "mean": 2.0686318731358626,
+       "p95": 3.876265705447212,
+       "max": 4.485691651848474
+      },
+      "markers": [
+       {
+        "id": 10,
+        "in_view": true,
+        "detected": true,
+        "pnp_error_mm": 2.3570543741356476,
+        "plane_error_mm": 1.9758900857498396
+       },
+       {
+        "id": 11,
+        "in_view": true,
+        "detected": false
+       },
+       {
+        "id": 17,
+        "in_view": true,
+        "detected": false
+       }
+      ],
+      "offset_err_deg": [
+       0.5211,
+       -0.9447,
+       0.14
+      ]
+     }
+    }
+   ]
+  }
+ }
+}

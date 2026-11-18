@@ -13,6 +13,7 @@ results/real_ref/*.png
 uv-cache/
 # written next to so101.xml by the MuJoCo cell
 assets/so101_mjcf/_marker_*.png
+assets/so101_mjcf/_calib_card.png
 assets/so101_mjcf/_sorting_cell_*.xml
 # Local recordings and simulator logs; compact verification reports stay versionable.
 results/verification-*/data/
