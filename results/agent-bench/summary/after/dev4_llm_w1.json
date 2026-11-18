@@ -1,0 +1,43 @@
+{
+  "suite": "config\\agent_bench\\dev4.json",
+  "args": [
+    "--detector",
+    "results/agent-bench/sup-local.json",
+    "--use-llm",
+    "--llm-url",
+    "http://127.0.0.1:8038/v1"
+  ],
+  "episodes": 4,
+  "wall_s": 80.8,
+  "episodes_per_min": 2.97,
+  "successes": 4,
+  "labels_correct": 4,
+  "unknown": 0,
+  "rewinds": 2,
+  "sim_frames": 9413,
+  "failures": [
+    {
+      "code": "PHYSICAL_HEALTH_FAILED",
+      "count": 2
+    }
+  ],
+  "decisions": {
+    "llm": 10,
+    "policy": 2
+  },
+  "llm_consulted": 10,
+  "llm_adoption_rate": 1.0,
+  "fallback_reasons": {},
+  "prompt_tokens_median": 391.0,
+  "prompt_tokens_max": 740,
+  "llm_latency_median_s": 0.954,
+  "report_extra": {
+    "llm_consulted": 10,
+    "llm_adopted": 10,
+    "llm_adoption_rate": 1.0,
+    "fallback_reasons": {},
+    "llm_prompt_tokens_median": 391.0,
+    "llm_prompt_tokens_max": 740,
+    "llm_latency_s_total": 15.706
+  }
+}

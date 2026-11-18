@@ -143,6 +143,48 @@ Exported model: `patchcore/pooled` -> `models/best.pt` (see `score.py`).
 
 
 
+## Supervised detector: floating-brick curriculum and input resolution
+
+All runs train the supervised LoRA detector (rank 8, `scripts/anomaly/train_sup.py`) on `dataset-v4` normals and
+`dataset-v5def` defects and score the same 4246 test crops. Each is a single seed. The baseline is
+[sup-lora](sup-lora/report-lora.json): 256 px input, 2500 steps. Rows are the pooled (top plus wrist) heads; recall
+and FPR are at the threshold set on validation normals (0.99 quantile). The pixel bins count visible defect pixels in
+the camera frame.
+
+| Run | Input | Steps | Head | AUROC | Recall | FPR | Recall 25-60 px | Recall 60-150 px | Recall 150+ px |
+|---|---|---|---|---|---|---|---|---|---|
+| baseline | 256 | 2500 | cls | 0.952 | 0.871 | 0.017 | 0.61 | 0.91 | 1.00 |
+| | | | seg | 0.952 | 0.866 | 0.015 | 0.59 | 0.92 | 1.00 |
+| base5k (longer control) | 256 | 5000 | cls | 0.947 | 0.870 | 0.014 | 0.60 | 0.92 | 1.00 |
+| | | | seg | 0.952 | 0.871 | 0.015 | 0.60 | 0.92 | 1.00 |
+| curr (floating warm start) | 256 | 2500 | cls | 0.955 | 0.881 | 0.022 | 0.64 | 0.92 | 1.00 |
+| | | | seg | 0.954 | 0.876 | 0.014 | 0.62 | 0.93 | 1.00 |
+| r384 | 384 | 2500 | cls | 0.960 | 0.897 | 0.022 | 0.66 | 0.97 | 1.00 |
+| | | | seg | 0.954 | 0.904 | 0.020 | 0.67 | 0.99 | 1.00 |
+| r512 | 512 | 2500 | cls | 0.963 | 0.889 | 0.017 | 0.67 | 0.92 | 1.00 |
+| | | | seg | 0.953 | 0.900 | 0.011 | 0.66 | 0.99 | 1.00 |
+
+**Floating-brick curriculum.** `scripts/anomaly/render_floating.py` renders a paired twin of each layout with only the
+brick and its defect: same pose, lights, camera and crop box, without arm, bowl or table. A detector trained on
+those pairs (`floatA`, `dataset-v4-float` + `dataset-v5def-float`) reaches AUROC 0.9998 and recall 0.99 on the floating
+test set, so the floating task alone is close to trivial. `curr` starts from that head (`--init head-floatA.pt`) and
+then trains on the scene crops. It gains at most 0.003 AUROC over the baseline. That is within the spread between the
+baseline and its 5000-step control, so the curriculum gives no meaningful gain.
+
+The misses are small defects, not arm occlusion. Recall is 0.59-0.61 for 25-60 visible defect pixels and 1.00 above
+150 px. Crops that show at least three-quarters of the defect are still found at about 0.97.
+
+**Input resolution.** Upsampling the same crops to 384 px raises cls AUROC from 0.952 to 0.960 and recall from 0.87 to
+0.90 at about 2% FPR. Most of the gain is in the 60-150 px bin (seg recall 0.92 to 0.99). 512 px adds nothing beyond
+384. The 25-60 px bin stays near 0.66 at both sizes: upsampling cannot
+add pixels the crop does not contain. Only a re-render at higher frame resolution could. The brick-level fusion below
+shows that the pipeline still finds every defective brick at 256 px, so that re-render is not needed for the 99%
+recall target.
+
+Files: [sup-curr/](sup-curr/) (`floatA`, `curr`, `base5k`) and [sup-res/](sup-res/) (`r384`, `r512`). Each holds the
+report and per-crop scores; `scores-roles-*.npz` adds each crop's pipeline view role for brick fusion. The checkpoints
+(`head-*.pt`) stay local.
+
 ## Supervised v6 brick-level fusion and physics planner
 
 The v6 / v6def comparison uses independent MuJoCo layouts, with 212 normal training bricks for score calibration

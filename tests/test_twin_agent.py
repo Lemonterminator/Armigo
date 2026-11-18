@@ -4,7 +4,7 @@ import numpy as np
 import pytest
 
 from digital_twin_armigo.agent.llm import FakeLLM
-from digital_twin_armigo.agent.twin_graph import Policy, build_graph, decision, search_policies, select_skill
+from digital_twin_armigo.agent.twin_graph import Policy, build_graph, decision, select_skill
 
 
 def view(name, faces, score):
@@ -20,29 +20,12 @@ def test_negative_decisions_need_scored_coverage_of_all_six_faces():
 
 def test_llm_cannot_invent_a_motion_or_override_policy_constraints():
 	llm = FakeLLM(['{"skill":"place_in_pink"}'])
-	action, source = select_skill(llm, ["scan_wrist", "present_bottom"], {})
-	assert (action, source) == ("scan_wrist", "fallback")
+	action, source, info = select_skill(llm, ["scan_wrist", "present_bottom"], {})
+	assert (action, source, info["reason"]) == ("scan_wrist", "fallback", "illegal_choice")
 	with pytest.raises(ValueError):
 		Policy(max_rewinds=True)
 	with pytest.raises(ValueError):
 		Policy(max_bottom_views=4)
-
-
-def test_outer_search_prefers_success_then_cost_and_reports_model_provenance():
-	pytest.importorskip("langgraph")
-	llm = FakeLLM(['{"order":"bottom_first","max_bottom_views":2,"max_wrist_views":2,"max_rewinds":1}'])
-
-	def evaluate(policy):
-		return {
-			"successes": 1,
-			"labels_correct": 2,
-			"sim_frames": 800 if policy.order == "bottom_first" else 1000,
-			"views": 4,
-		}
-
-	result = search_policies(llm, evaluate, 2)
-	assert result["selected"]["source"] == "llm"
-	assert result["selected"]["policy"]["order"] == "bottom_first"
 
 
 def test_rollback_keeps_failure_history_and_requires_fresh_bottom_evidence():

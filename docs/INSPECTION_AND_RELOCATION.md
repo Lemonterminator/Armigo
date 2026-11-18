@@ -12,10 +12,10 @@ reports are versioned.
 | Inspection views | `mujoco_cell/inspection_views.py`, `inspection_planning.py` | `HeldBrickPoser` (kinematic copy of the held brick), per-face visibility, `greedy_face_cover`, pre-scan and close-up candidate libraries, `best_closeup`, `path_min_z`. |
 | Expert hooks | `physics_expert.py` (`EpisodePlanner`) | Optional planner hooks: pre-scan poses, grasp choice, after-grasp, present poses, label. With no planner, the default path is unchanged; the target-state hash still matches. |
 | Anomaly detection | `scripts/anomaly/*`, `inspection_scorer.py`, `tests/fake_score_server.py` | Renders a dataset of brick crops, trains and evaluates anomalib models (PaDiM / PatchCore), and runs a scoring client and server. v2 uses only the `cross_var` defect: a cross that may be skewed, off-centre or asymmetric and covers at least 1/4 of the face. |
-| Agent | `agent/graph.py`, `policies.py`, `llm.py`, `heuristic.py`, `heuristic_episode.py` | LangGraph inspection graph, baseline policies (none / fixed / LLM), and the heuristic inspector. The inspector chains: pre-scan, grasp avoiding the suspect faces, held view, then top-camera close-ups of the next face to check. |
+| Agent | `policies.py`, `llm.py`, `heuristic.py`, `heuristic_episode.py` | Baseline show-pose policies (none / fixed / LLM), and the heuristic inspector. The inspector chains: pre-scan, grasp avoiding the suspect faces, held view, then top-camera close-ups of the next face to check. |
 | Scan zone | `scripts/scan_zone.py`, `scripts/scan_zone_report.py` | Kinematic map of where a brick on the table can be scanned in place, and how. |
 | Relocation | `mujoco_cell/table_relocation.py`, `scripts/relocate_experiment.py` | `RelocateExpert`, which picks a far brick, puts it down at a target point on the table, scans it there and shows its bottom to the top camera. |
-| Studies | `scripts/inspection_visibility.py`, `top_camera_reach.py`, `run_inspection_policies.py` | Face visibility per camera / pose, top-camera placement vs reach, and the policy comparison. |
+| Studies | `scripts/inspection_visibility.py`, `top_camera_reach.py`, `archive/stage3_pose_graph/run_inspection_policies.py` | Face visibility per camera / pose, top-camera placement vs reach, and the policy comparison. |
 
 ## 2. Anomaly detector (cross defect only)
 

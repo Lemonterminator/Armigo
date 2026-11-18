@@ -9,16 +9,19 @@ import math
 import time
 from collections import deque
 from contextlib import contextmanager
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
+from types import MappingProxyType
+from typing import ClassVar
 
 import numpy as np
 
 from ..benchmarks import SENSITIVITY_MATRIX
 from ..camera import CameraPose, look_from
 from ..constants import BOWL_R, FPS, PHASES, REST_U, SO101_MJCF_DIR
+from ..inspection import assert_no_defect_leakage
 from ..joints import normalized_to_rad
-from ..metrics import evaluate_episode_health
+from ..metrics import evaluate_episode_health, motion_smoothness
 from ..mujoco_cell import Cell
 from ..mujoco_cell._mj import mujoco
 from ..mujoco_cell.episode import PhysicsEpisode, observe
@@ -82,14 +85,147 @@ class Checkpoint:
 	views: list[dict]
 
 
+# Bounded recovery variants. Each is a fixed, named, deterministic transform of the default expert parameters. The
+# agent (or LLM) only ever picks a name; no number crosses that boundary. Every value must lie in RECOVERY_BOUNDS and
+# every variant only slows motion down or raises the transfer height, so a variant cannot be more aggressive than the
+# defaults. Keys of "expert" / "relocate" are ExpertParams / RelocateParams fields; "scan_peak_speed" is the peak
+# joint speed (rad/s) of the wrist-scan moves (default SCAN_PEAK_SPEED, the value the scan used before variants).
+SCAN_PEAK_SPEED = 1.0
+RECOVERY_BOUNDS = MappingProxyType(
+	{
+		"scan_peak_speed": (0.25, SCAN_PEAK_SPEED),
+		"scan_move_s": (0.6, 1.5),
+		"ready_move_s": (0.6, 1.2),
+		"carry_peak_speed_rad_s": (0.2, 0.5),
+		"show_move_s": (0.9, 2.0),
+		"transfer_s": (1.8, 3.0),
+		"transfer_z_m": (0.12, 0.15),
+		"place_descend_s": (1.2, 2.0),
+		"retreat_s": (0.8, 1.5),
+		"return_s": (1.2, 2.0),
+	}
+)
+_SLOW_SCAN = {"scan_peak_speed": 0.35, "scan_move_s": 1.0, "ready_move_s": 1.0}
+_SLOW_CARRY = {"carry_peak_speed_rad_s": 0.3, "show_move_s": 1.4, "transfer_s": 2.6}
+_GENTLE_PLACE = {"place_descend_s": 1.8, "retreat_s": 1.2, "return_s": 1.8}
+RECOVERY_VARIANTS = MappingProxyType(
+	{
+		"slow_scan": MappingProxyType(_SLOW_SCAN),
+		"slow_carry": MappingProxyType(_SLOW_CARRY),
+		"gentle_place": MappingProxyType(_GENTLE_PLACE),
+		"high_place": MappingProxyType({**_GENTLE_PLACE, "transfer_z_m": 0.14}),
+		"cautious": MappingProxyType({**_SLOW_SCAN, **_SLOW_CARRY, **_GENTLE_PLACE}),
+	}
+)
+VARIANT_NOTES = MappingProxyType(
+	{
+		"slow_scan": "slower wrist-scan and ready moves, so joints stop saturating",
+		"slow_carry": "slower carry and show moves",
+		"gentle_place": "slower place descent, retreat and return",
+		"high_place": "slower place moves with a higher approach height over the bowl",
+		"cautious": "slow scan, carry and place together",
+	}
+)
+# Failure evidence -> recommended variant. A torque stall is attributed to the skill that was running when the
+# saturated run started; other physical or placement failures map by code.
+STALL_VARIANT_BY_NODE = MappingProxyType(
+	{"scan_wrist": "slow_scan", "present_bottom": "slow_carry", "place": "gentle_place"}
+)
+VARIANT_BY_CODE = MappingProxyType(
+	{
+		"BRICK_LOST": "slow_carry",
+		"PLACEMENT_UNVERIFIED": "high_place",
+		"PLACE_RETURN_PATH_BLOCKED": "high_place",
+		"PARK_PATH_BLOCKED": "slow_carry",
+	}
+)
+RELOCATE_KEYS = frozenset({"scan_move_s"})  # RelocateParams fields a variant may set
+STALL_REASONS = ("torque_stall", "tracking_lag")
+STALL_SECONDS = 1.5  # metrics.evaluate_episode_health max_stall_secs
+STALL_FRACTION = 0.95  # fraction of the torque limit that counts as saturated
+
+
+def apply_variant(name, params, relocate):
+	"""Return ``(ExpertParams, RelocateParams, scan_peak_speed)`` for variant ``name`` applied to the given defaults.
+	Raises ValueError for an unknown name or a value outside RECOVERY_BOUNDS."""
+	if name not in RECOVERY_VARIANTS:
+		raise ValueError(f"unknown recovery variant: {name}")
+	values = RECOVERY_VARIANTS[name]
+	for key, value in values.items():
+		lo, hi = RECOVERY_BOUNDS[key]
+		if not lo <= value <= hi:
+			raise ValueError(f"variant {name}: {key}={value} outside [{lo}, {hi}]")
+	# transfer_z_m exists in both parameter classes: only the ExpertParams one (the bowl approach) is a variant key.
+	rel = {k: v for k, v in values.items() if k in RELOCATE_KEYS}
+	expert = {k: v for k, v in values.items() if k not in RELOCATE_KEYS and k != "scan_peak_speed"}
+	return (
+		replace(params, **expert),
+		replace(relocate, **rel),
+		float(values.get("scan_peak_speed", SCAN_PEAK_SPEED)),
+	)
+
+
+def stall_start(torques, limit, fps=FPS):
+	"""First frame of a continuous run of saturated arm-joint torque longer than STALL_SECONDS, else None."""
+	saturated = (np.abs(np.asarray(torques)[:, :5]) >= STALL_FRACTION * limit).any(axis=1)
+	run = 0
+	for i, flag in enumerate(saturated):
+		run = run + 1 if flag else 0
+		if run / fps > STALL_SECONDS:
+			return i - run + 1
+	return None
+
+
+def node_at(events, frame):
+	"""Skill node running at active-branch ``frame``, replaying node and rewound events of the trace."""
+	timeline = []
+	for e in events:
+		if e["kind"] == "rewound":
+			timeline = [t for t in timeline if t[0] <= e["frame"]]
+		elif e["kind"] == "node" and e["node"] != "recover":
+			timeline.append((e["frame"], e["node"]))
+	return next((node for f, node in reversed(timeline) if f <= frame), None)
+
+
+def rewind_options(checkpoints, failure, stall_frame, stall_node):
+	"""Ordered ``(choice, note)`` pairs for a rewind. The first entry is the deterministic default: the latest
+	checkpoint taken before the stall began (a checkpoint after it keeps the stall in the health history, so it can
+	never clear it) with the variant recommended for the failure, then the plain rewind of that checkpoint."""
+	reasons = failure.get("reason_codes") or []
+	recommended = VARIANT_BY_CODE.get(failure.get("code"))
+	if stall_frame is not None and any(r in STALL_REASONS for r in reasons):
+		recommended = STALL_VARIANT_BY_NODE.get(stall_node, "cautious")
+	latest = list(reversed(checkpoints))
+	if stall_frame is not None:
+		clean = [c for c in latest if c.frame <= stall_frame]
+		latest = clean + [c for c in latest if c not in clean]
+	options = []
+	for c in latest:
+		hint = ""
+		if stall_frame is not None and c.frame > stall_frame:
+			hint = f"; keeps the stall that began at frame {stall_frame}"
+		variants = [recommended] if recommended else []
+		variants += ["cautious"] if recommended not in (None, "cautious") else []
+		for v in variants:
+			options.append((f"{c.id}+{v}", f"rewind to {c.id} (frame {c.frame}) with {VARIANT_NOTES[v]}{hint}"))
+		options.append((c.id, f"rewind to {c.id} (frame {c.frame}) and retry with unchanged parameters{hint}"))
+	return options
+
+
 class TwinMujoco:
-	def __init__(self, layout, scorer, record, *, llm=None, bottom_threshold=None, crop_size=256, fault=None):
+	scan_peak_speed = SCAN_PEAK_SPEED
+	recovery_variants: tuple = ()
+
+	def __init__(
+		self, layout, scorer, record, *, llm=None, bottom_threshold=None, crop_size=256, fault=None, on_frame=None
+	):
 		self.layout = layout
 		self.scorer = scorer
 		self.record = record
 		self.llm = llm
 		self.bottom_threshold = bottom_threshold
 		self.crop_size = crop_size
+		self.on_frame = on_frame  # Called once per simulated frame; may raise to cancel the episode.
 		self.fault = fault  # Internal acceptance hook. It is absent from the public MCP API.
 		self.spec = load_physics_spec()
 		base = next(c for c in SENSITIVITY_MATRIX if c.name == "baseline_2x2")
@@ -108,6 +244,8 @@ class TwinMujoco:
 		)
 		self.node = ""
 		self.phases: list[int] = []
+		self.targets: list[np.ndarray] = []  # policy target per frame (before the command filter)
+		self._clipped_frames = 0  # target clips of experts replaced by rewinds
 		self.checkpoints: list[Checkpoint] = []
 		self.branch = 0
 		self.rewinds = 0
@@ -135,6 +273,8 @@ class TwinMujoco:
 		expert._gen = generator
 		expert.done = False
 		while self.total_frames < MAX_TOTAL_FRAMES:
+			if self.on_frame is not None:
+				self.on_frame(self)
 			obs = observe(self.cell, self.ep)
 			target, phase = expert.act(obs)
 			if expert.done:
@@ -144,6 +284,7 @@ class TwinMujoco:
 			self.ep.step(target)
 			self.total_frames += 1
 			self.phases.append(PHASES.index(phase))
+			self.targets.append(np.asarray(target, dtype=np.float64).copy())
 			self.record.step(self.cell, self.node)
 			if self.fault and self.fault(self.node, self.branch, self.ep.n_frames):
 				expert._gen.close()
@@ -195,9 +336,11 @@ class TwinMujoco:
 		return error
 
 	def can_scan_wrist(self, policy):
+		self.policy = policy  # read by decision_context for the remaining-budget fields
 		return self.wrist_count < policy.max_wrist_views
 
 	def can_present_bottom(self, policy):
+		self.policy = policy
 		return self.bottom_count < policy.max_bottom_views
 
 	def _geometry(self):
@@ -239,17 +382,104 @@ class TwinMujoco:
 			"pinch_normal_n": rounded(self.ep.last("pinch_normal")) if self.ep.n_frames else [0.0, 0.0],
 		}
 
-	def choose(self, allowed, views, failures):
-		context = {
-			"geometry": self._geometry(),
-			"views": views,
-			"failures": failures,
-			"spent_sim_frames": self.total_frames,
+	SKILL_NOTES: ClassVar[dict[str, str]] = {
+		"scan_wrist": "move the wrist camera over the brick to read the side and top faces (0-4) not yet cleared",
+		"present_bottom": "grasp the brick and show its bottom face (5) to the top camera",
+		"stop": "give up: the episode ends as a failure with the brick unsorted",
+	}
+
+	def decision_context(self, allowed, views, failures, notes=None):
+		"""Compact, leak-checked state for the LLM: coverage, per-view scores, failures, budgets, checkpoints."""
+		covered = decision(views)[1]
+		cell = self.cell
+		brick = cell.brick_pos()
+		policy = getattr(self, "policy", None)  # set by whoever owns the Policy; absent means limits are unknown
+		budget = {
+			"wrist_views_used": self.wrist_count,
+			"bottom_views_used": self.bottom_count,
+			"rewinds_used": self.rewinds,
+			"frames_left": MAX_TOTAL_FRAMES - self.total_frames,
 		}
+		if policy is not None:
+			budget["wrist_views_left"] = policy.max_wrist_views - self.wrist_count
+			budget["bottom_views_left"] = policy.max_bottom_views - self.bottom_count
+			budget["rewinds_left"] = policy.max_rewinds - self.rewinds
+		context = {
+			"covered_faces": sorted(covered),
+			"missing_faces": [f for f in range(6) if f not in covered],
+			"views": [
+				{
+					"id": v["id"],
+					"camera": v["camera"],
+					"faces": v["faces"],
+					"score": None if v["score"] is None else round(v["score"], 3),
+					"threshold": round(v["threshold"], 3),
+					"margin": None if v["score"] is None else round(v["score"] - v["threshold"], 3),
+				}
+				for v in views
+			],
+			"failures": [{k: f[k] for k in ("code", "skill", "reason_codes") if k in f} for f in failures],
+			"budget": budget,
+			"grasped": self.held is not None,
+			"brick": {"xy_m": np.asarray(brick[:2]).round(3).tolist(), "z_m": round(float(brick[2]), 3)},
+		}
+		described = {k: self.SKILL_NOTES[k] for k in allowed if k in self.SKILL_NOTES}
+		checkpoints = []
+		for c in self.checkpoints:
+			if c.id in allowed:
+				faces = sorted(decision(c.views)[1])
+				checkpoints.append({"id": c.id, "frame": c.frame, "faces_covered": faces})
+				described[c.id] = f"rewind to frame {c.frame} with faces {faces} covered"
+		if checkpoints:
+			context["checkpoints"] = checkpoints
+		context["choice_notes"] = {**described, **{k: str(v) for k, v in (notes or {}).items() if k in allowed}}
+		# Nothing about the defect, its face or the label may reach the model.
+		assert_no_defect_leakage(context)
+		return context
+
+	def _note_llm(self, source, info):
+		stats = getattr(self, "_llm_stats", None)
+		if stats is None:
+			stats = self._llm_stats = {
+				"consulted": 0,
+				"adopted": 0,
+				"fallback_reasons": {},
+				"prompt_tokens": [],
+				"latency_s_total": 0.0,
+				"attempts": 0,
+			}
+		stats["consulted"] += 1
+		stats["adopted"] += source == "llm"
+		if info.get("reason"):
+			stats["fallback_reasons"][info["reason"]] = stats["fallback_reasons"].get(info["reason"], 0) + 1
+		stats["prompt_tokens"].append(int(info.get("prompt_tokens") or 0))
+		stats["latency_s_total"] = round(stats["latency_s_total"] + float(info.get("latency_s") or 0.0), 4)
+		stats["attempts"] += int(info.get("attempts") or 0)
+
+	def _llm_summary(self):
+		stats = getattr(self, "_llm_stats", None) or {
+			"consulted": 0,
+			"adopted": 0,
+			"fallback_reasons": {},
+			"prompt_tokens": [],
+			"latency_s_total": 0.0,
+			"attempts": 0,
+		}
+		tokens = stats["prompt_tokens"]
+		return {
+			**stats,
+			"prompt_tokens_median": float(np.median(tokens)) if tokens else None,
+			"prompt_tokens_max": max(tokens) if tokens else None,
+		}
+
+	def choose(self, allowed, views, failures, notes=None):
+		info = {}
 		if self.llm is None or len(allowed) == 1 and not failures:
 			action, source = allowed[0], "policy"
 		else:
-			action, source = select_skill(self.llm, allowed, context)
+			context = self.decision_context(allowed, views, failures, notes)
+			action, source, info = select_skill(self.llm, allowed, context)
+			self._note_llm(source, info)
 		self.event(
 			"decision",
 			choices=allowed,
@@ -257,6 +487,10 @@ class TwinMujoco:
 			source=source,
 			evidence=[v["id"] for v in views],
 			prior_failure=bool(failures),
+			fallback_reason=info.get("reason"),
+			prompt_tokens=info.get("prompt_tokens"),
+			latency_s=info.get("latency_s"),
+			attempts=info.get("attempts"),
 		)
 		return action
 
@@ -379,7 +613,9 @@ class TwinMujoco:
 				continue
 
 			def look(q):
-				move_time = max(ex.rp.scan_move_s, 1.875 * float(np.max(np.abs(q[:5] - ex.last[:5]))))
+				move_time = max(
+					ex.rp.scan_move_s, 1.875 * float(np.max(np.abs(q[:5] - ex.last[:5]))) / self.scan_peak_speed
+				)
 				yield from ex._move(q, move_time, "approach")
 				yield from ex._hold_servo(q, ex.rp.scan_hold_s, "approach")
 
@@ -471,36 +707,21 @@ class TwinMujoco:
 		self.event("failure", **{k: v for k, v in payload.items() if k not in ("frame", "branch")})
 		return payload
 
-	def rewind(self, policy: Policy, failures):
-		if not self.checkpoints or self.rewinds >= policy.max_rewinds or self.total_frames >= MAX_TOTAL_FRAMES:
-			return None
-		actions = [c.id for c in reversed(self.checkpoints)] + ["stop"]
-		choice = self.choose(actions, self.checkpoints[-1].views, failures)
-		if choice == "stop":
-			return None
-		checkpoint = next(c for c in self.checkpoints if c.id == choice)
-		self.rewinds += 1
-		self.branch = self.rewinds
-		self.record.fork(self.branch, checkpoint)
+	def restore_state(self, checkpoint, params=None, relocate=None):
+		"""Physics, command filter, a rebuilt expert and the view counters at a skill-boundary checkpoint (brick on
+		the table, gripper open). Shared by in-process ``rewind`` and cross-process ``twin_resume.restore``."""
 		m, d = self.cell.model, self.cell.data
 		mujoco.mj_setState(m, d, checkpoint.integration, STATE_SPEC)
 		mujoco.mj_forward(m, d)
 		mujoco.mj_setState(m, d, checkpoint.integration, STATE_SPEC)
-		for rows in self.ep._logs.values():
-			del rows[checkpoint.frame :]
-		del self.ep.jaw_env_force[checkpoint.frame :]
-		del self.phases[checkpoint.frame :]
 		filt = self.ep.filt
 		filt._queue = deque((np.array(q) for q in checkpoint.filter["queue"]), maxlen=filt._queue.maxlen)
 		filt._prev_out = np.array(checkpoint.filter["prev"])
 		filt._backlash_pos = np.array(checkpoint.filter["backlash"])
-		self.expert = ex = RelocateExpert(
-			self.cell,
-			INITIAL_Q,
-			self.layout.brick_xy,
-			self.expert.p,
-			self.expert.rp,
-		)
+		params = self.expert.p if params is None else params
+		relocate = self.expert.rp if relocate is None else relocate
+		self._clipped_frames += getattr(self.expert, "clipped_frames", 0)
+		self.expert = ex = RelocateExpert(self.cell, INITIAL_Q, self.layout.brick_xy, params, relocate)
 		ex.last = np.array(checkpoint.expert["last"])
 		ex._active_open_g = checkpoint.expert["active_open"]
 		ex._frame_idx = checkpoint.expert["frame_idx"]
@@ -511,9 +732,45 @@ class TwinMujoco:
 		self.execution_error = None
 		self.wrist_count = checkpoint.wrist_count
 		self.bottom_count = checkpoint.bottom_count
+
+	def rewind(self, policy: Policy, failures):
+		self.policy = policy
+		if not self.checkpoints or self.rewinds >= policy.max_rewinds or self.total_frames >= MAX_TOTAL_FRAMES:
+			return None
+		stall = stall_start(self.ep.telemetry()["actuator_torques"], self.spec.arm_actuator.effort_limit)
+		stall_node = None if stall is None else node_at(self.record.events, stall)
+		options = rewind_options(self.checkpoints, failures[-1], stall, stall_node)
+		actions = [choice for choice, _ in options] + ["stop"]
+		notes = {**dict(options), "stop": "give up and report the failure"}
+		choice = self.choose(actions, self.checkpoints[-1].views, failures, notes=notes)
+		if choice == "stop":
+			return None
+		checkpoint_id, _, variant = choice.partition("+")
+		checkpoint = next(c for c in self.checkpoints if c.id == checkpoint_id)
+		self.rewinds += 1
+		self.branch = self.rewinds
+		self.record.fork(self.branch, checkpoint)
+		for rows in self.ep._logs.values():
+			del rows[checkpoint.frame :]
+		del self.ep.jaw_env_force[checkpoint.frame :]
+		del self.phases[checkpoint.frame :]
+		del self.targets[checkpoint.frame :]
+		params, relocate = self.expert.p, self.expert.rp
+		if variant:
+			# Variants transform the first attempt's defaults, so they never stack on an earlier variant.
+			self._base_params = getattr(self, "_base_params", (params, relocate))
+			params, relocate, self.scan_peak_speed = apply_variant(variant, *self._base_params)
+		self.recovery_variants = (*self.recovery_variants, variant or "none")
+		self.restore_state(checkpoint, params, relocate)
 		del self.checkpoints[self.checkpoints.index(checkpoint) + 1 :]
 		self.record.restored(self.cell)
-		self.event("rewound", parent_branch=checkpoint.branch, checkpoint=checkpoint.id, reason=failures[-1]["code"])
+		self.event(
+			"rewound",
+			parent_branch=checkpoint.branch,
+			checkpoint=checkpoint.id,
+			reason=failures[-1]["code"],
+			variant=variant or None,
+		)
 		return copy.deepcopy(checkpoint.views)
 
 	def place(self, label):
@@ -580,6 +837,7 @@ class TwinMujoco:
 			"destination": self.actual_destination,
 			"active_branch": self.branch,
 			"rewinds": self.rewinds,
+			"recovery_variants": list(self.recovery_variants),
 			"failures": failures,
 			"active_views": len(views),
 			"views": sum(e["kind"] == "view" for e in self.record.events),
@@ -588,6 +846,8 @@ class TwinMujoco:
 			"evidence": [v["id"] for v in views],
 			"cleared_faces": sorted(decision(views)[1]),
 			"health": health,
+			"llm": self._llm_summary(),
+			"smoothness": self._smoothness(),
 			"student_eligible": bool(ok and health.get("verdict") == "SUCCESS" and not self.rewinds),
 			"placement_evidence": next(
 				(v["id"] for v in views if v["score"] is not None and v["score"] >= v["threshold"]), None
@@ -597,6 +857,15 @@ class TwinMujoco:
 			{"true_label": expected, "true_face": self.layout.defect_face if self.layout.defective else None}
 		)
 		return result
+
+	def _smoothness(self):
+		n = min(len(self.targets), self.ep.n_frames)
+		if n < 4:
+			return {"frames": n}
+		qpos = self.ep.telemetry()["qpos"][:n]
+		out = motion_smoothness(np.asarray(self.targets[:n]), qpos, np.asarray(self.phases[:n]))
+		out["clipped_frames"] = int(self._clipped_frames + getattr(self.expert, "clipped_frames", 0))
+		return out
 
 	def _health(self, target):
 		tel = self.ep.telemetry()

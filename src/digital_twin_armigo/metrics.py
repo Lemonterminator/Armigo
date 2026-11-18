@@ -762,3 +762,70 @@ def compare_trajectories(
 		ev_b = traj_b["events"]
 		out["event_time_diff_s"] = {str(k): float(ev_a[k] - ev_b[k]) for k in ev_a if k in ev_b}
 	return out
+
+
+MOVING_SPEED_RAD_S = 0.05  # max arm joint speed above which the arm counts as moving
+MIN_RUN_FRAMES = 3  # a still or moving run shorter than this is ignored when counting stops
+
+
+def motion_smoothness(
+	target: np.ndarray, qpos: np.ndarray, phases: np.ndarray | None = None, fps: float = FPS
+) -> dict[str, Any]:
+	"""Smoothness of the arm (joints 0-4) over one episode, for the policy target and the measured joints.
+
+	Jerk is the third finite difference in rad/s^3. ``stops`` counts how often the measured arm comes to rest for at
+	least ``MIN_RUN_FRAMES`` frames and then moves again for at least as long, i.e. the stop-and-go segments a viewer
+	sees. ``worst_phases`` lists the phases with the highest measured jerk RMS (at least 5 frames each)."""
+	target = np.asarray(target, dtype=np.float64)[:, :5]
+	qpos = np.asarray(qpos, dtype=np.float64)[:, :5]
+	n = min(len(target), len(qpos))
+	if n < 4:
+		return {"frames": int(n)}
+	target, qpos = target[:n], qpos[:n]
+	jerk_cmd = np.diff(target, 3, axis=0) * fps**3
+	jerk_meas = np.diff(qpos, 3, axis=0) * fps**3
+	peak_meas = np.abs(jerk_meas).max(axis=1)
+
+	def rms(a):
+		return float(np.sqrt(np.mean(a**2))) if a.size else 0.0
+
+	moving = np.abs(np.diff(qpos, axis=0)).max(axis=1) * fps > MOVING_SPEED_RAD_S
+	runs: list[tuple[bool, int]] = []
+	for flag in moving:
+		if runs and runs[-1][0] == flag:
+			runs[-1] = (flag, runs[-1][1] + 1)
+		else:
+			runs.append((bool(flag), 1))
+	runs = [r for r in runs if r[1] >= MIN_RUN_FRAMES]
+	merged: list[tuple[bool, int]] = []
+	for flag, length in runs:
+		if merged and merged[-1][0] == flag:
+			merged[-1] = (flag, merged[-1][1] + length)
+		else:
+			merged.append((flag, length))
+	# A still run counts as a stop when the arm moves again afterwards; the initial rest is not a stop.
+	stops = sum(1 for i in range(1, len(merged) - 1) if not merged[i][0] and merged[i + 1][0])
+	out: dict[str, Any] = {
+		"frames": int(n),
+		"jerk_rms_cmd": round(rms(jerk_cmd), 3),
+		"jerk_rms_meas": round(rms(jerk_meas), 3),
+		"jerk_peak_meas": round(float(peak_meas.max()), 1),
+		"jerk_p99_meas": round(float(np.percentile(peak_meas, 99)), 1),
+		"stops": int(stops),
+		"still_fraction": round(float(np.mean(~moving)), 3),
+	}
+	if phases is not None and len(phases) >= n:
+		ph = np.asarray(phases)[3:n]
+		names = [PHASES[int(i)] if not isinstance(i, str) else i for i in ph]
+		peak = int(np.argmax(peak_meas))
+		out["jerk_peak_phase"] = names[peak]
+		per = []
+		for name in sorted(set(names)):
+			mask = np.array([x == name for x in names])
+			if mask.sum() >= 5:
+				per.append((name, int(mask.sum()), round(rms(jerk_meas[mask]), 2), round(rms(jerk_cmd[mask]), 2)))
+		per.sort(key=lambda r: -r[2])
+		out["worst_phases"] = [
+			{"phase": p, "frames": f, "jerk_rms_meas": m, "jerk_rms_cmd": c} for p, f, m, c in per[:3]
+		]
+	return out

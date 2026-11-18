@@ -9,10 +9,10 @@ import pytest
 
 pytest.importorskip("langgraph")
 
+from graph import GraphNextPose, RuleProposer, build_inspection_graph, initial_state
 from langgraph.checkpoint.memory import InMemorySaver
 
 from digital_twin_armigo.agent import CoveragePolicy, CoverageTable, FakeLLM, LLMProposer, PoseOption
-from digital_twin_armigo.agent.graph import GraphNextPose, RuleProposer, build_inspection_graph, initial_state
 from digital_twin_armigo.agent.policies import pose_id
 
 A = PoseOption(pose_id(0.8, 90), 0.8, 90.0, (0.9, 0.0, 0.0, 0.8, 1.0, 0.0))

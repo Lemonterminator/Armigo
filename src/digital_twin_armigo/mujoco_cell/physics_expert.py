@@ -158,6 +158,9 @@ class ExpertParams:
 	retreat_dz_m: float = 0.06
 	retreat_s: float = 0.8
 	return_s: float = 1.2
+	# Peak joint speed of the return move. Under the 2.94 N m torque limit the wrist flex tops out near 4.6 rad/s;
+	# planning faster leaves it lagging and then snapping to the decelerating target (measured jerk spike).
+	return_peak_speed_rad_s: float = 4.4
 	final_hold_s: float = 0.6
 	lost_force_n: float = 0.02  # a jaw below this normal force has lost contact
 	lost_frames: int = 10  # consecutive frames without dual contact after lift: brick lost
@@ -270,6 +273,7 @@ class ClosedLoopExpert:
 		self._prev_q = self.q_start.copy()
 		self._no_dual = 0
 		self._lo, self._hi = cell.jnt_range[:, 0].copy(), cell.jnt_range[:, 1].copy()
+		self.clipped_frames = 0  # frames whose scripted target fell outside the joint range and was clipped
 		self._gen = self._script()
 
 	# -- plumbing --------------------------------------------------------------------------------------------------
@@ -294,7 +298,9 @@ class ClosedLoopExpert:
 			self.done = True
 			return self.last.copy(), "return"
 		self._frame_idx += 1
-		target = np.clip(target, self._lo, self._hi)
+		clipped = np.clip(target, self._lo, self._hi)
+		self.clipped_frames += bool(np.any(clipped != target))
+		target = clipped
 		self.last = target.copy()
 		return target, phase
 
@@ -308,6 +314,9 @@ class ClosedLoopExpert:
 		longer than 1.5 s."""
 		p = self.p
 		q_from = self.last.copy()
+		# Plan to the reachable target. Clipping a min-jerk path at a joint limit instead stops that joint dead
+		# mid-move (the rest pose lies just outside two limits, which made a jerk spike at the end of every return).
+		q_to = np.clip(q_to, self._lo, self._hi)
 		chunks = max(1, math.ceil(secs / p.max_move_chunk_s))
 		for c in range(chunks):
 			a, b = q_from + (q_to - q_from) * (c / chunks), q_from + (q_to - q_from) * ((c + 1) / chunks)
@@ -806,7 +815,15 @@ class ClosedLoopExpert:
 	def _go_home(self):
 		q_rest = self.q_start.copy()
 		q_rest[5] = self.p.open_g
-		yield from self._move(q_rest, self.p.return_s, "return")
+		p = self.p
+		dq = float(np.max(np.abs(np.clip(q_rest, self._lo, self._hi)[:5] - self.last[:5])))
+		# Long enough to stay under the speed the actuators can reach, short enough to stay one unchunked segment.
+		# Rounded up to whole frames so the frame-quantised move still stays under the peak speed.
+		secs = min(
+			max(p.return_s, math.ceil(MIN_JERK_PEAK_RATIO * dq / p.return_peak_speed_rad_s * FPS) / FPS),
+			p.max_move_chunk_s,
+		)
+		yield from self._move(q_rest, secs, "return")
 		yield from self._hold(self.p.final_hold_s, "return")
 
 	def _show_pose_reached(self, q_show: np.ndarray) -> bool:

@@ -1,5 +1,6 @@
-"""Stage-3 inspection agent: show-pose policies (rule baselines and an LLM over a typed pose menu) and a LangGraph
-decision loop.
+"""Inspection agent: show-pose policies (rule baselines and an LLM over a typed pose menu), the local LLM client,
+and the six-face MCP twin (``twin_graph``, ``twin_mujoco``, ``twin_mcp``). The Stage-3 show-pose LangGraph loop is
+archived in ``archive/stage3_pose_graph``.
 
 The LLM never writes code or free-form joint targets: it picks a ``pose_id`` from a menu built from measured data,
 every answer is validated deterministically (one repair attempt), budgets are bounded, and everything sent to the

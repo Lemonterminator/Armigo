@@ -29,6 +29,7 @@ twin = ["mcp>=1.12,<2", "av>=12"]
 agent = [
 	"httpx>=0.28",
 	"langgraph>=0.6",
+	"langgraph-checkpoint-sqlite>=2.0",
 ]
 
 [project.scripts]

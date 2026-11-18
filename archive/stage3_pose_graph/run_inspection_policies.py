@@ -28,15 +28,15 @@ from concurrent.futures import ProcessPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts"))
 
 import inspection_visibility as iv
+from graph import GraphNextPose
 
 from digital_twin_armigo.agent import CoveragePolicy, CoverageTable, FixedSequencePolicy, LLMShowPosePolicy
-from digital_twin_armigo.agent.graph import GraphNextPose
-from digital_twin_armigo.agent.llm import OpenAICompatLLM
+from digital_twin_armigo.agent.llm import DEFAULT_BASE_URL, OpenAICompatLLM
 from digital_twin_armigo.agent.policies import LLMProposer
 
 bpe = iv.bpe
@@ -244,7 +244,7 @@ def main() -> None:
 		help="ExpertParams.max_frames for every policy (900 truncates extras; 1300 still truncated 4 slow extras)",
 	)
 	ap.add_argument("--workers", type=int, default=1, help="parallel episodes (<= 4: also caps LLM concurrency)")
-	ap.add_argument("--llm-url", default="http://localhost:8000/v1")
+	ap.add_argument("--llm-url", default=DEFAULT_BASE_URL)
 	ap.add_argument("--llm-model", default="qwen3.8-vllm")
 	ap.add_argument("--llm-thinking", action="store_true", help="enable Qwen thinking (default off)")
 	ap.add_argument("--out", type=Path, default=ROOT / "results" / "inspection-policies" / "run")

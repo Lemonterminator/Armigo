@@ -1,0 +1,13 @@
+{
+  "status": "complete",
+  "wall_s": 736.4,
+  "episodes": 352,
+  "selected": {
+    "order": "wrist_first",
+    "max_bottom_views": 2,
+    "max_wrist_views": 2,
+    "max_rewinds": 1
+  },
+  "decision": "the default ranked first among the finalists",
+  "policy_json": "results\\agent-bench\\final\\after\\search\\search\\db80e9a6fdb0401d9aa69a7feba36e1b\\policy.json"
+}
