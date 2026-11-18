@@ -1,0 +1,40 @@
+{
+  "show_pose": {
+    "n": 8,
+    "brick_px_median": 1139.5,
+    "brick_px_p95": 1382.1,
+    "brick_px_max": 1443
+  },
+  "random_unoccluded": {
+    "n": 6804,
+    "brick_px_median": 27.0,
+    "brick_px_p95": 2016.8499999999995,
+    "brick_px_max": 5145
+  },
+  "face_px": {
+    "+x": {
+      "best_random_median": 825.0,
+      "show_median": 252.5
+    },
+    "-x": {
+      "best_random_median": 745.5,
+      "show_median": 4.5
+    },
+    "+y": {
+      "best_random_median": 1014.5,
+      "show_median": 253.0
+    },
+    "-y": {
+      "best_random_median": 911.5,
+      "show_median": 2.0
+    },
+    "top": {
+      "best_random_median": 317.0,
+      "show_median": 25.5
+    },
+    "bottom": {
+      "best_random_median": 2452.5,
+      "show_median": 0.0
+    }
+  }
+}

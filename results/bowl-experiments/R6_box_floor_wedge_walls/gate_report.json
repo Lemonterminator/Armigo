@@ -1,0 +1,168 @@
+{
+  "id": "R6_box_floor_wedge_walls",
+  "passed": false,
+  "failed_gate": "G1",
+  "detail": {
+    "f552_worst_dist_mm": -3.348209297503876,
+    "f552_bad_normals": 0,
+    "f552_ok": true,
+    "worst_dist_mm": -7.091316800162605,
+    "bad_normals": 68
+  },
+  "wall_s": 115.314,
+  "gates": [
+    {
+      "gate": "G0",
+      "passed": true,
+      "wall_s": 0.038,
+      "detail": {
+        "missing_area_frac": 0.0,
+        "flat_floor_r_mm": 60.0,
+        "flat_min_mm": 3.0000000000000027,
+        "flat_max_mm": 3.0000000000000027,
+        "basin_min_mm": 3.0000000000000027,
+        "rim_min_mm": 21.929257298159158,
+        "rim_max_mm": 21.991981254261496,
+        "wall_devs_mm": {
+          "6": 0.1520431503768691,
+          "12": 0.16902859791174762,
+          "18": 0.1790423098084517
+        },
+        "max_wall_dev_mm": 0.1790423098084517,
+        "wall_miss": 0,
+        "protrusion_mm": 0.0005700468908429457
+      }
+    },
+    {
+      "gate": "G1",
+      "passed": false,
+      "wall_s": 3.768,
+      "detail": {
+        "f552_worst_dist_mm": -3.348209297503876,
+        "f552_bad_normals": 0,
+        "f552_ok": true,
+        "worst_dist_mm": -7.091316800162605,
+        "bad_normals": 68
+      }
+    },
+    {
+      "gate": "G2",
+      "passed": true,
+      "wall_s": 16.943,
+      "detail": {
+        "violations": 0,
+        "sample_violations": [],
+        "max_speed_mps": 0.3270026160000001,
+        "max_angvel_rps": 9.44490314816508,
+        "max_end_speed_mps": 9.511960813885336e-05,
+        "max_end_yawrate_rps": 0.0005226238968135935
+      }
+    },
+    {
+      "gate": "G3",
+      "passed": true,
+      "wall_s": 12.201,
+      "detail": {
+        "successes": 120,
+        "total": 120,
+        "bounce_outs": 0,
+        "max_release_peak_speed_mps": 0.2999359162875266,
+        "failing": []
+      }
+    },
+    {
+      "gate": "G4",
+      "passed": true,
+      "wall_s": 77.16,
+      "detail": {
+        "matrix_success": 540,
+        "matrix_total": 540,
+        "per_condition": {
+          "baseline_2x2": [
+            60,
+            60
+          ],
+          "brick_2x3": [
+            60,
+            60
+          ],
+          "brick_2x4": [
+            60,
+            60
+          ],
+          "dynamic_clutter": [
+            60,
+            60
+          ],
+          "low_friction": [
+            60,
+            60
+          ],
+          "high_mass": [
+            60,
+            60
+          ],
+          "latency_backlash": [
+            60,
+            60
+          ],
+          "combined_friction_mass": [
+            60,
+            60
+          ],
+          "combined_all_nominal_stress": [
+            60,
+            60
+          ]
+        },
+        "cond_regression": [],
+        "layouts": [
+          119,
+          120
+        ],
+        "bounce_outs": 0,
+        "fast_releases": 0,
+        "jaw_env_over_5N": 2,
+        "jaw_env_over_5N_ids": [
+          [
+            "layouts_seed1000",
+            15
+          ],
+          [
+            "layouts_seed1000",
+            32
+          ]
+        ],
+        "frames_ge_890": 1,
+        "frames_ge_890_ids": [
+          [
+            "layouts_seed1001",
+            37
+          ]
+        ],
+        "failing": [
+          {
+            "id": "layouts_seed1000_idx32",
+            "verdict": "FAILURE",
+            "reasons": [
+              "pick_miss"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "gate": "G5",
+      "passed": true,
+      "wall_s": 5.202,
+      "detail": {
+        "determinism_ok": true,
+        "mismatches": [],
+        "mean_wall_s": 0.8769861062367758,
+        "baseline_wall_s": 0.7363,
+        "wall_ratio": 1.1910717183712831,
+        "warnings": []
+      }
+    }
+  ]
+}

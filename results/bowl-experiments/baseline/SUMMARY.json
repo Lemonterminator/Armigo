@@ -1,0 +1,61 @@
+{
+  "matrix_success": 538,
+  "matrix_total": 540,
+  "per_condition": {
+    "baseline_2x2": [
+      60,
+      60
+    ],
+    "brick_2x3": [
+      60,
+      60
+    ],
+    "brick_2x4": [
+      60,
+      60
+    ],
+    "dynamic_clutter": [
+      60,
+      60
+    ],
+    "low_friction": [
+      59,
+      60
+    ],
+    "high_mass": [
+      59,
+      60
+    ],
+    "latency_backlash": [
+      60,
+      60
+    ],
+    "combined_friction_mass": [
+      60,
+      60
+    ],
+    "combined_all_nominal_stress": [
+      60,
+      60
+    ]
+  },
+  "layouts": [
+    119,
+    120
+  ],
+  "jaw_env_over_5N": 6,
+  "jaw_env_over_5N_ids": [
+    "layouts_seed1000_idx15",
+    "layouts_seed1000_idx32",
+    "layouts_seed1000_idx48",
+    "layouts_seed1000_idx54",
+    "layouts_seed1001_idx11",
+    "layouts_seed1001_idx25"
+  ],
+  "frames_ge_890": 1,
+  "frames_ge_890_ids": [
+    "layouts_seed1001_idx37"
+  ],
+  "episode_wall_s": 0.7363,
+  "episode_wall_verdict": "SUCCESS"
+}

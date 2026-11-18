@@ -51,9 +51,9 @@ over "so101"
                                         prepend apiSchemas = ["PhysicsDriveAPI:angular"]
                                     )
                                     {
-                                        float drive:angular:physics:damping = 10
-                                        float drive:angular:physics:maxForce = 2.94
-                                        float drive:angular:physics:stiffness = 100
+                                        float drive:angular:physics:damping = 2.5
+                                        float drive:angular:physics:maxForce = 0.55
+                                        float drive:angular:physics:stiffness = 30
                                         uniform token drive:angular:physics:type = "force"
                                     }
                                 }
@@ -62,9 +62,9 @@ over "so101"
                                     prepend apiSchemas = ["PhysicsDriveAPI:angular"]
                                 )
                                 {
-                                    float drive:angular:physics:damping = 10
+                                    float drive:angular:physics:damping = 12
                                     float drive:angular:physics:maxForce = 2.94
-                                    float drive:angular:physics:stiffness = 100
+                                    float drive:angular:physics:stiffness = 180
                                     uniform token drive:angular:physics:type = "force"
                                 }
 
@@ -87,9 +87,9 @@ over "so101"
                                 prepend apiSchemas = ["PhysicsDriveAPI:angular"]
                             )
                             {
-                                float drive:angular:physics:damping = 10
+                                float drive:angular:physics:damping = 12
                                 float drive:angular:physics:maxForce = 2.94
-                                float drive:angular:physics:stiffness = 100
+                                float drive:angular:physics:stiffness = 180
                                 uniform token drive:angular:physics:type = "force"
                             }
                         }
@@ -98,9 +98,9 @@ over "so101"
                             prepend apiSchemas = ["PhysicsDriveAPI:angular"]
                         )
                         {
-                            float drive:angular:physics:damping = 10
+                            float drive:angular:physics:damping = 12
                             float drive:angular:physics:maxForce = 2.94
-                            float drive:angular:physics:stiffness = 100
+                            float drive:angular:physics:stiffness = 180
                             uniform token drive:angular:physics:type = "force"
                         }
                     }
@@ -109,9 +109,9 @@ over "so101"
                         prepend apiSchemas = ["PhysicsDriveAPI:angular"]
                     )
                     {
-                        float drive:angular:physics:damping = 10
+                        float drive:angular:physics:damping = 12
                         float drive:angular:physics:maxForce = 2.94
-                        float drive:angular:physics:stiffness = 100
+                        float drive:angular:physics:stiffness = 180
                         uniform token drive:angular:physics:type = "force"
                     }
                 }
@@ -120,9 +120,9 @@ over "so101"
                     prepend apiSchemas = ["PhysicsDriveAPI:angular"]
                 )
                 {
-                    float drive:angular:physics:damping = 10
+                    float drive:angular:physics:damping = 12
                     float drive:angular:physics:maxForce = 2.94
-                    float drive:angular:physics:stiffness = 100
+                    float drive:angular:physics:stiffness = 180
                     uniform token drive:angular:physics:type = "force"
                 }
             }
@@ -135,9 +135,11 @@ over "so101"
             prepend apiSchemas = ["PhysicsMaterialAPI"]
         )
         {
-            float physics:dynamicFriction = 1.6
-            float physics:restitution = 0
-            float physics:staticFriction = 1.8
+            float physics:dynamicFriction = 1.25
+            float physics:restitution = 0.02
+            float physics:staticFriction = 1.45
+            custom token physxMaterial:frictionCombineMode = "max"
+            custom token physxMaterial:restitutionCombineMode = "max"
         }
     }
 }

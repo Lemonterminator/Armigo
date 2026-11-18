@@ -1,0 +1,26 @@
+flagged  layouts_seed1000_idx15           SUCCESS  [] ['JAW_ENV_OVER_5N'] results/physics-expert-v2/independent_acceptance/layouts_seed1000.json
+failure  layouts_seed1000_idx32           FAILURE  ['pick_miss'] ['FAIL', 'JAW_ENV_OVER_5N'] results/physics-expert-v2/independent_acceptance/layouts_seed1000.json
+flagged  layouts_seed1000_idx48           SUCCESS  [] ['JAW_ENV_OVER_5N'] results/physics-expert-v2/independent_acceptance/layouts_seed1000.json
+flagged  layouts_seed1000_idx54           SUCCESS  [] ['JAW_ENV_OVER_5N'] results/physics-expert-v2/independent_acceptance/layouts_seed1000.json
+flagged  layouts_seed1001_idx11           SUCCESS  [] ['JAW_ENV_OVER_5N'] results/physics-expert-v2/independent_acceptance/layouts_seed1001.json
+flagged  layouts_seed1001_idx25           SUCCESS  [] ['JAW_ENV_OVER_5N'] results/physics-expert-v2/independent_acceptance/layouts_seed1001.json
+flagged  layouts_seed1001_idx37           SUCCESS  [] ['NEAR_FRAME_CAP'] results/physics-expert-v2/independent_acceptance/layouts_seed1001.json
+failure  high_mass_seed29                 FAILURE  ['bounce_out'] ['FAIL', 'FAST_RELEASE'] results/physics-expert-v2/independent_acceptance/matrix_seeds0-29_with_held_out.json
+failure  low_friction_seed111             FAILURE  ['bounce_out'] ['FAIL', 'FAST_RELEASE'] results/physics-expert-v2/independent_acceptance/matrix_seeds100-129_with_held_out.json
+flagged  layouts_seed1_idx22              SUCCESS  [] ['JAW_ENV_OVER_5N'] results/physics-expert-v2/physics_expert_layouts_seed1_n60.json
+flagged  layouts_seed1_idx55              SUCCESS  [] ['NEAR_FRAME_CAP'] results/physics-expert-v2/physics_expert_layouts_seed1_n60.json
+flagged  layouts_seed2_idx39              SUCCESS  [] ['JAW_ENV_OVER_5N'] results/physics-expert-v2/physics_expert_layouts_seed2_n60.json
+flagged  layouts_seed2_idx47              SUCCESS  [] ['JAW_ENV_OVER_5N'] results/physics-expert-v2/physics_expert_layouts_seed2_n60.json
+replayed layouts_seed1000_idx15 {'verdict_match': True, 'reason_codes_match': True, 'n_frames_recorded': 819, 'n_frames_replay': 819, 'release_speed_recorded': 0.2244424096797319, 'release_speed_replay': 0.2244424096797319, 'video_frames': 819, 'h264': True}
+replayed layouts_seed1000_idx32 {'verdict_match': True, 'reason_codes_match': True, 'n_frames_recorded': 540, 'n_frames_replay': 540, 'release_speed_recorded': None, 'release_speed_replay': nan, 'video_frames': 540, 'h264': True}
+replayed layouts_seed1000_idx48 {'verdict_match': True, 'reason_codes_match': True, 'n_frames_recorded': 809, 'n_frames_replay': 809, 'release_speed_recorded': 0.0475935455556427, 'release_speed_replay': 0.0475935455556427, 'video_frames': 809, 'h264': True}
+replayed layouts_seed1000_idx54 {'verdict_match': True, 'reason_codes_match': True, 'n_frames_recorded': 787, 'n_frames_replay': 787, 'release_speed_recorded': 0.06811685825436978, 'release_speed_replay': 0.06811685825436978, 'video_frames': 787, 'h264': True}
+replayed layouts_seed1001_idx11 {'verdict_match': True, 'reason_codes_match': True, 'n_frames_recorded': 736, 'n_frames_replay': 736, 'release_speed_recorded': 0.24103377124679842, 'release_speed_replay': 0.24103377124679842, 'video_frames': 736, 'h264': True}
+replayed layouts_seed1001_idx25 {'verdict_match': True, 'reason_codes_match': True, 'n_frames_recorded': 820, 'n_frames_replay': 820, 'release_speed_recorded': 0.048268380145179916, 'release_speed_replay': 0.048268380145179916, 'video_frames': 820, 'h264': True}
+replayed layouts_seed1001_idx37 {'verdict_match': True, 'reason_codes_match': True, 'n_frames_recorded': 899, 'n_frames_replay': 899, 'release_speed_recorded': 0.024505718028611654, 'release_speed_replay': 0.024505718028611654, 'video_frames': 899, 'h264': True}
+replayed high_mass_seed29 {'verdict_match': True, 'reason_codes_match': True, 'n_frames_recorded': 662, 'n_frames_replay': 662, 'release_speed_recorded': 2.662190959231171, 'release_speed_replay': 2.662190959231171, 'video_frames': 662, 'h264': True}
+replayed low_friction_seed111 {'verdict_match': True, 'reason_codes_match': True, 'n_frames_recorded': 665, 'n_frames_replay': 665, 'release_speed_recorded': 4.996272582103846, 'release_speed_replay': 4.996272582103846, 'video_frames': 665, 'h264': True}
+replayed layouts_seed1_idx22 {'verdict_match': True, 'reason_codes_match': True, 'n_frames_recorded': 724, 'n_frames_replay': 724, 'release_speed_recorded': 0.10926384812312444, 'release_speed_replay': 0.10926384812312444, 'video_frames': 724, 'h264': True}
+replayed layouts_seed1_idx55 {'verdict_match': True, 'reason_codes_match': True, 'n_frames_recorded': 893, 'n_frames_replay': 893, 'release_speed_recorded': 0.29245778049916993, 'release_speed_replay': 0.29245778049916993, 'video_frames': 893, 'h264': True}
+replayed layouts_seed2_idx39 {'verdict_match': True, 'reason_codes_match': True, 'n_frames_recorded': 808, 'n_frames_replay': 808, 'release_speed_recorded': 0.29206758759834, 'release_speed_replay': 0.29206758759834, 'video_frames': 808, 'h264': True}
+replayed layouts_seed2_idx47 {'verdict_match': True, 'reason_codes_match': True, 'n_frames_recorded': 761, 'n_frames_replay': 761, 'release_speed_recorded': 0.2541062810459455, 'release_speed_replay': 0.2541062810459455, 'video_frames': 761, 'h264': True}

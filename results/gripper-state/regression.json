@@ -1,0 +1,108 @@
+{
+  "passed": true,
+  "wall_s": 133.39,
+  "matrix_success": 540,
+  "matrix_total": 540,
+  "per_condition": {
+    "baseline_2x2": [
+      60,
+      60
+    ],
+    "brick_2x3": [
+      60,
+      60
+    ],
+    "brick_2x4": [
+      60,
+      60
+    ],
+    "dynamic_clutter": [
+      60,
+      60
+    ],
+    "low_friction": [
+      60,
+      60
+    ],
+    "high_mass": [
+      60,
+      60
+    ],
+    "latency_backlash": [
+      60,
+      60
+    ],
+    "combined_friction_mass": [
+      60,
+      60
+    ],
+    "combined_all_nominal_stress": [
+      60,
+      60
+    ]
+  },
+  "layouts": [
+    120,
+    120
+  ],
+  "idx32": {
+    "id": "layouts_seed1000_idx32",
+    "kind": "layout",
+    "group": "1000",
+    "key": 32,
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "n_frames": 900,
+    "release_peak_speed_mps": 0.04778418633836175,
+    "open_g_used": 0.4,
+    "block_replans": 0,
+    "aborted": null,
+    "infeasible_reason": null,
+    "jaw_env_contact_max_N": 0.0,
+    "gripper_blocked_frames": 0,
+    "gripper_first_blocked_frame": null,
+    "gripper_block_direction": 0,
+    "telemetry_hash": "8a7e3a4f5fe5d0db8f0579e725559b8256b02063e6f49e6edf1d5030613a6a53",
+    "truth_event": false,
+    "truth_start_frame": null,
+    "truth_objects": [],
+    "truth_phases": []
+  },
+  "infeasible": [],
+  "bounce_outs": 0,
+  "fast_releases": 0,
+  "jaw_env_over_5N": [
+    "layouts_seed1000_idx15"
+  ],
+  "frames_ge_890": [
+    "layouts_seed1000_idx32",
+    "layouts_seed1001_idx37"
+  ],
+  "false_positives": [],
+  "hash_diffs_all": [
+    "layouts_seed1000_idx32",
+    "layouts_seed1000_idx48",
+    "layouts_seed1001_idx25"
+  ],
+  "hash_diffs_unblocked_default": [],
+  "pre_narrowed": [
+    {
+      "id": "layouts_seed1000_idx32",
+      "open_g": 0.4,
+      "verdict": "SUCCESS",
+      "jaw_max_N": 0.0
+    },
+    {
+      "id": "layouts_seed1000_idx48",
+      "open_g": 0.7,
+      "verdict": "SUCCESS",
+      "jaw_max_N": 0.0
+    },
+    {
+      "id": "layouts_seed1001_idx25",
+      "open_g": 0.7,
+      "verdict": "SUCCESS",
+      "jaw_max_N": 0.0
+    }
+  ]
+}

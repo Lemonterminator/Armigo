@@ -1,0 +1,6051 @@
+{
+ "mujoco_version": "4.0.1",
+ "evaluator_version": "v2-audited",
+ "params": {
+  "open_g": 0.85,
+  "hold_g": 0.06,
+  "rest_s": 0.3,
+  "ready_q": [
+   0.0,
+   -0.35,
+   0.25,
+   1.35,
+   0.0
+  ],
+  "ready_move_s": 0.6,
+  "hover_z_m": 0.06,
+  "hover_move_s": 1.0,
+  "pregrasp_dz_m": 0.02,
+  "descend_s": 0.7,
+  "final_descend_s": 0.6,
+  "jaw_table_clearance_m": 0.003,
+  "pad_clearance_m": 0.002,
+  "servo_tol_m": 0.0008,
+  "servo_gain": 0.35,
+  "servo_max_correction_m": 0.02,
+  "servo_max_frames": 30,
+  "sweep_samples": 25,
+  "roll_scan_steps": 721,
+  "roll_align_min": 0.98,
+  "roll_penalty_m_per_rad": 0.002,
+  "clearance_cap_m": 0.02,
+  "min_grasp_clearance_m": 0.002,
+  "clearance_sweep_samples": 6,
+  "grasp_refine_iters": 3,
+  "place_servo_tol_m": 0.003,
+  "close_s": 0.5,
+  "clamp_force_n": 1.5,
+  "clamp_still_speed_mps": 0.005,
+  "clamp_still_frames": 4,
+  "clamp_timeout_frames": 45,
+  "max_grasp_retries": 2,
+  "reopen_s": 0.5,
+  "lift_z_m": 0.06,
+  "lift_s": 1.2,
+  "carry_peak_speed_rad_s": 0.5,
+  "show_flex": 0.65,
+  "show_roll_deg": [
+   -35.0,
+   0.0,
+   35.0
+  ],
+  "show_move_s": 0.9,
+  "show_peak_speed_rad_s": 1.2,
+  "show_hold_s": 0.4,
+  "show_hold_timeout_s": 2.0,
+  "show_flex_tol": 0.05,
+  "show_roll_tol_deg": 2.5,
+  "show_still_speed_rad_s": 0.05,
+  "carry_joint_gain": 0.3,
+  "carry_joint_max_corr": 0.05,
+  "handoff_move_s": 1.5,
+  "handoff_hold_s": 0.6,
+  "transfer_z_m": 0.12,
+  "transfer_s": 1.8,
+  "place_roll": 0.0,
+  "release_clearance_m": 0.004,
+  "place_descend_s": 1.2,
+  "open_ramp_s": 1.0,
+  "settle_speed_mps": 0.01,
+  "settle_frames": 6,
+  "settle_timeout_s": 1.0,
+  "retreat_dz_m": 0.06,
+  "retreat_s": 0.8,
+  "return_s": 1.2,
+  "final_hold_s": 0.6,
+  "lost_force_n": 0.02,
+  "lost_frames": 10,
+  "max_frames": 900,
+  "max_move_chunk_s": 1.4,
+  "chunk_pause_s": 0.1,
+  "bowl_margin_m": 0.012,
+  "clutter_clearance_m": 0.03,
+  "release_grid_radii": 6,
+  "release_grid_angles": 24,
+  "release_off_centre_weight": 0.1
+ },
+ "mode": "layouts",
+ "layout_seed": 1000,
+ "layouts": {
+  "successes": 59,
+  "episodes": 60,
+  "verdict_counts": {
+   "SUCCESS": 59,
+   "FAILURE": 1
+  },
+  "reason_counts": {
+   "pick_miss": 1
+  },
+  "failing": [
+   32
+  ],
+  "jaw_env_contact_max_N": 23.06330577724416,
+  "episodes_detail": [
+   {
+    "layout_index": 0,
+    "layout": {
+     "brick_xy": [
+      0.18568879186794904,
+      -0.026163996342692394
+     ],
+     "brick_yaw_deg": 31.23786668139492,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.16093691175448152,
+      0.2017641724855221
+     ],
+     "pink": [
+      0.16613670970501412,
+      -0.15921850437920257
+     ],
+     "defective": false,
+     "n_clutter": 4
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.4000464793713903,
+     "jaw_normal_at_lift_N": 7.166877484744831,
+     "release_peak_speed_mps": 0.05137437559204638,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 840,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.019349999999999982,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999826,
+      "grasp_z_m": 0.011145694235560052,
+      "roll": 0.7623252377777776,
+      "clearance_m": 0.009793686119393333
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 840,
+      "ref_frame": 116,
+      "slip_peak_frame": 709,
+      "release_obs_window": [
+       739,
+       829
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 88,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.008303951007559492,
+     "max_slip_rot_deg": 5.175190219747575,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.387227149223972,
+     "max_pinch_force_N": 7.999598143875504,
+     "pinch_normal_peak_N": 8.13224244491936,
+     "pinch_tangential_peak_N": 2.649138998567135,
+     "pinch_impulse_Ns": 151.6403568256319,
+     "max_tracking_error_rad": 0.5386777866163985,
+     "tracking_error_ratio": 0.025,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9333333333333333,
+     "torque_saturation_ratio": 0.26071428571428573,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 88,
+     "final_dist_to_bowl_m": 0.01736068291950142,
+     "final_brick_speed_mps": 3.0474182954154226e-16,
+     "final_brick_ang_vel_rps": 8.787477633414528e-10
+    }
+   },
+   {
+    "layout_index": 1,
+    "layout": {
+     "brick_xy": [
+      0.24668452084275042,
+      0.015141834040360529
+     ],
+     "brick_yaw_deg": 55.15781207360857,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.12974298792723848,
+      -0.2075869957522777
+     ],
+     "pink": [
+      0.11136110553488976,
+      0.21024734921314783
+     ],
+     "defective": true,
+     "n_clutter": 4
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.5616258555862905,
+     "jaw_normal_at_lift_N": 7.117138746352767,
+     "release_peak_speed_mps": 0.25379475442661703,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 779,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.01934999999999997,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999687,
+      "grasp_z_m": 0.011145694235560069,
+      "roll": -0.6339381622222224,
+      "clearance_m": 0.02
+     },
+     "jaw_env_contact_max_N": 0.10484712956164324
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 779,
+      "ref_frame": 117,
+      "slip_peak_frame": 307,
+      "release_obs_window": [
+       678,
+       768
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 89,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.0056001173772693945,
+     "max_slip_rot_deg": 3.2461251266725224,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.413180575020143,
+     "max_pinch_force_N": 7.788419068902346,
+     "pinch_normal_peak_N": 7.741404046682952,
+     "pinch_tangential_peak_N": 0.9248164219650813,
+     "pinch_impulse_Ns": 136.41332888892669,
+     "max_tracking_error_rad": 0.5386759841683555,
+     "tracking_error_ratio": 0.024390243902439025,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9333333333333333,
+     "torque_saturation_ratio": 0.2233632862644416,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 89,
+     "final_dist_to_bowl_m": 0.0423008836790021,
+     "final_brick_speed_mps": 1.1015994063288047e-15,
+     "final_brick_ang_vel_rps": 1.246096575387786e-07
+    }
+   },
+   {
+    "layout_index": 2,
+    "layout": {
+     "brick_xy": [
+      0.16075202620257378,
+      0.06565145663759268
+     ],
+     "brick_yaw_deg": -67.14666729641422,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.11703811438785618,
+      0.22904359069002309
+     ],
+     "pink": [
+      0.18344569493112098,
+      -0.1960531224935622
+     ],
+     "defective": false,
+     "n_clutter": 3
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.506198181972254,
+     "jaw_normal_at_lift_N": 7.131243751463969,
+     "release_peak_speed_mps": 0.05538953204603118,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 848,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.01934999999999998,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999756,
+      "grasp_z_m": 0.011145694235560055,
+      "roll": -0.05216174555555586,
+      "clearance_m": 0.02
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 848,
+      "ref_frame": 116,
+      "slip_peak_frame": 738,
+      "release_obs_window": [
+       747,
+       837
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 89,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.009444458115664274,
+     "max_slip_rot_deg": 2.9836831693168615,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.343734094854562,
+     "max_pinch_force_N": 8.176126625741427,
+     "pinch_normal_peak_N": 8.236275210427966,
+     "pinch_tangential_peak_N": 2.599295014077594,
+     "pinch_impulse_Ns": 153.14834997612647,
+     "max_tracking_error_rad": 0.5386778164732159,
+     "tracking_error_ratio": 0.024764150943396228,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9666666666666667,
+     "torque_saturation_ratio": 0.24056603773584906,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 89,
+     "final_dist_to_bowl_m": 0.0036232605829839065,
+     "final_brick_speed_mps": 3.482032895901015e-16,
+     "final_brick_ang_vel_rps": 4.594743481503566e-10
+    }
+   },
+   {
+    "layout_index": 3,
+    "layout": {
+     "brick_xy": [
+      0.1721436587610166,
+      -0.08139060818171179
+     ],
+     "brick_yaw_deg": -34.23781259960444,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.11015491823417839,
+      -0.20801477176133604
+     ],
+     "pink": [
+      0.16340605088630217,
+      0.14334771778147307
+     ],
+     "defective": true,
+     "n_clutter": 0
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.4867698751822696,
+     "jaw_normal_at_lift_N": 7.188312039922552,
+     "release_peak_speed_mps": 0.29220591621435144,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 782,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.019349999999999992,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999895,
+      "grasp_z_m": 0.011145694235560048,
+      "roll": -0.005619632222222393,
+      "clearance_m": 0.02
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 782,
+      "ref_frame": 116,
+      "slip_peak_frame": 652,
+      "release_obs_window": [
+       681,
+       771
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 90,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.006482374683999115,
+     "max_slip_rot_deg": 2.878469243229542,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.427294895327587,
+     "max_pinch_force_N": 7.929624122534902,
+     "pinch_normal_peak_N": 7.866219838618923,
+     "pinch_tangential_peak_N": 0.9372186394422448,
+     "pinch_impulse_Ns": 137.63449083399723,
+     "max_tracking_error_rad": 0.5386775135264705,
+     "tracking_error_ratio": 0.026854219948849106,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9333333333333333,
+     "torque_saturation_ratio": 0.2531969309462916,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 90,
+     "final_dist_to_bowl_m": 0.0033358465031850556,
+     "final_brick_speed_mps": 1.894358510034121e-16,
+     "final_brick_ang_vel_rps": 1.0441798067054546e-10
+    }
+   },
+   {
+    "layout_index": 4,
+    "layout": {
+     "brick_xy": [
+      0.24081185654542697,
+      0.027028025335450706
+     ],
+     "brick_yaw_deg": -19.763404849637766,
+     "brick_size": [
+      0.0636,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.1268000440453538,
+      0.2049211226658474
+     ],
+     "pink": [
+      0.22601003051020177,
+      -0.12484062647256311
+     ],
+     "defective": false,
+     "n_clutter": 5
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 2.9613041353512446,
+     "jaw_normal_at_lift_N": 7.058096860896255,
+     "release_peak_speed_mps": 0.04871110722216826,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 807,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.01934999999999999,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999895,
+      "grasp_z_m": 0.011145694235560083,
+      "roll": 1.1346621444444445,
+      "clearance_m": 0.01846985055728012
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 807,
+      "ref_frame": 116,
+      "slip_peak_frame": 582,
+      "release_obs_window": [
+       706,
+       796
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 59,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.005696551691062812,
+     "max_slip_rot_deg": 4.726926053109278,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.510030438986023,
+     "max_pinch_force_N": 8.105965945918431,
+     "pinch_normal_peak_N": 8.00869266352974,
+     "pinch_tangential_peak_N": 1.7372712420016347,
+     "pinch_impulse_Ns": 144.48080414125693,
+     "max_tracking_error_rad": 0.5386764387207822,
+     "tracking_error_ratio": 0.026022304832713755,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9666666666666667,
+     "torque_saturation_ratio": 0.2577447335811648,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 59,
+     "final_dist_to_bowl_m": 0.01789995847582019,
+     "final_brick_speed_mps": 1.030020978696053e-15,
+     "final_brick_ang_vel_rps": 2.086006655891925e-07
+    }
+   },
+   {
+    "layout_index": 5,
+    "layout": {
+     "brick_xy": [
+      0.1800672494338409,
+      0.02245755250371492
+     ],
+     "brick_yaw_deg": 24.927622682158102,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.1107318438689097,
+      0.19615608117711075
+     ],
+     "pink": [
+      0.1891478288773465,
+      -0.1846093952041419
+     ],
+     "defective": true,
+     "n_clutter": 3
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.536515999629469,
+     "jaw_normal_at_lift_N": 7.111724003813936,
+     "release_peak_speed_mps": 0.10469354402002265,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 816,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.019349999999999954,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999548,
+      "grasp_z_m": 0.011145694235560052,
+      "roll": 0.320175161111111,
+      "clearance_m": 0.02
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 816,
+      "ref_frame": 117,
+      "slip_peak_frame": 687,
+      "release_obs_window": [
+       715,
+       805
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 62,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.00784017231012783,
+     "max_slip_rot_deg": 4.131266828886211,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.4372692740722535,
+     "max_pinch_force_N": 7.9734178317966125,
+     "pinch_normal_peak_N": 8.107751021383713,
+     "pinch_tangential_peak_N": 1.5071514141734639,
+     "pinch_impulse_Ns": 146.2959782712019,
+     "max_tracking_error_rad": 0.5386778166570658,
+     "tracking_error_ratio": 0.025735294117647058,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9666666666666667,
+     "torque_saturation_ratio": 0.24019607843137256,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 62,
+     "final_dist_to_bowl_m": 0.012100337269372307,
+     "final_brick_speed_mps": 3.4167552318338737e-16,
+     "final_brick_ang_vel_rps": 2.4625886588114065e-10
+    }
+   },
+   {
+    "layout_index": 6,
+    "layout": {
+     "brick_xy": [
+      0.1770334573334849,
+      -0.010390397535022031
+     ],
+     "brick_yaw_deg": -31.525688785113715,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.10636931036044008,
+      -0.1900632496139204
+     ],
+     "pink": [
+      0.12748949269424797,
+      0.2236454160140794
+     ],
+     "defective": false,
+     "n_clutter": 1
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.521629328940896,
+     "jaw_normal_at_lift_N": 7.110449937996008,
+     "release_peak_speed_mps": 0.09778028849247394,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 848,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.019349999999999944,
+      "moving_face_m": null,
+      "offset_m": 0.001449999999999941,
+      "grasp_z_m": 0.011145694235560052,
+      "roll": -0.4400126900000001,
+      "clearance_m": 0.02
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 848,
+      "ref_frame": 116,
+      "slip_peak_frame": 718,
+      "release_obs_window": [
+       747,
+       837
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 90,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.00786556249619728,
+     "max_slip_rot_deg": 4.7402177736877205,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.39888227653442,
+     "max_pinch_force_N": 7.774203898990671,
+     "pinch_normal_peak_N": 8.39065647232801,
+     "pinch_tangential_peak_N": 1.8794381667805855,
+     "pinch_impulse_Ns": 153.66938608979166,
+     "max_tracking_error_rad": 0.538677643755845,
+     "tracking_error_ratio": 0.024764150943396228,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9333333333333333,
+     "torque_saturation_ratio": 0.2346698113207547,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 90,
+     "final_dist_to_bowl_m": 0.0033448340156605983,
+     "final_brick_speed_mps": 7.643081974716807e-16,
+     "final_brick_ang_vel_rps": 9.796726848477143e-08
+    }
+   },
+   {
+    "layout_index": 7,
+    "layout": {
+     "brick_xy": [
+      0.174717268490664,
+      -0.028389632073087184
+     ],
+     "brick_yaw_deg": 75.13976594113609,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.21336173245074422,
+      0.13725294703896251
+     ],
+     "pink": [
+      0.14616853849478112,
+      -0.1645239861390317
+     ],
+     "defective": true,
+     "n_clutter": 5
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.4973566024031713,
+     "jaw_normal_at_lift_N": 7.140748476906673,
+     "release_peak_speed_mps": 0.10097156704466909,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 815,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.01934999999999996,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999617,
+      "grasp_z_m": 0.011145694235560052,
+      "roll": -0.013376651111111304,
+      "clearance_m": 0.02
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 815,
+      "ref_frame": 116,
+      "slip_peak_frame": 686,
+      "release_obs_window": [
+       714,
+       804
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 90,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.008834257923009174,
+     "max_slip_rot_deg": 3.0522962076495865,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.392615305380226,
+     "max_pinch_force_N": 8.128214670959412,
+     "pinch_normal_peak_N": 8.180327400664623,
+     "pinch_tangential_peak_N": 2.6057319447879856,
+     "pinch_impulse_Ns": 145.46593553200606,
+     "max_tracking_error_rad": 0.5386777153339068,
+     "tracking_error_ratio": 0.025766871165644172,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9333333333333333,
+     "torque_saturation_ratio": 0.24171779141104294,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 90,
+     "final_dist_to_bowl_m": 0.010442910871202719,
+     "final_brick_speed_mps": 6.380166083020566e-16,
+     "final_brick_ang_vel_rps": 3.085303252266706e-07
+    }
+   },
+   {
+    "layout_index": 8,
+    "layout": {
+     "brick_xy": [
+      0.22651897721775494,
+      -0.01728419041937319
+     ],
+     "brick_yaw_deg": -60.42887708882848,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.17818235187178189,
+      0.11685485951132651
+     ],
+     "pink": [
+      0.2060326269024613,
+      -0.16915620765307257
+     ],
+     "defective": false,
+     "n_clutter": 5
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.5279452561629245,
+     "jaw_normal_at_lift_N": 7.089468898419296,
+     "release_peak_speed_mps": 0.29909363850571585,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 788,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.01935,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999964,
+      "grasp_z_m": 0.011145694235560073,
+      "roll": 0.6459699544444444,
+      "clearance_m": 0.02
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 788,
+      "ref_frame": 117,
+      "slip_peak_frame": 656,
+      "release_obs_window": [
+       687,
+       777
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 90,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.005426289179480117,
+     "max_slip_rot_deg": 3.8303177292905137,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.4119700678600955,
+     "max_pinch_force_N": 8.013514532348916,
+     "pinch_normal_peak_N": 7.923158287392927,
+     "pinch_tangential_peak_N": 1.2361861154308755,
+     "pinch_impulse_Ns": 138.53855073635896,
+     "max_tracking_error_rad": 0.5386769777891203,
+     "tracking_error_ratio": 0.0266497461928934,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9,
+     "torque_saturation_ratio": 0.25,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 90,
+     "final_dist_to_bowl_m": 0.040005732736329264,
+     "final_brick_speed_mps": 9.384230230414771e-17,
+     "final_brick_ang_vel_rps": 8.830799662069113e-11
+    }
+   },
+   {
+    "layout_index": 9,
+    "layout": {
+     "brick_xy": [
+      0.1864772332245131,
+      0.075047343374413
+     ],
+     "brick_yaw_deg": -81.31602093199749,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.2444959418863663,
+      -0.11089658926903914
+     ],
+     "pink": [
+      0.13628982684960378,
+      0.19867138848909638
+     ],
+     "defective": true,
+     "n_clutter": 5
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.5942761442052342,
+     "jaw_normal_at_lift_N": 7.12101846613232,
+     "release_peak_speed_mps": 0.29213676129178406,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 795,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.01934999999999997,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999687,
+      "grasp_z_m": 0.011145694235560083,
+      "roll": -0.2771152933333334,
+      "clearance_m": 0.01961191232487467
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 795,
+      "ref_frame": 117,
+      "slip_peak_frame": 664,
+      "release_obs_window": [
+       694,
+       784
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 61,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.006359504147975718,
+     "max_slip_rot_deg": 3.396725396041011,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.421561393960807,
+     "max_pinch_force_N": 7.794573395115878,
+     "pinch_normal_peak_N": 7.789165648775599,
+     "pinch_tangential_peak_N": 0.9044186884271891,
+     "pinch_impulse_Ns": 140.50343996258488,
+     "max_tracking_error_rad": 0.5386774565560414,
+     "tracking_error_ratio": 0.026415094339622643,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9666666666666667,
+     "torque_saturation_ratio": 0.24654088050314465,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 61,
+     "final_dist_to_bowl_m": 0.024196780475798544,
+     "final_brick_speed_mps": 3.680168809038566e-16,
+     "final_brick_ang_vel_rps": 6.970871778837571e-11
+    }
+   },
+   {
+    "layout_index": 10,
+    "layout": {
+     "brick_xy": [
+      0.18214266932084844,
+      -0.030287753409772866
+     ],
+     "brick_yaw_deg": -16.691718883812655,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.19853382050277732,
+      0.1019405181980797
+     ],
+     "pink": [
+      0.16399136960107136,
+      -0.1871418236100427
+     ],
+     "defective": false,
+     "n_clutter": 2
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.5172289925887834,
+     "jaw_normal_at_lift_N": 7.144265567971057,
+     "release_peak_speed_mps": 0.2922362653911145,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 756,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.019349999999999992,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999895,
+      "grasp_z_m": 0.01114569423556009,
+      "roll": -0.04440472666666695,
+      "clearance_m": 0.018830096955103563
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 756,
+      "ref_frame": 116,
+      "slip_peak_frame": 625,
+      "release_obs_window": [
+       655,
+       745
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 90,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.006628971351141689,
+     "max_slip_rot_deg": 2.9857718832203948,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.422771167776671,
+     "max_pinch_force_N": 7.930041521376186,
+     "pinch_normal_peak_N": 7.864625250996647,
+     "pinch_tangential_peak_N": 0.9310424388701918,
+     "pinch_impulse_Ns": 131.1400523497629,
+     "max_tracking_error_rad": 0.5386776618545707,
+     "tracking_error_ratio": 0.027777777777777776,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9333333333333333,
+     "torque_saturation_ratio": 0.25793650793650796,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 90,
+     "final_dist_to_bowl_m": 0.02301086819258738,
+     "final_brick_speed_mps": 1.023439097063884e-15,
+     "final_brick_ang_vel_rps": 6.559201257723288e-07
+    }
+   },
+   {
+    "layout_index": 11,
+    "layout": {
+     "brick_xy": [
+      0.22133325513130514,
+      0.008218080503481776
+     ],
+     "brick_yaw_deg": 75.4816516272108,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.14443267456196107,
+      0.2125523540552907
+     ],
+     "pink": [
+      0.16028883718514086,
+      -0.14589032714543196
+     ],
+     "defective": true,
+     "n_clutter": 5
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.609321928480773,
+     "jaw_normal_at_lift_N": 7.1193896290266165,
+     "release_peak_speed_mps": 0.2534202632483418,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 788,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.01934999999999995,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999479,
+      "grasp_z_m": 0.01114569423556008,
+      "roll": -0.25384423666666667,
+      "clearance_m": 0.02
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 788,
+      "ref_frame": 116,
+      "slip_peak_frame": 657,
+      "release_obs_window": [
+       687,
+       777
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 89,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.005548985165630465,
+     "max_slip_rot_deg": 3.3760182254160718,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.411839062179638,
+     "max_pinch_force_N": 7.77247107573053,
+     "pinch_normal_peak_N": 7.815524744282863,
+     "pinch_tangential_peak_N": 0.8796032455530971,
+     "pinch_impulse_Ns": 138.83230522319778,
+     "max_tracking_error_rad": 0.5386770101619258,
+     "tracking_error_ratio": 0.025380710659898477,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9333333333333333,
+     "torque_saturation_ratio": 0.2131979695431472,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 89,
+     "final_dist_to_bowl_m": 0.05309206610829958,
+     "final_brick_speed_mps": 6.317021936914583e-16,
+     "final_brick_ang_vel_rps": 1.7643632337708754e-10
+    }
+   },
+   {
+    "layout_index": 12,
+    "layout": {
+     "brick_xy": [
+      0.22018147959716305,
+      -0.02682333707389404
+     ],
+     "brick_yaw_deg": 24.912623322367395,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.2339434798694977,
+      0.10580926167768731
+     ],
+     "pink": [
+      0.18943716051923093,
+      -0.16945510397280034
+     ],
+     "defective": false,
+     "n_clutter": 7
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.530626309906128,
+     "jaw_normal_at_lift_N": 7.097646044472914,
+     "release_peak_speed_mps": 0.2991062485096839,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 778,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.019349999999999982,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999826,
+      "grasp_z_m": 0.011145694235560048,
+      "roll": 0.6226988977777776,
+      "clearance_m": 0.010378107533624592
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 778,
+      "ref_frame": 117,
+      "slip_peak_frame": 647,
+      "release_obs_window": [
+       677,
+       767
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 90,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.005444441490315287,
+     "max_slip_rot_deg": 3.6783242420534075,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.413459339247912,
+     "max_pinch_force_N": 8.010745445243884,
+     "pinch_normal_peak_N": 7.920783504006346,
+     "pinch_tangential_peak_N": 1.2304850616369496,
+     "pinch_impulse_Ns": 136.0858633523606,
+     "max_tracking_error_rad": 0.5386771185869011,
+     "tracking_error_ratio": 0.02570694087403599,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9333333333333333,
+     "torque_saturation_ratio": 0.2544987146529563,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 90,
+     "final_dist_to_bowl_m": 0.05515488783161064,
+     "final_brick_speed_mps": 7.110708692753165e-17,
+     "final_brick_ang_vel_rps": 2.79426523202428e-10
+    }
+   },
+   {
+    "layout_index": 13,
+    "layout": {
+     "brick_xy": [
+      0.2146129609023293,
+      -0.06428709803540031
+     ],
+     "brick_yaw_deg": 6.4835293659934905,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.11479895433774792,
+      -0.17832576817965193
+     ],
+     "pink": [
+      0.12515089417943256,
+      0.23232191908019414
+     ],
+     "defective": true,
+     "n_clutter": 5
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.5762657286782393,
+     "jaw_normal_at_lift_N": 7.110178008904301,
+     "release_peak_speed_mps": 0.223205296619718,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 791,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.01934999999999997,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999687,
+      "grasp_z_m": 0.011145694235560062,
+      "roll": 0.5063436144444444,
+      "clearance_m": 0.02
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 791,
+      "ref_frame": 117,
+      "slip_peak_frame": 668,
+      "release_obs_window": [
+       690,
+       780
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 60,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.005712183802646191,
+     "max_slip_rot_deg": 3.37028048274247,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.424836044512556,
+     "max_pinch_force_N": 8.00475694886455,
+     "pinch_normal_peak_N": 7.922530921419089,
+     "pinch_tangential_peak_N": 1.1397216875105642,
+     "pinch_impulse_Ns": 139.4640404553344,
+     "max_tracking_error_rad": 0.5386769685982142,
+     "tracking_error_ratio": 0.02654867256637168,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9666666666666667,
+     "torque_saturation_ratio": 0.23514538558786346,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 60,
+     "final_dist_to_bowl_m": 0.03962141254902725,
+     "final_brick_speed_mps": 8.879102510984227e-17,
+     "final_brick_ang_vel_rps": 4.0439271190115094e-10
+    }
+   },
+   {
+    "layout_index": 14,
+    "layout": {
+     "brick_xy": [
+      0.24063500293173584,
+      0.03577232759764884
+     ],
+     "brick_yaw_deg": 48.75399794352947,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.13596141450826216,
+      0.16169324708908597
+     ],
+     "pink": [
+      0.14257699678231522,
+      -0.22424038000009844
+     ],
+     "defective": false,
+     "n_clutter": 8
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.533087743999343,
+     "jaw_normal_at_lift_N": 7.109612446135078,
+     "release_peak_speed_mps": 0.2543872651701813,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 757,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.01934999999999996,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999617,
+      "grasp_z_m": 0.011145694235560066,
+      "roll": 0.723540143333333,
+      "clearance_m": 0.02
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 757,
+      "ref_frame": 117,
+      "slip_peak_frame": 544,
+      "release_obs_window": [
+       656,
+       746
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 89,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.005144731125466799,
+     "max_slip_rot_deg": 3.407593867491337,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.416546400809475,
+     "max_pinch_force_N": 8.025705650671448,
+     "pinch_normal_peak_N": 7.930118369391554,
+     "pinch_tangential_peak_N": 1.2674940311623835,
+     "pinch_impulse_Ns": 130.964461739019,
+     "max_tracking_error_rad": 0.5386764393700063,
+     "tracking_error_ratio": 0.02774108322324967,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9333333333333333,
+     "torque_saturation_ratio": 0.2575957727873184,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 89,
+     "final_dist_to_bowl_m": 0.02257304785579739,
+     "final_brick_speed_mps": 2.1687918995552473e-15,
+     "final_brick_ang_vel_rps": 3.932980253487005e-07
+    }
+   },
+   {
+    "layout_index": 15,
+    "layout": {
+     "brick_xy": [
+      0.18719629984406713,
+      -0.11282580798752907
+     ],
+     "brick_yaw_deg": -10.309594303326776,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.23364866941737192,
+      0.013498004682567665
+     ],
+     "pink": [
+      0.10394632028060223,
+      0.1964793236038593
+     ],
+     "defective": true,
+     "n_clutter": 8
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 2.4886199501179878,
+     "jaw_normal_at_lift_N": 7.134758086671376,
+     "release_peak_speed_mps": 0.2244424096797319,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 819,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.019349999999999947,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999479,
+      "grasp_z_m": 0.011145694235560073,
+      "roll": -2.627492016666667,
+      "clearance_m": 0.02
+     },
+     "jaw_env_contact_max_N": 9.654993194302785
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 819,
+      "ref_frame": 117,
+      "slip_peak_frame": 691,
+      "release_obs_window": [
+       718,
+       808
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 52,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.0048280420048854,
+     "max_slip_rot_deg": 3.6705893144808432,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.42548096934797,
+     "max_pinch_force_N": 7.817670911493625,
+     "pinch_normal_peak_N": 7.739981087947797,
+     "pinch_tangential_peak_N": 1.180901630338933,
+     "pinch_impulse_Ns": 146.2900741097876,
+     "max_tracking_error_rad": 0.538675619646543,
+     "tracking_error_ratio": 0.02564102564102564,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 1.4666666666666666,
+     "torque_saturation_ratio": 0.2673992673992674,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 52,
+     "final_dist_to_bowl_m": 0.06646796698076013,
+     "final_brick_speed_mps": 1.622294358992746e-16,
+     "final_brick_ang_vel_rps": 1.7601985583164753e-09
+    }
+   },
+   {
+    "layout_index": 16,
+    "layout": {
+     "brick_xy": [
+      0.16084668091464893,
+      0.07114647235492673
+     ],
+     "brick_yaw_deg": -51.78652324322736,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.12204415142208115,
+      0.19899651075206087
+     ],
+     "pink": [
+      0.1439255341194207,
+      -0.17005164239422277
+     ],
+     "defective": false,
+     "n_clutter": 4
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.549772810168022,
+     "jaw_normal_at_lift_N": 7.119264286176709,
+     "release_peak_speed_mps": 0.2922637176799589,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 845,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.01934999999999996,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999617,
+      "grasp_z_m": 0.011145694235560038,
+      "roll": 0.18054882111111104,
+      "clearance_m": 0.017211308323086774
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 845,
+      "ref_frame": 117,
+      "slip_peak_frame": 714,
+      "release_obs_window": [
+       744,
+       834
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 90,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.006799419097675556,
+     "max_slip_rot_deg": 3.2225963866346814,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.421421135585363,
+     "max_pinch_force_N": 7.957571053497573,
+     "pinch_normal_peak_N": 7.881155353719846,
+     "pinch_tangential_peak_N": 1.0740201372906588,
+     "pinch_impulse_Ns": 152.81693627990097,
+     "max_tracking_error_rad": 0.5386778569972523,
+     "tracking_error_ratio": 0.02485207100591716,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9333333333333333,
+     "torque_saturation_ratio": 0.23550295857988165,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 90,
+     "final_dist_to_bowl_m": 0.003478001834713046,
+     "final_brick_speed_mps": 9.665329846834741e-16,
+     "final_brick_ang_vel_rps": 1.3522618817063848e-09
+    }
+   },
+   {
+    "layout_index": 17,
+    "layout": {
+     "brick_xy": [
+      0.18895841387493625,
+      0.0176505503316031
+     ],
+     "brick_yaw_deg": -42.69689188762277,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.16705462764007348,
+      0.16633854641755014
+     ],
+     "pink": [
+      0.16950573265785837,
+      -0.18483750023014597
+     ],
+     "defective": true,
+     "n_clutter": 4
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.4201833835459174,
+     "jaw_normal_at_lift_N": 7.073044909779355,
+     "release_peak_speed_mps": 0.241370889873375,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 792,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.019349999999999982,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999826,
+      "grasp_z_m": 0.011145694235560073,
+      "roll": -0.8201066155555556,
+      "clearance_m": 0.02
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 792,
+      "ref_frame": 117,
+      "slip_peak_frame": 666,
+      "release_obs_window": [
+       691,
+       781
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 89,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.0067461442203548974,
+     "max_slip_rot_deg": 2.6465452554118736,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.420121127359871,
+     "max_pinch_force_N": 7.7751363249452385,
+     "pinch_normal_peak_N": 7.802736689146462,
+     "pinch_tangential_peak_N": 0.9041980715286144,
+     "pinch_impulse_Ns": 139.6073958796249,
+     "max_tracking_error_rad": 0.5386774652357906,
+     "tracking_error_ratio": 0.026515151515151516,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9333333333333333,
+     "torque_saturation_ratio": 0.255050505050505,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 89,
+     "final_dist_to_bowl_m": 0.024759248622534775,
+     "final_brick_speed_mps": 2.9523341301738975e-16,
+     "final_brick_ang_vel_rps": 1.9205018414583307e-09
+    }
+   },
+   {
+    "layout_index": 18,
+    "layout": {
+     "brick_xy": [
+      0.1703630724635889,
+      -0.052262908586168645
+     ],
+     "brick_yaw_deg": 55.9008233966309,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.15202555870764833,
+      -0.18482165251637975
+     ],
+     "pink": [
+      0.11776920215683713,
+      0.22159953087235687
+     ],
+     "defective": false,
+     "n_clutter": 4
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.5580211975907687,
+     "jaw_normal_at_lift_N": 7.1229265758941835,
+     "release_peak_speed_mps": 0.2922211234833695,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 840,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.019349999999999964,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999617,
+      "grasp_z_m": 0.011145694235560052,
+      "roll": -0.176274047777778,
+      "clearance_m": 0.014137752846609657
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 840,
+      "ref_frame": 117,
+      "slip_peak_frame": 709,
+      "release_obs_window": [
+       739,
+       829
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 90,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.006656531769331908,
+     "max_slip_rot_deg": 3.1811171460757874,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.437193263138824,
+     "max_pinch_force_N": 7.835892945730926,
+     "pinch_normal_peak_N": 7.801481932750579,
+     "pinch_tangential_peak_N": 0.8281102363865039,
+     "pinch_impulse_Ns": 151.6625010772549,
+     "max_tracking_error_rad": 0.5386776410562735,
+     "tracking_error_ratio": 0.025,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9333333333333333,
+     "torque_saturation_ratio": 0.22976190476190475,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 90,
+     "final_dist_to_bowl_m": 0.0263159638106099,
+     "final_brick_speed_mps": 2.1197969816950938e-16,
+     "final_brick_ang_vel_rps": 3.0057123858828215e-09
+    }
+   },
+   {
+    "layout_index": 19,
+    "layout": {
+     "brick_xy": [
+      0.21755737517078882,
+      0.0667726827095139
+     ],
+     "brick_yaw_deg": -83.82206628659503,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.16036618889670398,
+      -0.17019791249304422
+     ],
+     "pink": [
+      0.12838686411783248,
+      0.20591531552102343
+     ],
+     "defective": true,
+     "n_clutter": 3
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.6495977972384024,
+     "jaw_normal_at_lift_N": 7.125052856232765,
+     "release_peak_speed_mps": 0.2536778854608151,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 796,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.019349999999999964,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999617,
+      "grasp_z_m": 0.011145694235560055,
+      "roll": -0.20730212333333364,
+      "clearance_m": 0.02
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 796,
+      "ref_frame": 117,
+      "slip_peak_frame": 665,
+      "release_obs_window": [
+       695,
+       785
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 89,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.005241883722044334,
+     "max_slip_rot_deg": 2.9379023837346314,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.424567542743392,
+     "max_pinch_force_N": 7.855855954350785,
+     "pinch_normal_peak_N": 7.805512824140036,
+     "pinch_tangential_peak_N": 0.8463741043161613,
+     "pinch_impulse_Ns": 140.76830343361615,
+     "max_tracking_error_rad": 0.5386768365291082,
+     "tracking_error_ratio": 0.026381909547738693,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9666666666666667,
+     "torque_saturation_ratio": 0.22487437185929648,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 89,
+     "final_dist_to_bowl_m": 0.025541400237591112,
+     "final_brick_speed_mps": 3.6633977585905596e-16,
+     "final_brick_ang_vel_rps": 9.908931306215114e-10
+    }
+   },
+   {
+    "layout_index": 20,
+    "layout": {
+     "brick_xy": [
+      0.20146084252839846,
+      -0.06276019628357216
+     ],
+     "brick_yaw_deg": 51.58459687615132,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.19752009222411848,
+      0.14006583795460073
+     ],
+     "pink": [
+      0.13846688114116898,
+      -0.22161569352878902
+     ],
+     "defective": false,
+     "n_clutter": 2
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.5905294481332524,
+     "jaw_normal_at_lift_N": 7.119769094776223,
+     "release_peak_speed_mps": 0.29201865001963134,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 750,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.01934999999999998,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999756,
+      "grasp_z_m": 0.01114569423556008,
+      "roll": -0.2616012555555556,
+      "clearance_m": 0.02
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 750,
+      "ref_frame": 116,
+      "slip_peak_frame": 619,
+      "release_obs_window": [
+       649,
+       739
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 89,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.005774108166513203,
+     "max_slip_rot_deg": 3.4831785576064087,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.411022703732931,
+     "max_pinch_force_N": 7.773340975780391,
+     "pinch_normal_peak_N": 7.7878389173061375,
+     "pinch_tangential_peak_N": 0.8892894703591576,
+     "pinch_impulse_Ns": 129.48576035971743,
+     "max_tracking_error_rad": 0.5386771523989974,
+     "tracking_error_ratio": 0.028,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9333333333333333,
+     "torque_saturation_ratio": 0.24133333333333334,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 89,
+     "final_dist_to_bowl_m": 0.016343701490225328,
+     "final_brick_speed_mps": 1.8338533778805905e-16,
+     "final_brick_ang_vel_rps": 2.89024890266194e-10
+    }
+   },
+   {
+    "layout_index": 21,
+    "layout": {
+     "brick_xy": [
+      0.23689261434032235,
+      0.018662266507610808
+     ],
+     "brick_yaw_deg": 23.77887276663388,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.2074030826868306,
+      -0.12616444710308328
+     ],
+     "pink": [
+      0.17364098148786528,
+      0.13681582099413944
+     ],
+     "defective": true,
+     "n_clutter": 7
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.6216816908327876,
+     "jaw_normal_at_lift_N": 7.054365680616295,
+     "release_peak_speed_mps": 0.29905729279593996,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 767,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.019349999999999947,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999479,
+      "grasp_z_m": 0.011145694235560034,
+      "roll": 0.36671727444444446,
+      "clearance_m": 0.02
+     },
+     "jaw_env_contact_max_N": 0.14527289167052368
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 767,
+      "ref_frame": 116,
+      "slip_peak_frame": 635,
+      "release_obs_window": [
+       666,
+       756
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 90,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.004854525794486629,
+     "max_slip_rot_deg": 2.9993853458195328,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.420232334805721,
+     "max_pinch_force_N": 7.9975249356494205,
+     "pinch_normal_peak_N": 7.921088609827056,
+     "pinch_tangential_peak_N": 1.0868697263248421,
+     "pinch_impulse_Ns": 133.79978284011827,
+     "max_tracking_error_rad": 0.5386766415534734,
+     "tracking_error_ratio": 0.024771838331160364,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9333333333333333,
+     "torque_saturation_ratio": 0.2320730117340287,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 90,
+     "final_dist_to_bowl_m": 0.054255247441615646,
+     "final_brick_speed_mps": 4.943018335593323e-16,
+     "final_brick_ang_vel_rps": 1.115354129714762e-08
+    }
+   },
+   {
+    "layout_index": 22,
+    "layout": {
+     "brick_xy": [
+      0.19455663171398532,
+      -0.11328320121045363
+     ],
+     "brick_yaw_deg": -68.80566461348886,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.1335477506808045,
+      0.22624501463387944
+     ],
+     "pink": [
+      0.26617869040743636,
+      -0.0029138922544394564
+     ],
+     "defective": false,
+     "n_clutter": 1
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.575515695566703,
+     "jaw_normal_at_lift_N": 7.122178605628683,
+     "release_peak_speed_mps": 0.2538379282371141,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 781,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.019349999999999975,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999756,
+      "grasp_z_m": 0.011145694235560045,
+      "roll": -0.5330969166666666,
+      "clearance_m": 0.005515163075257376
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 781,
+      "ref_frame": 117,
+      "slip_peak_frame": 650,
+      "release_obs_window": [
+       680,
+       770
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 59,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.005629737581206531,
+     "max_slip_rot_deg": 3.5041877627537876,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.424562100000604,
+     "max_pinch_force_N": 7.784497178512021,
+     "pinch_normal_peak_N": 7.738259771385943,
+     "pinch_tangential_peak_N": 0.9164446198624001,
+     "pinch_impulse_Ns": 137.03405409586492,
+     "max_tracking_error_rad": 0.5386765152876822,
+     "tracking_error_ratio": 0.026888604353393086,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9666666666666667,
+     "torque_saturation_ratio": 0.2330345710627401,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 59,
+     "final_dist_to_bowl_m": 0.0029448926386520845,
+     "final_brick_speed_mps": 3.1945156752621607e-16,
+     "final_brick_ang_vel_rps": 2.116950948694051e-09
+    }
+   },
+   {
+    "layout_index": 23,
+    "layout": {
+     "brick_xy": [
+      0.2278886647949034,
+      -0.05035831265163444
+     ],
+     "brick_yaw_deg": 57.02040162215363,
+     "brick_size": [
+      0.0636,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.11042212390796222,
+      0.19466607364419405
+     ],
+     "pink": [
+      0.12558764568325798,
+      -0.22016983231546977
+     ],
+     "defective": true,
+     "n_clutter": 7
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.3240729791309347,
+     "jaw_normal_at_lift_N": 7.101899514761225,
+     "release_peak_speed_mps": 0.0473582417309356,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 770,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.019350000000000003,
+      "moving_face_m": null,
+      "offset_m": 0.0014500000000000034,
+      "grasp_z_m": 0.011145694235560041,
+      "roll": -0.2693582744444445,
+      "clearance_m": 0.02
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 770,
+      "ref_frame": 116,
+      "slip_peak_frame": 643,
+      "release_obs_window": [
+       669,
+       759
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 90,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.005259925755905416,
+     "max_slip_rot_deg": 2.884223974113501,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.5115688014065665,
+     "max_pinch_force_N": 7.963020432321473,
+     "pinch_normal_peak_N": 8.126707553259797,
+     "pinch_tangential_peak_N": 1.2509084645774622,
+     "pinch_impulse_Ns": 135.74855756633076,
+     "max_tracking_error_rad": 0.5386765642743467,
+     "tracking_error_ratio": 0.02727272727272727,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9666666666666667,
+     "torque_saturation_ratio": 0.21818181818181817,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 90,
+     "final_dist_to_bowl_m": 0.05008580068234846,
+     "final_brick_speed_mps": 7.563560265545127e-16,
+     "final_brick_ang_vel_rps": 9.72944382009069e-08
+    }
+   },
+   {
+    "layout_index": 24,
+    "layout": {
+     "brick_xy": [
+      0.20106246603020264,
+      0.10814654157476539
+     ],
+     "brick_yaw_deg": 13.672941918592585,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.2066762685391581,
+      -0.13613028058034485
+     ],
+     "pink": [
+      0.10546146212730276,
+      0.2058527059834587
+     ],
+     "defective": false,
+     "n_clutter": 1
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.626134420786085,
+     "jaw_normal_at_lift_N": 7.092502944014567,
+     "release_peak_speed_mps": 0.2538938976072805,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 714,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.019350000000000003,
+      "moving_face_m": null,
+      "offset_m": 0.0014500000000000034,
+      "grasp_z_m": 0.011145694235560055,
+      "roll": -0.30038635000000014,
+      "clearance_m": 0.016909644268166917
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 714,
+      "ref_frame": 116,
+      "slip_peak_frame": 501,
+      "release_obs_window": [
+       613,
+       703
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 89,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.005168475957948949,
+     "max_slip_rot_deg": 3.366213213335585,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.419688220748984,
+     "max_pinch_force_N": 7.85083154841654,
+     "pinch_normal_peak_N": 7.809507250091401,
+     "pinch_tangential_peak_N": 0.9139734778414073,
+     "pinch_impulse_Ns": 120.67376922984849,
+     "max_tracking_error_rad": 0.5386767079047667,
+     "tracking_error_ratio": 0.029411764705882353,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9333333333333333,
+     "torque_saturation_ratio": 0.2507002801120448,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 89,
+     "final_dist_to_bowl_m": 0.0037685107356789753,
+     "final_brick_speed_mps": 1.2599047314484214e-15,
+     "final_brick_ang_vel_rps": 2.450647065826415e-07
+    }
+   },
+   {
+    "layout_index": 25,
+    "layout": {
+     "brick_xy": [
+      0.21230525427598873,
+      0.0025594514746281054
+     ],
+     "brick_yaw_deg": 80.87915227056493,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.11958121864603861,
+      -0.21175454993448403
+     ],
+     "pink": [
+      0.12814190668026942,
+      0.20731254613368136
+     ],
+     "defective": true,
+     "n_clutter": 2
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.523048647501397,
+     "jaw_normal_at_lift_N": 7.193617060748137,
+     "release_peak_speed_mps": 0.29219453899855835,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 804,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.01934999999999996,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999617,
+      "grasp_z_m": 0.011145694235560069,
+      "roll": -0.12973193444444453,
+      "clearance_m": 0.02
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 804,
+      "ref_frame": 116,
+      "slip_peak_frame": 673,
+      "release_obs_window": [
+       703,
+       793
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 90,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.005807175472623535,
+     "max_slip_rot_deg": 2.7302644117479846,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.433934042289342,
+     "max_pinch_force_N": 7.912188999308677,
+     "pinch_normal_peak_N": 7.857792538074397,
+     "pinch_tangential_peak_N": 0.8274662531704216,
+     "pinch_impulse_Ns": 143.16099567025603,
+     "max_tracking_error_rad": 0.5386772650417884,
+     "tracking_error_ratio": 0.026119402985074626,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9333333333333333,
+     "torque_saturation_ratio": 0.2126865671641791,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 90,
+     "final_dist_to_bowl_m": 0.003365633405028,
+     "final_brick_speed_mps": 3.800399841958854e-16,
+     "final_brick_ang_vel_rps": 5.055583267494348e-10
+    }
+   },
+   {
+    "layout_index": 26,
+    "layout": {
+     "brick_xy": [
+      0.2369255044183918,
+      0.06897787317364751
+     ],
+     "brick_yaw_deg": 19.265096083365876,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.14332325520378653,
+      0.1933510137918086
+     ],
+     "pink": [
+      0.19906018679410875,
+      -0.1245852321745751
+     ],
+     "defective": false,
+     "n_clutter": 5
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.691975917845165,
+     "jaw_normal_at_lift_N": 7.134174588450374,
+     "release_peak_speed_mps": 0.254246312844231,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 717,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.01934999999999995,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999479,
+      "grasp_z_m": 0.011145694235560059,
+      "roll": 0.04867949999999999,
+      "clearance_m": 0.02
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 717,
+      "ref_frame": 116,
+      "slip_peak_frame": 587,
+      "release_obs_window": [
+       616,
+       706
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 60,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.004369669688476854,
+     "max_slip_rot_deg": 2.9087265084816543,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.4151732439767475,
+     "max_pinch_force_N": 7.970325162564506,
+     "pinch_normal_peak_N": 7.8962237409913145,
+     "pinch_tangential_peak_N": 1.0462404660739666,
+     "pinch_impulse_Ns": 121.3869516270491,
+     "max_tracking_error_rad": 0.5386762109420968,
+     "tracking_error_ratio": 0.029288702928870293,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9666666666666667,
+     "torque_saturation_ratio": 0.23709902370990238,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 60,
+     "final_dist_to_bowl_m": 0.05183571916776322,
+     "final_brick_speed_mps": 4.1631520549986818e-16,
+     "final_brick_ang_vel_rps": 4.5064660142524196e-10
+    }
+   },
+   {
+    "layout_index": 27,
+    "layout": {
+     "brick_xy": [
+      0.15607970724421225,
+      -0.08273044120822683
+     ],
+     "brick_yaw_deg": -10.388348647279813,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.15119897047118513,
+      0.1935988675077502
+     ],
+     "pink": [
+      0.13207429087665276,
+      -0.23325282078352427
+     ],
+     "defective": true,
+     "n_clutter": 2
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.506955038424671,
+     "jaw_normal_at_lift_N": 7.089108710141862,
+     "release_peak_speed_mps": 0.09832190326493082,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 828,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.019349999999999947,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999479,
+      "grasp_z_m": 0.011145694235560055,
+      "roll": 0.4753155388888888,
+      "clearance_m": 0.02
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 828,
+      "ref_frame": 117,
+      "slip_peak_frame": 699,
+      "release_obs_window": [
+       727,
+       817
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 61,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.00694064070407576,
+     "max_slip_rot_deg": 3.8531927671340593,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.43032551746772,
+     "max_pinch_force_N": 7.989774154046469,
+     "pinch_normal_peak_N": 7.906565200742508,
+     "pinch_tangential_peak_N": 1.1621444334484037,
+     "pinch_impulse_Ns": 148.5220307117662,
+     "max_tracking_error_rad": 0.5386777230142885,
+     "tracking_error_ratio": 0.025362318840579712,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9666666666666667,
+     "torque_saturation_ratio": 0.24516908212560387,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 61,
+     "final_dist_to_bowl_m": 0.05298825244890375,
+     "final_brick_speed_mps": 4.022995768371111e-16,
+     "final_brick_ang_vel_rps": 3.8196594112775857e-08
+    }
+   },
+   {
+    "layout_index": 28,
+    "layout": {
+     "brick_xy": [
+      0.1916208505167033,
+      0.1211131792519259
+     ],
+     "brick_yaw_deg": -80.89681480236487,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.13806259371234134,
+      -0.22922188658481044
+     ],
+     "pink": [
+      0.22260403396308742,
+      -0.04971201034897181
+     ],
+     "defective": false,
+     "n_clutter": 4
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.5986680042476613,
+     "jaw_normal_at_lift_N": 7.1190944857716385,
+     "release_peak_speed_mps": 0.2534366023061529,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 738,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.01934999999999997,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999687,
+      "grasp_z_m": 0.011145694235560069,
+      "roll": -0.46328374666666683,
+      "clearance_m": 0.02
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 738,
+      "ref_frame": 117,
+      "slip_peak_frame": 607,
+      "release_obs_window": [
+       637,
+       727
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 60,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.00571059992450227,
+     "max_slip_rot_deg": 3.253882591211175,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.425454016906513,
+     "max_pinch_force_N": 7.810734307793267,
+     "pinch_normal_peak_N": 7.764436635044298,
+     "pinch_tangential_peak_N": 0.9176648174399762,
+     "pinch_impulse_Ns": 126.41325409538058,
+     "max_tracking_error_rad": 0.5386766627521183,
+     "tracking_error_ratio": 0.028455284552845527,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9666666666666667,
+     "torque_saturation_ratio": 0.23848238482384823,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 60,
+     "final_dist_to_bowl_m": 0.025962549129513103,
+     "final_brick_speed_mps": 4.052275075304106e-16,
+     "final_brick_ang_vel_rps": 1.0495178378870055e-07
+    }
+   },
+   {
+    "layout_index": 29,
+    "layout": {
+     "brick_xy": [
+      0.24383708230942783,
+      0.00941107654349622
+     ],
+     "brick_yaw_deg": 41.20235501581547,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.11677584496918003,
+      0.22080041474454903
+     ],
+     "pink": [
+      0.1927023399075588,
+      -0.18213403387296234
+     ],
+     "defective": true,
+     "n_clutter": 3
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.531426162063267,
+     "jaw_normal_at_lift_N": 7.100872761486027,
+     "release_peak_speed_mps": 0.29915830958338846,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 760,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.01934999999999998,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999756,
+      "grasp_z_m": 0.011145694235560055,
+      "roll": 0.7157831244444441,
+      "clearance_m": 0.02
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 760,
+      "ref_frame": 117,
+      "slip_peak_frame": 628,
+      "release_obs_window": [
+       659,
+       749
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 88,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.004770483406245319,
+     "max_slip_rot_deg": 3.644154750327499,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.4186492496923435,
+     "max_pinch_force_N": 8.027041141347091,
+     "pinch_normal_peak_N": 7.930123909252746,
+     "pinch_tangential_peak_N": 1.2800217524986053,
+     "pinch_impulse_Ns": 131.67242958904825,
+     "max_tracking_error_rad": 0.5386764087337672,
+     "tracking_error_ratio": 0.02763157894736842,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9666666666666667,
+     "torque_saturation_ratio": 0.2565789473684211,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 88,
+     "final_dist_to_bowl_m": 0.002872703566681643,
+     "final_brick_speed_mps": 2.364067890673779e-16,
+     "final_brick_ang_vel_rps": 1.2547584110108863e-09
+    }
+   },
+   {
+    "layout_index": 30,
+    "layout": {
+     "brick_xy": [
+      0.22380573964818953,
+      0.017122061542097125
+     ],
+     "brick_yaw_deg": -41.780913593653,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.1612301399898448,
+      -0.1554965833517429
+     ],
+     "pink": [
+      0.1661031033537007,
+      0.14223266049497685
+     ],
+     "defective": false,
+     "n_clutter": 2
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.4692547105130083,
+     "jaw_normal_at_lift_N": 7.084463003890947,
+     "release_peak_speed_mps": 0.22429715421621954,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 796,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.019349999999999947,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999479,
+      "grasp_z_m": 0.011145694235560045,
+      "roll": 0.7933533133333333,
+      "clearance_m": 0.02
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 796,
+      "ref_frame": 117,
+      "slip_peak_frame": 664,
+      "release_obs_window": [
+       695,
+       785
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 89,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.005560606377914292,
+     "max_slip_rot_deg": 3.8867774250085994,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.414576479879181,
+     "max_pinch_force_N": 8.015305669823478,
+     "pinch_normal_peak_N": 7.930982467348793,
+     "pinch_tangential_peak_N": 1.2724072861629823,
+     "pinch_impulse_Ns": 140.50435219815864,
+     "max_tracking_error_rad": 0.5386770917544524,
+     "tracking_error_ratio": 0.026381909547738693,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9333333333333333,
+     "torque_saturation_ratio": 0.25,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 89,
+     "final_dist_to_bowl_m": 0.004042580778739021,
+     "final_brick_speed_mps": 2.8894202548319485e-16,
+     "final_brick_ang_vel_rps": 1.4282520041210348e-10
+    }
+   },
+   {
+    "layout_index": 31,
+    "layout": {
+     "brick_xy": [
+      0.17720142956775245,
+      -0.022232449050125034
+     ],
+     "brick_yaw_deg": -20.52958683166831,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.12889500561951492,
+      0.20617332824841114
+     ],
+     "pink": [
+      0.1467524417098879,
+      -0.15100052347328602
+     ],
+     "defective": true,
+     "n_clutter": 5
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.5530099323451236,
+     "jaw_normal_at_lift_N": 7.123109758682651,
+     "release_peak_speed_mps": 0.04543187305257302,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 835,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.01934999999999997,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999687,
+      "grasp_z_m": 0.011145694235560045,
+      "roll": -0.16076001000000018,
+      "clearance_m": 0.02
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 835,
+      "ref_frame": 117,
+      "slip_peak_frame": 704,
+      "release_obs_window": [
+       734,
+       824
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 90,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.007520832849111781,
+     "max_slip_rot_deg": 4.144956748198311,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.408337766946422,
+     "max_pinch_force_N": 7.869118719745778,
+     "pinch_normal_peak_N": 8.126326613754458,
+     "pinch_tangential_peak_N": 1.397530219773853,
+     "pinch_impulse_Ns": 150.48255250674256,
+     "max_tracking_error_rad": 0.5386776854091724,
+     "tracking_error_ratio": 0.025149700598802394,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9,
+     "torque_saturation_ratio": 0.23353293413173654,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 90,
+     "final_dist_to_bowl_m": 0.04145634997539167,
+     "final_brick_speed_mps": 1.5916615923032703e-16,
+     "final_brick_ang_vel_rps": 6.300254278616554e-11
+    }
+   },
+   {
+    "layout_index": 32,
+    "layout": {
+     "brick_xy": [
+      0.1489871490377326,
+      -0.08653895646303428
+     ],
+     "brick_yaw_deg": -36.59610658634331,
+     "brick_size": [
+      0.0636,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.14748782779340408,
+      -0.2235107198707962
+     ],
+     "pink": [
+      0.26910056602383414,
+      -0.008492401525830914
+     ],
+     "defective": false,
+     "n_clutter": 4
+    },
+    "verdict": "FAILURE",
+    "reason_codes": [
+     "pick_miss"
+    ],
+    "info": {
+     "grasp_push_mm": null,
+     "jaw_normal_at_lift_N": null,
+     "release_peak_speed_mps": null,
+     "show_hold_measured_s": [
+      0.0,
+      0.0,
+      0.0
+     ],
+     "n_frames": 540,
+     "grasp_retries": 2,
+     "brick_lost": false,
+     "aborted": "no_clamp",
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.01935,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999964,
+      "grasp_z_m": 0.011145694235560059,
+      "roll": -1.5027242777777778,
+      "clearance_m": -0.004233980998924149
+     },
+     "jaw_env_contact_max_N": 23.06330577724416
+    },
+    "health": {
+     "verdict": "FAILURE",
+     "reason_codes": [
+      "pick_miss"
+     ],
+     "evidence_refs": {
+      "n_frames": 540,
+      "ref_frame": null,
+      "slip_peak_frame": null,
+      "release_obs_window": [
+       501,
+       540
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 0,
+      "final_contained_in_bowl": false,
+      "ever_contained_in_bowl": false,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": false,
+     "process_ok": true,
+     "success": false,
+     "failure_mode": "pick_miss",
+     "grasped_ok": false,
+     "max_slip_pos_m": 0.0,
+     "max_slip_rot_deg": 0.0,
+     "dual_contact_ratio": 0.0,
+     "mean_pinch_force_N": 0.0,
+     "max_pinch_force_N": 0.0,
+     "pinch_normal_peak_N": 0.0,
+     "pinch_tangential_peak_N": 0.0,
+     "pinch_impulse_Ns": 0.0,
+     "max_tracking_error_rad": 1.1108560734039044,
+     "tracking_error_ratio": 0.05740740740740741,
+     "max_tracking_lag_duration_s": 0.6333333333333333,
+     "max_stall_duration_s": 1.4333333333333333,
+     "torque_saturation_ratio": 0.24259259259259258,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": false,
+     "settle_consecutive_frames": 0,
+     "final_dist_to_bowl_m": 0.136979968660883,
+     "final_brick_speed_mps": 6.762205104235444e-16,
+     "final_brick_ang_vel_rps": 5.5495110655840555e-08
+    }
+   },
+   {
+    "layout_index": 33,
+    "layout": {
+     "brick_xy": [
+      0.14362529629358908,
+      0.09306569489616
+     ],
+     "brick_yaw_deg": 83.97990523365493,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.13478246961548482,
+      -0.2072055107610553
+     ],
+     "pink": [
+      0.26069456267789065,
+      0.03647525312759125
+     ],
+     "defective": true,
+     "n_clutter": 2
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.4178292143469693,
+     "jaw_normal_at_lift_N": 7.046423458806121,
+     "release_peak_speed_mps": 0.04596815773878444,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 791,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.019349999999999982,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999826,
+      "grasp_z_m": 0.011145694235560073,
+      "roll": 0.7855962944444443,
+      "clearance_m": 0.010760316530039716
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 791,
+      "ref_frame": 117,
+      "slip_peak_frame": 660,
+      "release_obs_window": [
+       690,
+       780
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 89,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.008698072263758252,
+     "max_slip_rot_deg": 4.590333021722573,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.3814174158674035,
+     "max_pinch_force_N": 8.007288894648118,
+     "pinch_normal_peak_N": 8.138486207778033,
+     "pinch_tangential_peak_N": 2.6725817538876333,
+     "pinch_impulse_Ns": 139.2982647806215,
+     "max_tracking_error_rad": 0.5386780049871145,
+     "tracking_error_ratio": 0.02654867256637168,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9333333333333333,
+     "torque_saturation_ratio": 0.27686472819216185,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 89,
+     "final_dist_to_bowl_m": 0.031401524475989526,
+     "final_brick_speed_mps": 2.501235092157753e-16,
+     "final_brick_ang_vel_rps": 1.3372690422784272e-10
+    }
+   },
+   {
+    "layout_index": 34,
+    "layout": {
+     "brick_xy": [
+      0.19720873924358173,
+      0.018511969449417937
+     ],
+     "brick_yaw_deg": 52.7731553781735,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.17392931225073807,
+      0.1741857160269189
+     ],
+     "pink": [
+      0.11883593465681622,
+      -0.22475291070351644
+     ],
+     "defective": false,
+     "n_clutter": 8
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.456149557509697,
+     "jaw_normal_at_lift_N": 7.086752476677631,
+     "release_peak_speed_mps": 0.2920854936228448,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 808,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.019349999999999975,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999756,
+      "grasp_z_m": 0.011145694235560069,
+      "roll": -0.71926537,
+      "clearance_m": 0.02
+     },
+     "jaw_env_contact_max_N": 0.024818172165725596
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 808,
+      "ref_frame": 117,
+      "slip_peak_frame": 676,
+      "release_obs_window": [
+       707,
+       797
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 89,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.006328418537315455,
+     "max_slip_rot_deg": 2.723728785664667,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.407485443176496,
+     "max_pinch_force_N": 7.806630225920005,
+     "pinch_normal_peak_N": 7.808323467757493,
+     "pinch_tangential_peak_N": 0.903722719802996,
+     "pinch_impulse_Ns": 143.54302925338433,
+     "max_tracking_error_rad": 0.5386773762919057,
+     "tracking_error_ratio": 0.02599009900990099,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9333333333333333,
+     "torque_saturation_ratio": 0.2376237623762376,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 89,
+     "final_dist_to_bowl_m": 0.026992854426182163,
+     "final_brick_speed_mps": 2.31120411982424e-16,
+     "final_brick_ang_vel_rps": 1.1780837375900407e-10
+    }
+   },
+   {
+    "layout_index": 35,
+    "layout": {
+     "brick_xy": [
+      0.16837524072868665,
+      0.07932456947163916
+     ],
+     "brick_yaw_deg": 32.28649467499321,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.10599379569981796,
+      0.20824305363719803
+     ],
+     "pink": [
+      0.24243523662193314,
+      -0.08164405282880513
+     ],
+     "defective": true,
+     "n_clutter": 4
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.579287308106426,
+     "jaw_normal_at_lift_N": 7.029647542621793,
+     "release_peak_speed_mps": 0.2923369609832506,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 744,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.019349999999999958,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999548,
+      "grasp_z_m": 0.011145694235560048,
+      "roll": 0.0564365188888889,
+      "clearance_m": 0.02
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 744,
+      "ref_frame": 117,
+      "slip_peak_frame": 613,
+      "release_obs_window": [
+       643,
+       733
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 90,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.006439409000354693,
+     "max_slip_rot_deg": 2.8036886373189347,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.423156823224233,
+     "max_pinch_force_N": 7.953683717563755,
+     "pinch_normal_peak_N": 7.884534852414724,
+     "pinch_tangential_peak_N": 1.0092208439476524,
+     "pinch_impulse_Ns": 127.93647158304452,
+     "max_tracking_error_rad": 0.5386777480918227,
+     "tracking_error_ratio": 0.028225806451612902,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9333333333333333,
+     "torque_saturation_ratio": 0.2674731182795699,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 90,
+     "final_dist_to_bowl_m": 0.003362525590067803,
+     "final_brick_speed_mps": 5.533186198345541e-16,
+     "final_brick_ang_vel_rps": 3.259558867945921e-09
+    }
+   },
+   {
+    "layout_index": 36,
+    "layout": {
+     "brick_xy": [
+      0.19296722710939795,
+      0.02055288043822379
+     ],
+     "brick_yaw_deg": -1.9144357430365488,
+     "brick_size": [
+      0.0636,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.11756425401751677,
+      -0.22814261503888153
+     ],
+     "pink": [
+      0.14565007076332012,
+      0.21863549424472792
+     ],
+     "defective": false,
+     "n_clutter": 2
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 2.7517622504494903,
+     "jaw_normal_at_lift_N": 7.00662643022306,
+     "release_peak_speed_mps": 0.0474092179160224,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 870,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.019349999999999982,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999826,
+      "grasp_z_m": 0.011145694235560038,
+      "roll": 1.452699918888889,
+      "clearance_m": 0.02
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 870,
+      "ref_frame": 116,
+      "slip_peak_frame": 742,
+      "release_obs_window": [
+       769,
+       859
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 60,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.006838727896937091,
+     "max_slip_rot_deg": 5.667655800156239,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.499327291831207,
+     "max_pinch_force_N": 8.061086997338816,
+     "pinch_normal_peak_N": 7.978948027031419,
+     "pinch_tangential_peak_N": 1.6928023780413475,
+     "pinch_impulse_Ns": 159.95579912470168,
+     "max_tracking_error_rad": 0.5386778087643449,
+     "tracking_error_ratio": 0.02413793103448276,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 1.4333333333333333,
+     "torque_saturation_ratio": 0.26666666666666666,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 60,
+     "final_dist_to_bowl_m": 0.032279206515538394,
+     "final_brick_speed_mps": 9.537996382778292e-17,
+     "final_brick_ang_vel_rps": 6.12292204010635e-11
+    }
+   },
+   {
+    "layout_index": 37,
+    "layout": {
+     "brick_xy": [
+      0.23582325609370433,
+      0.021371970494349798
+     ],
+     "brick_yaw_deg": -55.447510238590816,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.1266120028738179,
+      0.2222094990835394
+     ],
+     "pink": [
+      0.1773024291435406,
+      -0.12617188888028236
+     ],
+     "defective": true,
+     "n_clutter": 2
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.58689534276214,
+     "jaw_normal_at_lift_N": 7.110105307431284,
+     "release_peak_speed_mps": 0.2542521900641772,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 748,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.019349999999999968,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999687,
+      "grasp_z_m": 0.011145694235560066,
+      "roll": 0.5373716900000001,
+      "clearance_m": 0.02
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 748,
+      "ref_frame": 117,
+      "slip_peak_frame": 616,
+      "release_obs_window": [
+       647,
+       737
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 89,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.004530655524550484,
+     "max_slip_rot_deg": 3.3422055241696924,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.4155956114590795,
+     "max_pinch_force_N": 8.015764092722545,
+     "pinch_normal_peak_N": 7.9251045136882965,
+     "pinch_tangential_peak_N": 1.2260106345786357,
+     "pinch_impulse_Ns": 128.7405588570558,
+     "max_tracking_error_rad": 0.5386766847602831,
+     "tracking_error_ratio": 0.02540106951871658,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9333333333333333,
+     "torque_saturation_ratio": 0.24598930481283424,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 89,
+     "final_dist_to_bowl_m": 0.0034940682567866136,
+     "final_brick_speed_mps": 5.16936280005929e-16,
+     "final_brick_ang_vel_rps": 1.1671998262636516e-08
+    }
+   },
+   {
+    "layout_index": 38,
+    "layout": {
+     "brick_xy": [
+      0.24651943508832885,
+      -0.03139383969159417
+     ],
+     "brick_yaw_deg": -42.16385347782989,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.2157979476329173,
+      0.11263767522051166
+     ],
+     "pink": [
+      0.12195000714872789,
+      -0.21107151737501614
+     ],
+     "defective": false,
+     "n_clutter": 3
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.3713623152961967,
+     "jaw_normal_at_lift_N": 7.048866458365545,
+     "release_peak_speed_mps": 0.25425339289088295,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 756,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.019349999999999975,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999756,
+      "grasp_z_m": 0.011145694235560052,
+      "roll": 1.0260638799999997,
+      "clearance_m": 0.019771236889262352
+     },
+     "jaw_env_contact_max_N": 0.04852743807407681
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 756,
+      "ref_frame": 117,
+      "slip_peak_frame": 630,
+      "release_obs_window": [
+       655,
+       745
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 89,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.005325392457931111,
+     "max_slip_rot_deg": 4.434207698603767,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.405696655780081,
+     "max_pinch_force_N": 8.031267005621809,
+     "pinch_normal_peak_N": 7.936796487026708,
+     "pinch_tangential_peak_N": 1.353948427436031,
+     "pinch_impulse_Ns": 130.46344551713509,
+     "max_tracking_error_rad": 0.538676142479315,
+     "tracking_error_ratio": 0.02513227513227513,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9333333333333333,
+     "torque_saturation_ratio": 0.2698412698412698,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 89,
+     "final_dist_to_bowl_m": 0.04275551450765921,
+     "final_brick_speed_mps": 1.7637583496969455e-15,
+     "final_brick_ang_vel_rps": 5.344347102001845e-07
+    }
+   },
+   {
+    "layout_index": 39,
+    "layout": {
+     "brick_xy": [
+      0.20582051450946046,
+      -0.042208695279994136
+     ],
+     "brick_yaw_deg": -61.44181255596975,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.10497924567155532,
+      -0.190921052872954
+     ],
+     "pink": [
+      0.16861413699779626,
+      0.18815230333264338
+     ],
+     "defective": true,
+     "n_clutter": 5
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.466808247087403,
+     "jaw_normal_at_lift_N": 7.101384065832457,
+     "release_peak_speed_mps": 0.2919460237929276,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 769,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.019349999999999996,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999964,
+      "grasp_z_m": 0.011145694235560062,
+      "roll": -0.7813215211111113,
+      "clearance_m": 0.02
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 769,
+      "ref_frame": 117,
+      "slip_peak_frame": 637,
+      "release_obs_window": [
+       668,
+       758
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 89,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.00594139992621424,
+     "max_slip_rot_deg": 2.9032009919955883,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.414304848899589,
+     "max_pinch_force_N": 7.7790073120597185,
+     "pinch_normal_peak_N": 7.802803291282643,
+     "pinch_tangential_peak_N": 0.9171211486783359,
+     "pinch_impulse_Ns": 133.9321478058436,
+     "max_tracking_error_rad": 0.5386770445429032,
+     "tracking_error_ratio": 0.027308192457737322,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9333333333333333,
+     "torque_saturation_ratio": 0.2444733420026008,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 89,
+     "final_dist_to_bowl_m": 0.04205692840588397,
+     "final_brick_speed_mps": 2.0440139837988118e-16,
+     "final_brick_ang_vel_rps": 7.83951430851649e-11
+    }
+   },
+   {
+    "layout_index": 40,
+    "layout": {
+     "brick_xy": [
+      0.20578275136159266,
+      0.06703791301966633
+     ],
+     "brick_yaw_deg": -39.64443455298472,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.12240825798200265,
+      0.20148227589042403
+     ],
+     "pink": [
+      0.1887086694798841,
+      -0.12309120375559461
+     ],
+     "defective": false,
+     "n_clutter": 6
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.5557127357766274,
+     "jaw_normal_at_lift_N": 7.113309307110835,
+     "release_peak_speed_mps": 0.224183766628262,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 801,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.019349999999999975,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999756,
+      "grasp_z_m": 0.011145694235560055,
+      "roll": 0.5451287088888885,
+      "clearance_m": 0.02
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 801,
+      "ref_frame": 117,
+      "slip_peak_frame": 670,
+      "release_obs_window": [
+       700,
+       790
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 59,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.0055303928805333505,
+     "max_slip_rot_deg": 3.2295336209099434,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.421349514156696,
+     "max_pinch_force_N": 8.004911534618461,
+     "pinch_normal_peak_N": 7.917872481097486,
+     "pinch_tangential_peak_N": 1.1976789163727108,
+     "pinch_impulse_Ns": 141.90227393665046,
+     "max_tracking_error_rad": 0.538677285845056,
+     "tracking_error_ratio": 0.026217228464419477,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9666666666666667,
+     "torque_saturation_ratio": 0.24344569288389514,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 59,
+     "final_dist_to_bowl_m": 0.036506875000807064,
+     "final_brick_speed_mps": 6.503441149369945e-16,
+     "final_brick_ang_vel_rps": 3.0778961348994667e-09
+    }
+   },
+   {
+    "layout_index": 41,
+    "layout": {
+     "brick_xy": [
+      0.15881926524905338,
+      0.10810396747495406
+     ],
+     "brick_yaw_deg": -80.94494280346987,
+     "brick_size": [
+      0.0636,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.2505998705619843,
+      0.004482700055914076
+     ],
+     "pink": [
+      0.12028116889923218,
+      -0.23358687770368652
+     ],
+     "defective": true,
+     "n_clutter": 7
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.166844070575795,
+     "jaw_normal_at_lift_N": 7.0807525123098,
+     "release_peak_speed_mps": 0.06818067117220852,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 844,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.019349999999999975,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999756,
+      "grasp_z_m": 0.011145694235560059,
+      "roll": -0.5563679733333333,
+      "clearance_m": 0.012391602271396188
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 844,
+      "ref_frame": 116,
+      "slip_peak_frame": 714,
+      "release_obs_window": [
+       743,
+       833
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 59,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.0065719061311166555,
+     "max_slip_rot_deg": 2.4924830771332447,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.502168235030141,
+     "max_pinch_force_N": 7.948599543901384,
+     "pinch_normal_peak_N": 8.189899229394893,
+     "pinch_tangential_peak_N": 1.2481105809226143,
+     "pinch_impulse_Ns": 154.0963458613168,
+     "max_tracking_error_rad": 0.5386774906653398,
+     "tracking_error_ratio": 0.024881516587677725,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9666666666666667,
+     "torque_saturation_ratio": 0.23222748815165878,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 59,
+     "final_dist_to_bowl_m": 0.053480088398359216,
+     "final_brick_speed_mps": 2.44754432782559e-16,
+     "final_brick_ang_vel_rps": 2.126617485362605e-08
+    }
+   },
+   {
+    "layout_index": 42,
+    "layout": {
+     "brick_xy": [
+      0.18154290322592162,
+      -0.04308125322359351
+     ],
+     "brick_yaw_deg": 49.70313164786367,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.18606115958148658,
+      0.14507464624879612
+     ],
+     "pink": [
+      0.10711376528460388,
+      -0.19081383499541038
+     ],
+     "defective": false,
+     "n_clutter": 2
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.558126500087279,
+     "jaw_normal_at_lift_N": 7.030581500453357,
+     "release_peak_speed_mps": 0.29215656948754465,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 787,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.01934999999999997,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999687,
+      "grasp_z_m": 0.011145694235560045,
+      "roll": -0.37019952000000034,
+      "clearance_m": 0.02
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 787,
+      "ref_frame": 117,
+      "slip_peak_frame": 656,
+      "release_obs_window": [
+       686,
+       776
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 90,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.006550702947957417,
+     "max_slip_rot_deg": 3.443572253196444,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.421346761893239,
+     "max_pinch_force_N": 7.775471504510916,
+     "pinch_normal_peak_N": 7.730193020596785,
+     "pinch_tangential_peak_N": 0.9041123580967044,
+     "pinch_impulse_Ns": 138.56338879621453,
+     "max_tracking_error_rad": 0.5386775501317328,
+     "tracking_error_ratio": 0.026683608640406607,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9333333333333333,
+     "torque_saturation_ratio": 0.24904701397712833,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 90,
+     "final_dist_to_bowl_m": 0.0034352746293862106,
+     "final_brick_speed_mps": 2.0326077719411934e-16,
+     "final_brick_ang_vel_rps": 1.1098375557987436e-10
+    }
+   },
+   {
+    "layout_index": 43,
+    "layout": {
+     "brick_xy": [
+      0.18176360097867092,
+      -0.016733840853689747
+     ],
+     "brick_yaw_deg": 86.48206943143748,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.13686974515513753,
+      0.17586027239118224
+     ],
+     "pink": [
+      0.11730922102369899,
+      -0.21051920486639997
+     ],
+     "defective": true,
+     "n_clutter": 3
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.5663710221493092,
+     "jaw_normal_at_lift_N": 7.122724997958575,
+     "release_peak_speed_mps": 0.065731905719095,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 843,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.019349999999999954,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999548,
+      "grasp_z_m": 0.011145694235560038,
+      "roll": 0.09522161333333301,
+      "clearance_m": 0.02
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 843,
+      "ref_frame": 117,
+      "slip_peak_frame": 713,
+      "release_obs_window": [
+       742,
+       832
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 89,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.007621940273775219,
+     "max_slip_rot_deg": 4.040045379255116,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.412397384704491,
+     "max_pinch_force_N": 7.951320186278734,
+     "pinch_normal_peak_N": 8.096767703154486,
+     "pinch_tangential_peak_N": 1.4127117395886335,
+     "pinch_impulse_Ns": 152.40019688805887,
+     "max_tracking_error_rad": 0.5386777243275351,
+     "tracking_error_ratio": 0.02491103202846975,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9333333333333333,
+     "torque_saturation_ratio": 0.2265717674970344,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 89,
+     "final_dist_to_bowl_m": 0.0032651972881892373,
+     "final_brick_speed_mps": 1.2380675890787196e-15,
+     "final_brick_ang_vel_rps": 7.128455205275956e-07
+    }
+   },
+   {
+    "layout_index": 44,
+    "layout": {
+     "brick_xy": [
+      0.24116387048462815,
+      0.014959353876179153
+     ],
+     "brick_yaw_deg": 42.14316306766224,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.1378159055568707,
+      0.1606421457036737
+     ],
+     "pink": [
+      0.16251922862398768,
+      -0.21187518968139707
+     ],
+     "defective": false,
+     "n_clutter": 0
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.5348708851056823,
+     "jaw_normal_at_lift_N": 7.1069202428041125,
+     "release_peak_speed_mps": 0.25442609208103334,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 770,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.019349999999999982,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999826,
+      "grasp_z_m": 0.011145694235560055,
+      "roll": 0.7080261055555552,
+      "clearance_m": 0.02
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 770,
+      "ref_frame": 117,
+      "slip_peak_frame": 557,
+      "release_obs_window": [
+       669,
+       759
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 89,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.005094216486849392,
+     "max_slip_rot_deg": 3.472944971578156,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.414062983160975,
+     "max_pinch_force_N": 8.025168446054622,
+     "pinch_normal_peak_N": 7.928885249418466,
+     "pinch_tangential_peak_N": 1.273341932487045,
+     "pinch_impulse_Ns": 134.16424261117731,
+     "max_tracking_error_rad": 0.538676505665311,
+     "tracking_error_ratio": 0.024675324675324677,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9333333333333333,
+     "torque_saturation_ratio": 0.2532467532467532,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 89,
+     "final_dist_to_bowl_m": 0.003856162440360688,
+     "final_brick_speed_mps": 1.4947932569180987e-15,
+     "final_brick_ang_vel_rps": 3.5187750105533956e-07
+    }
+   },
+   {
+    "layout_index": 45,
+    "layout": {
+     "brick_xy": [
+      0.16441719925714918,
+      -0.08126250977337895
+     ],
+     "brick_yaw_deg": 69.04733295312477,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.11592412642059713,
+      -0.2051218329334944
+     ],
+     "pink": [
+      0.20214633273163915,
+      0.1776243843266044
+     ],
+     "defective": true,
+     "n_clutter": 3
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.559339037023864,
+     "jaw_normal_at_lift_N": 7.064993044805021,
+     "release_peak_speed_mps": 0.29226588419421146,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 790,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.019349999999999968,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999687,
+      "grasp_z_m": 0.011145694235560076,
+      "roll": 0.2503619911111108,
+      "clearance_m": 0.02
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 790,
+      "ref_frame": 117,
+      "slip_peak_frame": 660,
+      "release_obs_window": [
+       689,
+       779
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 60,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.006726057110925364,
+     "max_slip_rot_deg": 2.970983164313494,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.418579367162441,
+     "max_pinch_force_N": 7.985248741522188,
+     "pinch_normal_peak_N": 7.905888644877425,
+     "pinch_tangential_peak_N": 1.1072344427534324,
+     "pinch_impulse_Ns": 139.15885741454122,
+     "max_tracking_error_rad": 0.5386776371786981,
+     "tracking_error_ratio": 0.026582278481012658,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9666666666666667,
+     "torque_saturation_ratio": 0.2582278481012658,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 60,
+     "final_dist_to_bowl_m": 0.0031546342470717198,
+     "final_brick_speed_mps": 7.6179740819919695e-16,
+     "final_brick_ang_vel_rps": 4.326317794367456e-08
+    }
+   },
+   {
+    "layout_index": 46,
+    "layout": {
+     "brick_xy": [
+      0.24353658921553875,
+      0.055584219524908
+     ],
+     "brick_yaw_deg": 35.610413405166895,
+     "brick_size": [
+      0.0636,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.16886007288252522,
+      -0.17198030862989575
+     ],
+     "pink": [
+      0.14074114396839532,
+      0.17651793339717184
+     ],
+     "defective": false,
+     "n_clutter": 3
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 2.9340327585864965,
+     "jaw_normal_at_lift_N": 7.090284679989356,
+     "release_peak_speed_mps": 0.04765999781016098,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 755,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.019349999999999975,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999756,
+      "grasp_z_m": 0.011145694235560038,
+      "roll": -1.1691724655555558,
+      "clearance_m": 0.02
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 755,
+      "ref_frame": 116,
+      "slip_peak_frame": 305,
+      "release_obs_window": [
+       654,
+       744
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 90,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.00766158421678798,
+     "max_slip_rot_deg": 2.750004118281971,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.5227475787604146,
+     "max_pinch_force_N": 7.99549738731046,
+     "pinch_normal_peak_N": 7.96204498561951,
+     "pinch_tangential_peak_N": 1.3866237470579117,
+     "pinch_impulse_Ns": 131.82279964211503,
+     "max_tracking_error_rad": 0.5386755288693311,
+     "tracking_error_ratio": 0.02781456953642384,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9333333333333333,
+     "torque_saturation_ratio": 0.23576158940397351,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 90,
+     "final_dist_to_bowl_m": 0.05766003212333524,
+     "final_brick_speed_mps": 2.1128930071794207e-16,
+     "final_brick_ang_vel_rps": 4.32592435120446e-09
+    }
+   },
+   {
+    "layout_index": 47,
+    "layout": {
+     "brick_xy": [
+      0.2330554577897947,
+      0.047229027596667965
+     ],
+     "brick_yaw_deg": -37.81796358700567,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.18268702942865264,
+      -0.13774127706633976
+     ],
+     "pink": [
+      0.15905192409072444,
+      0.181818825036085
+     ],
+     "defective": true,
+     "n_clutter": 7
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.5240685783874044,
+     "jaw_normal_at_lift_N": 7.100876104644519,
+     "release_peak_speed_mps": 0.25448838754797043,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 798,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.01934999999999998,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999756,
+      "grasp_z_m": 0.011145694235560038,
+      "roll": 0.7157831244444441,
+      "clearance_m": 0.02
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 798,
+      "ref_frame": 117,
+      "slip_peak_frame": 585,
+      "release_obs_window": [
+       697,
+       787
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 89,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.005035094787711541,
+     "max_slip_rot_deg": 3.6323972896897283,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.416363569592971,
+     "max_pinch_force_N": 8.024111357934316,
+     "pinch_normal_peak_N": 7.927513163429266,
+     "pinch_tangential_peak_N": 1.274688482594481,
+     "pinch_impulse_Ns": 141.06389709783858,
+     "max_tracking_error_rad": 0.5386766447780287,
+     "tracking_error_ratio": 0.02631578947368421,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9333333333333333,
+     "torque_saturation_ratio": 0.24561403508771928,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 89,
+     "final_dist_to_bowl_m": 0.041026455591730106,
+     "final_brick_speed_mps": 2.377278990679381e-16,
+     "final_brick_ang_vel_rps": 7.45805376592381e-10
+    }
+   },
+   {
+    "layout_index": 48,
+    "layout": {
+     "brick_xy": [
+      0.19665354180666836,
+      0.06187942702699499
+     ],
+     "brick_yaw_deg": 36.74527340184579,
+     "brick_size": [
+      0.0636,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.13836614178462253,
+      0.17946212019514765
+     ],
+     "pink": [
+      0.15086318936336002,
+      -0.1874296882960632
+     ],
+     "defective": false,
+     "n_clutter": 3
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 2.682633609249346,
+     "jaw_normal_at_lift_N": 7.025585377615281,
+     "release_peak_speed_mps": 0.0475935455556427,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 809,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.01934999999999997,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999687,
+      "grasp_z_m": 0.011145694235560076,
+      "roll": -1.2544996733333336,
+      "clearance_m": -0.000282936647096238
+     },
+     "jaw_env_contact_max_N": 5.334676899136122
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 809,
+      "ref_frame": 116,
+      "slip_peak_frame": 308,
+      "release_obs_window": [
+       708,
+       798
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 59,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.006985261965330408,
+     "max_slip_rot_deg": 3.4206122099940743,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.492169859253772,
+     "max_pinch_force_N": 7.982435291802391,
+     "pinch_normal_peak_N": 7.965758639834527,
+     "pinch_tangential_peak_N": 1.3973138491125505,
+     "pinch_impulse_Ns": 144.89244698238556,
+     "max_tracking_error_rad": 0.5386770042134398,
+     "tracking_error_ratio": 0.02595797280593325,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9666666666666667,
+     "torque_saturation_ratio": 0.23485784919653893,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 59,
+     "final_dist_to_bowl_m": 0.038814461135926286,
+     "final_brick_speed_mps": 1.5723828160748382e-15,
+     "final_brick_ang_vel_rps": 8.924276540690128e-08
+    }
+   },
+   {
+    "layout_index": 49,
+    "layout": {
+     "brick_xy": [
+      0.21503546569648294,
+      0.10427064058240174
+     ],
+     "brick_yaw_deg": -70.85810117693711,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.10250366944092186,
+      -0.19427812456597088
+     ],
+     "pink": [
+      0.24199732755345596,
+      -0.027106547927243485
+     ],
+     "defective": true,
+     "n_clutter": 1
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.6852462044604417,
+     "jaw_normal_at_lift_N": 7.12252072221713,
+     "release_peak_speed_mps": 0.2542100138568731,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 678,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.019349999999999968,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999687,
+      "grasp_z_m": 0.011145694235560069,
+      "roll": -0.15300299111111126,
+      "clearance_m": 0.02
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 678,
+      "ref_frame": 117,
+      "slip_peak_frame": 547,
+      "release_obs_window": [
+       577,
+       667
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 59,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.004601841591837628,
+     "max_slip_rot_deg": 2.8540219254551347,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.424155342719068,
+     "max_pinch_force_N": 7.935154011241286,
+     "pinch_normal_peak_N": 7.874461721575453,
+     "pinch_tangential_peak_N": 0.8790025454433457,
+     "pinch_impulse_Ns": 111.6170634052986,
+     "max_tracking_error_rad": 0.5386763922314948,
+     "tracking_error_ratio": 0.030973451327433628,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9666666666666667,
+     "torque_saturation_ratio": 0.26253687315634217,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 59,
+     "final_dist_to_bowl_m": 0.03738614208208091,
+     "final_brick_speed_mps": 7.223595294918928e-16,
+     "final_brick_ang_vel_rps": 3.447824933797276e-08
+    }
+   },
+   {
+    "layout_index": 50,
+    "layout": {
+     "brick_xy": [
+      0.18760278865618552,
+      0.024382802551379437
+     ],
+     "brick_yaw_deg": -49.313225857541966,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.13235277939821533,
+      -0.16807255426177942
+     ],
+     "pink": [
+      0.19262591207430443,
+      0.16542764112187527
+     ],
+     "defective": false,
+     "n_clutter": 5
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.336884145093176,
+     "jaw_normal_at_lift_N": 7.038797356767102,
+     "release_peak_speed_mps": 0.2922521091460546,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 842,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.019349999999999982,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999826,
+      "grasp_z_m": 0.011145694235560048,
+      "roll": -0.9752469933333334,
+      "clearance_m": 0.01257136756579645
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 842,
+      "ref_frame": 117,
+      "slip_peak_frame": 710,
+      "release_obs_window": [
+       741,
+       831
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 89,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.007200194622393832,
+     "max_slip_rot_deg": 2.9516983511265775,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.414773865806555,
+     "max_pinch_force_N": 7.779377425449415,
+     "pinch_normal_peak_N": 7.791838362851007,
+     "pinch_tangential_peak_N": 0.9532655064657028,
+     "pinch_impulse_Ns": 151.78557812354575,
+     "max_tracking_error_rad": 0.5386774282936768,
+     "tracking_error_ratio": 0.02494061757719715,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9333333333333333,
+     "torque_saturation_ratio": 0.24228028503562946,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 89,
+     "final_dist_to_bowl_m": 0.055778021068828634,
+     "final_brick_speed_mps": 2.231407573424485e-16,
+     "final_brick_ang_vel_rps": 1.1701020280255065e-09
+    }
+   },
+   {
+    "layout_index": 51,
+    "layout": {
+     "brick_xy": [
+      0.20859145195772402,
+      -0.014721368534344133
+     ],
+     "brick_yaw_deg": 3.0180976161146162,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.15526023649027745,
+      0.15746652451475926
+     ],
+     "pink": [
+      0.15791317536622632,
+      -0.16528392823660107
+     ],
+     "defective": true,
+     "n_clutter": 4
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.593037135613847,
+     "jaw_normal_at_lift_N": 7.119846140746872,
+     "release_peak_speed_mps": 0.2922201837717303,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 760,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.019349999999999944,
+      "moving_face_m": null,
+      "offset_m": 0.001449999999999941,
+      "grasp_z_m": 0.011145694235560041,
+      "roll": 0.18054882111111104,
+      "clearance_m": 0.02
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 760,
+      "ref_frame": 116,
+      "slip_peak_frame": 629,
+      "release_obs_window": [
+       659,
+       749
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 89,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.006000342408352282,
+     "max_slip_rot_deg": 2.9634216807677114,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.41642052123802,
+     "max_pinch_force_N": 7.968014024952053,
+     "pinch_normal_peak_N": 7.894831065691548,
+     "pinch_tangential_peak_N": 1.026490794398604,
+     "pinch_impulse_Ns": 131.98628921407783,
+     "max_tracking_error_rad": 0.5386773826503545,
+     "tracking_error_ratio": 0.02763157894736842,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9333333333333333,
+     "torque_saturation_ratio": 0.23157894736842105,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 89,
+     "final_dist_to_bowl_m": 0.03812366336157233,
+     "final_brick_speed_mps": 4.0901358599483407e-16,
+     "final_brick_ang_vel_rps": 3.825582897256785e-08
+    }
+   },
+   {
+    "layout_index": 52,
+    "layout": {
+     "brick_xy": [
+      0.22598018477072992,
+      0.08133812307555477
+     ],
+     "brick_yaw_deg": -56.873381975145,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.12821259269357532,
+      0.1950625619531619
+     ],
+     "pink": [
+      0.1781979701712244,
+      -0.14589537717939255
+     ],
+     "defective": false,
+     "n_clutter": 3
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.677278811976572,
+     "jaw_normal_at_lift_N": 7.115558568327026,
+     "release_peak_speed_mps": 0.2990313394478991,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 749,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.019349999999999964,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999617,
+      "grasp_z_m": 0.011145694235560059,
+      "roll": 0.21157689666666668,
+      "clearance_m": 0.02
+     },
+     "jaw_env_contact_max_N": 0.1002785729932754
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 749,
+      "ref_frame": 117,
+      "slip_peak_frame": 618,
+      "release_obs_window": [
+       648,
+       738
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 90,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.004302273922312835,
+     "max_slip_rot_deg": 3.2634090064901398,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.410382641261188,
+     "max_pinch_force_N": 7.999253642486757,
+     "pinch_normal_peak_N": 7.907500660039213,
+     "pinch_tangential_peak_N": 1.1624522873310175,
+     "pinch_impulse_Ns": 128.96095084079016,
+     "max_tracking_error_rad": 0.5386764810643125,
+     "tracking_error_ratio": 0.025367156208277702,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9333333333333333,
+     "torque_saturation_ratio": 0.23230974632843793,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 90,
+     "final_dist_to_bowl_m": 0.05512219056779504,
+     "final_brick_speed_mps": 3.049106202291736e-16,
+     "final_brick_ang_vel_rps": 3.6314372513742034e-10
+    }
+   },
+   {
+    "layout_index": 53,
+    "layout": {
+     "brick_xy": [
+      0.19572453899004386,
+      0.05744166428454411
+     ],
+     "brick_yaw_deg": -13.887348562083048,
+     "brick_size": [
+      0.0636,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.18235049977805587,
+      -0.14983110618325265
+     ],
+     "pink": [
+      0.1287130912462942,
+      0.2151171467826755
+     ],
+     "defective": true,
+     "n_clutter": 4
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 2.991087762917578,
+     "jaw_normal_at_lift_N": 7.05183227322604,
+     "release_peak_speed_mps": 0.04750805418452442,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 855,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.01935,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999964,
+      "grasp_z_m": 0.011145694235560073,
+      "roll": 1.0260638799999997,
+      "clearance_m": 0.02
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 855,
+      "ref_frame": 116,
+      "slip_peak_frame": 637,
+      "release_obs_window": [
+       754,
+       844
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 90,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.007221408467480602,
+     "max_slip_rot_deg": 4.706213505288369,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.500872070125602,
+     "max_pinch_force_N": 8.091681458268855,
+     "pinch_normal_peak_N": 8.012786756566596,
+     "pinch_tangential_peak_N": 1.6614852002129012,
+     "pinch_impulse_Ns": 156.4240657076734,
+     "max_tracking_error_rad": 0.538677608225619,
+     "tracking_error_ratio": 0.02456140350877193,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9666666666666667,
+     "torque_saturation_ratio": 0.2584795321637427,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 90,
+     "final_dist_to_bowl_m": 0.004629952360858041,
+     "final_brick_speed_mps": 5.926831808309842e-16,
+     "final_brick_ang_vel_rps": 1.4818561350444645e-08
+    }
+   },
+   {
+    "layout_index": 54,
+    "layout": {
+     "brick_xy": [
+      0.1855936846704772,
+      0.032273807562884234
+     ],
+     "brick_yaw_deg": -75.46747575235966,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.125014648429048,
+      0.22617748888056088
+     ],
+     "pink": [
+      0.13463146083746824,
+      -0.18577663367306374
+     ],
+     "defective": false,
+     "n_clutter": 7
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.5814087320948893,
+     "jaw_normal_at_lift_N": 7.122961268238253,
+     "release_peak_speed_mps": 0.06811685825436978,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 787,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.019349999999999968,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999687,
+      "grasp_z_m": 0.011145694235560052,
+      "roll": 0.07970757555555563,
+      "clearance_m": 0.02
+     },
+     "jaw_env_contact_max_N": 12.098201640583142
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 787,
+      "ref_frame": 117,
+      "slip_peak_frame": 665,
+      "release_obs_window": [
+       686,
+       776
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 59,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.006759437599332559,
+     "max_slip_rot_deg": 2.8271419114746688,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.424624531012657,
+     "max_pinch_force_N": 7.953273345585554,
+     "pinch_normal_peak_N": 7.884713077231203,
+     "pinch_tangential_peak_N": 1.0126014925036615,
+     "pinch_impulse_Ns": 138.5278470550567,
+     "max_tracking_error_rad": 0.538677718740097,
+     "tracking_error_ratio": 0.026683608640406607,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9666666666666667,
+     "torque_saturation_ratio": 0.2388818297331639,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 59,
+     "final_dist_to_bowl_m": 0.06478733614455656,
+     "final_brick_speed_mps": 1.8056832936176814e-16,
+     "final_brick_ang_vel_rps": 1.9367298392760886e-08
+    }
+   },
+   {
+    "layout_index": 55,
+    "layout": {
+     "brick_xy": [
+      0.22014298534299342,
+      -0.07582152486307757
+     ],
+     "brick_yaw_deg": -49.53931555237011,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.12167035807714895,
+      -0.17489234456772731
+     ],
+     "pink": [
+      0.12835870950039932,
+      0.21070420717376107
+     ],
+     "defective": true,
+     "n_clutter": 5
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.6052669859568964,
+     "jaw_normal_at_lift_N": 7.110523190505916,
+     "release_peak_speed_mps": 0.25409642969931023,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 779,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.019349999999999958,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999548,
+      "grasp_z_m": 0.011145694235560083,
+      "roll": -0.4244986522222223,
+      "clearance_m": 0.02
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 779,
+      "ref_frame": 116,
+      "slip_peak_frame": 647,
+      "release_obs_window": [
+       678,
+       768
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 89,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.005252928770275509,
+     "max_slip_rot_deg": 3.4444476159490955,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.422424896589166,
+     "max_pinch_force_N": 7.784496391297608,
+     "pinch_normal_peak_N": 7.738389925003803,
+     "pinch_tangential_peak_N": 0.9156946074273709,
+     "pinch_impulse_Ns": 136.77158172944783,
+     "max_tracking_error_rad": 0.5386764593580344,
+     "tracking_error_ratio": 0.026957637997432605,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9666666666666667,
+     "torque_saturation_ratio": 0.2233632862644416,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 89,
+     "final_dist_to_bowl_m": 0.0038409449410767853,
+     "final_brick_speed_mps": 2.778829148472003e-16,
+     "final_brick_ang_vel_rps": 8.271222560816997e-10
+    }
+   },
+   {
+    "layout_index": 56,
+    "layout": {
+     "brick_xy": [
+      0.23856405256458124,
+      0.053311758328275095
+     ],
+     "brick_yaw_deg": -13.072993421213184,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.20526691126212226,
+      -0.09006159352838546
+     ],
+     "pink": [
+      0.16058031619288426,
+      0.20237430179553575
+     ],
+     "defective": false,
+     "n_clutter": 7
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.6253595776966385,
+     "jaw_normal_at_lift_N": 7.119835180155393,
+     "release_peak_speed_mps": 0.2991795059730144,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 755,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.019349999999999947,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999479,
+      "grasp_z_m": 0.011145694235560034,
+      "roll": -0.4400126900000001,
+      "clearance_m": 0.02
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 755,
+      "ref_frame": 117,
+      "slip_peak_frame": 306,
+      "release_obs_window": [
+       654,
+       744
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 90,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.004906443722448456,
+     "max_slip_rot_deg": 3.3094905806643355,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.414185692623905,
+     "max_pinch_force_N": 7.808214033591462,
+     "pinch_normal_peak_N": 7.758069975913836,
+     "pinch_tangential_peak_N": 0.9202930565113772,
+     "pinch_impulse_Ns": 130.53243187255674,
+     "max_tracking_error_rad": 0.5386761702543782,
+     "tracking_error_ratio": 0.02781456953642384,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9,
+     "torque_saturation_ratio": 0.22913907284768212,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 90,
+     "final_dist_to_bowl_m": 0.05553901758946327,
+     "final_brick_speed_mps": 9.968597198270377e-17,
+     "final_brick_ang_vel_rps": 2.956556316794969e-10
+    }
+   },
+   {
+    "layout_index": 57,
+    "layout": {
+     "brick_xy": [
+      0.15511545854000264,
+      -0.08316963052676363
+     ],
+     "brick_yaw_deg": -15.777782303697876,
+     "brick_size": [
+      0.0636,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.1283287765242304,
+      0.2122486885202456
+     ],
+     "pink": [
+      0.2613404635016361,
+      0.015970222911093596
+     ],
+     "defective": true,
+     "n_clutter": 3
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 2.8945088297400248,
+     "jaw_normal_at_lift_N": 7.048157961447757,
+     "release_peak_speed_mps": 0.047595615763853294,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 762,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.019349999999999958,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999548,
+      "grasp_z_m": 0.011145694235560055,
+      "roll": -1.1846865033333334,
+      "clearance_m": 0.01174286263342255
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 762,
+      "ref_frame": 116,
+      "slip_peak_frame": 635,
+      "release_obs_window": [
+       661,
+       751
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 90,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.0073370980287832295,
+     "max_slip_rot_deg": 3.207603756282614,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.484836185521135,
+     "max_pinch_force_N": 7.973742275400317,
+     "pinch_normal_peak_N": 8.036075244595825,
+     "pinch_tangential_peak_N": 1.3943694525611092,
+     "pinch_impulse_Ns": 133.10454946144108,
+     "max_tracking_error_rad": 0.5386773308804914,
+     "tracking_error_ratio": 0.027559055118110236,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9333333333333333,
+     "torque_saturation_ratio": 0.27034120734908135,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 90,
+     "final_dist_to_bowl_m": 0.0043515278201639905,
+     "final_brick_speed_mps": 1.352888022854875e-16,
+     "final_brick_ang_vel_rps": 6.821312787779738e-10
+    }
+   },
+   {
+    "layout_index": 58,
+    "layout": {
+     "brick_xy": [
+      0.19597947452605588,
+      -0.01744081854168948
+     ],
+     "brick_yaw_deg": -5.501452336824002,
+     "brick_size": [
+      0.0636,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.14519154033073842,
+      0.18609919223596624
+     ],
+     "pink": [
+      0.17301944607015854,
+      -0.16926178191108615
+     ],
+     "defective": false,
+     "n_clutter": 2
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 2.6534945728506334,
+     "jaw_normal_at_lift_N": 6.994803859208002,
+     "release_peak_speed_mps": 0.047230695789943426,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 884,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.01934999999999999,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999895,
+      "grasp_z_m": 0.011145694235560055,
+      "roll": 1.623354334444444,
+      "clearance_m": 0.019190394898800846
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 884,
+      "ref_frame": 116,
+      "slip_peak_frame": 652,
+      "release_obs_window": [
+       783,
+       873
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 90,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.006630219299139638,
+     "max_slip_rot_deg": 6.163843459452409,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.488215095721796,
+     "max_pinch_force_N": 8.067859518228248,
+     "pinch_normal_peak_N": 7.974256485692999,
+     "pinch_tangential_peak_N": 1.7600479948954744,
+     "pinch_impulse_Ns": 163.1764442288752,
+     "max_tracking_error_rad": 0.5386777284506845,
+     "tracking_error_ratio": 0.023755656108597284,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 1.4333333333333333,
+     "torque_saturation_ratio": 0.27262443438914025,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 90,
+     "final_dist_to_bowl_m": 0.006798641841898928,
+     "final_brick_speed_mps": 1.8986670056562036e-16,
+     "final_brick_ang_vel_rps": 6.2967802530291415e-09
+    }
+   },
+   {
+    "layout_index": 59,
+    "layout": {
+     "brick_xy": [
+      0.1935839399331528,
+      0.031519014597791585
+     ],
+     "brick_yaw_deg": 61.82178036217812,
+     "brick_size": [
+      0.0318,
+      0.0318,
+      0.0192
+     ],
+     "green": [
+      0.12877546044719992,
+      0.19441441438729692
+     ],
+     "pink": [
+      0.2020966799501637,
+      -0.15536281645411823
+     ],
+     "defective": true,
+     "n_clutter": 3
+    },
+    "verdict": "SUCCESS",
+    "reason_codes": [],
+    "info": {
+     "grasp_push_mm": 3.4863630763795217,
+     "jaw_normal_at_lift_N": 7.103388539446788,
+     "release_peak_speed_mps": 0.24097801756332246,
+     "show_hold_measured_s": [
+      0.4666666666666667,
+      0.4666666666666667,
+      0.4
+     ],
+     "n_frames": 764,
+     "grasp_retries": 0,
+     "brick_lost": false,
+     "aborted": null,
+     "truncated": false,
+     "assisted_grasp": false,
+     "grasp_geometry": {
+      "fixed_face_m": -0.019349999999999964,
+      "moving_face_m": null,
+      "offset_m": 0.0014499999999999617,
+      "grasp_z_m": 0.011145694235560066,
+      "roll": -0.6494522000000003,
+      "clearance_m": 0.02
+     },
+     "jaw_env_contact_max_N": 0.0
+    },
+    "health": {
+     "verdict": "SUCCESS",
+     "reason_codes": [],
+     "evidence_refs": {
+      "n_frames": 764,
+      "ref_frame": 117,
+      "slip_peak_frame": 636,
+      "release_obs_window": [
+       663,
+       753
+      ],
+      "req_settle_frames": 15,
+      "trailing_settle_frames": 59,
+      "final_contained_in_bowl": true,
+      "ever_contained_in_bowl": true,
+      "substep_collision_frames": [],
+      "unintended_collision_frames": []
+     },
+     "evaluator_version": "v2-audited",
+     "terminal_ok": true,
+     "process_ok": true,
+     "success": true,
+     "failure_mode": "ok",
+     "grasped_ok": true,
+     "max_slip_pos_m": 0.00663889475395867,
+     "max_slip_rot_deg": 2.8843823440372622,
+     "dual_contact_ratio": 1.0,
+     "mean_pinch_force_N": 7.4288611879986375,
+     "max_pinch_force_N": 7.798000598092335,
+     "pinch_normal_peak_N": 7.7879381662318075,
+     "pinch_tangential_peak_N": 0.9122163203722765,
+     "pinch_impulse_Ns": 132.7571570983605,
+     "max_tracking_error_rad": 0.538677436000033,
+     "tracking_error_ratio": 0.0274869109947644,
+     "max_tracking_lag_duration_s": 0.4,
+     "max_stall_duration_s": 0.9666666666666667,
+     "torque_saturation_ratio": 0.2591623036649215,
+     "torque_evidence_source": "solver_measured",
+     "unintended_collision_count": 0,
+     "max_unintended_force_N": 0.0,
+     "unintended_collision_impulse_Ns": 0.0,
+     "settled_in_bowl": true,
+     "settle_consecutive_frames": 59,
+     "final_dist_to_bowl_m": 0.03828859096325206,
+     "final_brick_speed_mps": 2.4649009212784e-16,
+     "final_brick_ang_vel_rps": 7.69456152674283e-09
+    }
+   }
+  ]
+ },
+ "wall_s": 75.07997107505798
+}

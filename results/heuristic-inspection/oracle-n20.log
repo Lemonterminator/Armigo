@@ -1,0 +1,145 @@
+[  0 show          ] def=1 face=0 SUCCESS    label=defective views=1 present=0 aborted=None reason=defect_seen (3s)
+[  0 heuristic     ] def=1 face=0 SUCCESS    label=defective views=6 present=1 aborted=None reason=defect_seen (40s)
+[  0 heuristic_fast] def=1 face=0 SUCCESS    label=defective views=5 present=0 aborted=None reason=defect_seen (71s)
+[  1 show          ] def=1 face=1 SUCCESS    label=defective views=9 present=0 aborted=None reason=defect_seen (77s)
+[  1 heuristic     ] def=1 face=1 SUCCESS    label=defective views=5 present=1 aborted=None reason=defect_seen (112s)
+[  1 heuristic_fast] def=1 face=1 SUCCESS    label=defective views=4 present=0 aborted=None reason=defect_seen (144s)
+[  2 show          ] def=1 face=3 SUCCESS    label=defective views=3 present=0 aborted=None reason=defect_seen (148s)
+[  2 heuristic     ] def=1 face=3 SUCCESS    label=defective views=3 present=0 aborted=None reason=wrist_only (179s)
+[  2 heuristic_fast] def=1 face=3 SUCCESS    label=defective views=3 present=0 aborted=None reason=defect_seen (211s)
+[  3 show          ] def=0 face=2 SUCCESS    label=normal views=9 present=0 aborted=None reason=all_faces_cleared (216s)
+[  3 heuristic     ] def=0 face=2 SUCCESS    label=normal views=4 present=0 aborted=None reason=all_faces_cleared (246s)
+[  3 heuristic_fast] def=0 face=2 SUCCESS    label=normal views=4 present=0 aborted=None reason=all_faces_cleared (277s)
+[  4 show          ] def=1 face=4 SUCCESS    label=defective views=1 present=0 aborted=None reason=defect_seen (281s)
+[  4 heuristic     ] def=1 face=4 SUCCESS    label=defective views=4 present=2 aborted=None reason=wrist_only (316s)
+[  4 heuristic_fast] def=1 face=4 SUCCESS    label=defective views=2 present=0 aborted=None reason=defect_seen (347s)
+[  5 show          ] def=0 face=2 SUCCESS    label=normal views=9 present=0 aborted=None reason=all_faces_cleared (353s)
+[  5 heuristic     ] def=0 face=2 SUCCESS    label=normal views=4 present=0 aborted=None reason=all_faces_cleared (384s)
+[  5 heuristic_fast] def=0 face=2 SUCCESS    label=normal views=4 present=0 aborted=None reason=all_faces_cleared (416s)
+[  6 show          ] def=0 face=1 FAILURE    label=normal views=13 present=0 aborted=None reason=all_faces_cleared (425s)
+[  6 heuristic     ] def=0 face=1 SUCCESS    label=normal views=4 present=0 aborted=None reason=all_faces_cleared (457s)
+[  6 heuristic_fast] def=0 face=1 SUCCESS    label=normal views=4 present=0 aborted=None reason=all_faces_cleared (489s)
+[  7 show          ] def=0 face=1 FAILURE    label=normal views=13 present=0 aborted=None reason=all_faces_cleared (499s)
+[  7 heuristic     ] def=0 face=1 SUCCESS    label=normal views=4 present=0 aborted=None reason=all_faces_cleared (531s)
+[  7 heuristic_fast] def=0 face=1 SUCCESS    label=normal views=4 present=0 aborted=None reason=all_faces_cleared (562s)
+[  8 show          ] def=1 face=4 SUCCESS    label=defective views=1 present=0 aborted=None reason=defect_seen (566s)
+[  8 heuristic     ] def=1 face=4 SUCCESS    label=defective views=4 present=2 aborted=None reason=wrist_only (599s)
+[  8 heuristic_fast] def=1 face=4 SUCCESS    label=defective views=2 present=0 aborted=None reason=defect_seen (631s)
+[  9 show          ] def=1 face=1 FAILURE    label=None views=15 present=0 aborted=inspection_unknown reason=uncovered_faces:[1] (640s)
+[  9 heuristic     ] def=1 face=1 SUCCESS    label=defective views=4 present=1 aborted=None reason=defect_seen (672s)
+[  9 heuristic_fast] def=1 face=1 SUCCESS    label=defective views=4 present=1 aborted=None reason=defect_seen (705s)
+[ 10 show          ] def=0 face=2 FAILURE    label=normal views=13 present=0 aborted=None reason=all_faces_cleared (714s)
+[ 10 heuristic     ] def=0 face=2 SUCCESS    label=normal views=4 present=0 aborted=None reason=all_faces_cleared (747s)
+[ 10 heuristic_fast] def=0 face=2 SUCCESS    label=normal views=4 present=0 aborted=None reason=all_faces_cleared (782s)
+[ 11 show          ] def=0 face=2 FAILURE    label=None views=13 present=0 aborted=None reason=all_faces_cleared (792s)
+[ 11 heuristic     ] def=0 face=2 SUCCESS    label=normal views=4 present=0 aborted=None reason=all_faces_cleared (827s)
+[ 11 heuristic_fast] def=0 face=2 SUCCESS    label=normal views=4 present=0 aborted=None reason=all_faces_cleared (860s)
+[ 12 show          ] def=1 face=0 SUCCESS    label=defective views=1 present=0 aborted=None reason=defect_seen (863s)
+[ 12 heuristic     ] def=1 face=0 SUCCESS    label=defective views=3 present=1 aborted=None reason=defect_seen (894s)
+[ 12 heuristic_fast] def=1 face=0 SUCCESS    label=defective views=2 present=0 aborted=None reason=defect_seen (923s)
+[ 13 show          ] def=1 face=0 SUCCESS    label=defective views=1 present=0 aborted=None reason=defect_seen (925s)
+[ 13 heuristic     ] def=1 face=0 SUCCESS    label=defective views=4 present=1 aborted=None reason=defect_seen (955s)
+[ 13 heuristic_fast] def=1 face=0 SUCCESS    label=defective views=3 present=0 aborted=None reason=defect_seen (985s)
+[ 14 show          ] def=1 face=1 SUCCESS    label=defective views=1 present=0 aborted=None reason=defect_seen (987s)
+[ 14 heuristic     ] def=1 face=1 SUCCESS    label=defective views=3 present=1 aborted=None reason=defect_seen (1022s)
+[ 14 heuristic_fast] def=1 face=1 SUCCESS    label=defective views=2 present=0 aborted=None reason=defect_seen (1055s)
+[ 15 show          ] def=0 face=0 FAILURE    label=normal views=13 present=0 aborted=None reason=all_faces_cleared (1063s)
+[ 15 heuristic     ] def=0 face=0 SUCCESS    label=normal views=4 present=0 aborted=None reason=all_faces_cleared (1100s)
+[ 15 heuristic_fast] def=0 face=0 SUCCESS    label=normal views=4 present=0 aborted=None reason=all_faces_cleared (1135s)
+[ 16 show          ] def=0 face=3 FAILURE    label=normal views=13 present=0 aborted=None reason=all_faces_cleared (1144s)
+[ 16 heuristic     ] def=0 face=3 SUCCESS    label=normal views=5 present=0 aborted=None reason=all_faces_cleared (1178s)
+[ 16 heuristic_fast] def=0 face=3 SUCCESS    label=normal views=5 present=0 aborted=None reason=all_faces_cleared (1211s)
+[ 17 show          ] def=1 face=3 SUCCESS    label=defective views=7 present=0 aborted=None reason=defect_seen (1215s)
+[ 17 heuristic     ] def=1 face=3 SUCCESS    label=defective views=4 present=2 aborted=None reason=wrist_only (1250s)
+[ 17 heuristic_fast] def=1 face=3 SUCCESS    label=defective views=2 present=0 aborted=None reason=defect_seen (1280s)
+[ 18 show          ] def=1 face=3 FAILURE    label=defective views=13 present=0 aborted=None reason=defect_seen (1289s)
+[ 18 heuristic     ] def=1 face=3 SUCCESS    label=defective views=5 present=1 aborted=None reason=defect_seen (1324s)
+[ 18 heuristic_fast] def=1 face=3 SUCCESS    label=defective views=4 present=0 aborted=None reason=defect_seen (1357s)
+[ 19 show          ] def=0 face=3 FAILURE    label=normal views=13 present=0 aborted=None reason=all_faces_cleared (1364s)
+[ 19 heuristic     ] def=0 face=3 SUCCESS    label=normal views=5 present=0 aborted=None reason=all_faces_cleared (1396s)
+[ 19 heuristic_fast] def=0 face=3 SUCCESS    label=normal views=5 present=0 aborted=None reason=all_faces_cleared (1428s)
+{
+  "show": {
+    "n": 20,
+    "success_rate": 0.55,
+    "success_with_correct_label_rate": 0.55,
+    "known_rate": 0.9,
+    "accuracy_of_known": 1.0,
+    "confusion": {
+      "defective->defective": 10,
+      "defective->normal": 0,
+      "defective->unknown": 1,
+      "normal->normal": 8,
+      "normal->defective": 0,
+      "normal->unknown": 1
+    },
+    "top_confirmed_of_defective_labels": 4,
+    "verdicts": {
+      "SUCCESS": 11,
+      "FAILURE": 9
+    },
+    "aborted": {
+      "None": 19,
+      "inspection_unknown": 1
+    },
+    "mean_views": 8.1,
+    "mean_present": 0.0,
+    "mean_frames": 1775.5,
+    "truncated_rate": 0.4,
+    "mean_wall_s": 5.78
+  },
+  "heuristic": {
+    "n": 20,
+    "success_rate": 1.0,
+    "success_with_correct_label_rate": 1.0,
+    "known_rate": 1.0,
+    "accuracy_of_known": 1.0,
+    "confusion": {
+      "defective->defective": 11,
+      "defective->normal": 0,
+      "defective->unknown": 0,
+      "normal->normal": 9,
+      "normal->defective": 0,
+      "normal->unknown": 0
+    },
+    "top_confirmed_of_defective_labels": 7,
+    "verdicts": {
+      "SUCCESS": 20
+    },
+    "aborted": {
+      "None": 20
+    },
+    "mean_views": 4.15,
+    "mean_present": 0.65,
+    "mean_frames": 1467.1,
+    "truncated_rate": 0.0,
+    "mean_wall_s": 32.87
+  },
+  "heuristic_fast": {
+    "n": 20,
+    "success_rate": 1.0,
+    "success_with_correct_label_rate": 1.0,
+    "known_rate": 1.0,
+    "accuracy_of_known": 1.0,
+    "confusion": {
+      "defective->defective": 11,
+      "defective->normal": 0,
+      "defective->unknown": 0,
+      "normal->normal": 9,
+      "normal->defective": 0,
+      "normal->unknown": 0
+    },
+    "top_confirmed_of_defective_labels": 1,
+    "verdicts": {
+      "SUCCESS": 20
+    },
+    "aborted": {
+      "None": 20
+    },
+    "mean_views": 3.55,
+    "mean_present": 0.05,
+    "mean_frames": 1065.4,
+    "truncated_rate": 0.0,
+    "mean_wall_s": 31.64
+  }
+}

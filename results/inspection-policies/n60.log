@@ -1,0 +1,563 @@
+[  0 none      ] def=0 face=+x     FAILURE    label=None extra=0 aborted=inspection_unknown (5s, 1/360)
+[  0 coverage  ] def=0 face=+x     SUCCESS    label=normal extra=1 aborted=None (6s, 2/360)
+[  0 fixed     ] def=0 face=+x     SUCCESS    label=normal extra=3 aborted=None (6s, 3/360)
+[  0 coverage_cond] def=0 face=+x     SUCCESS    label=normal extra=1 aborted=None (7s, 4/360)
+[  1 none      ] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (8s, 5/360)
+[  1 fixed     ] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (8s, 6/360)
+[  1 coverage  ] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (9s, 7/360)
+[  1 coverage_cond] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (11s, 8/360)
+[  1 llm_cond  ] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (13s, 9/360)
+[  1 llm       ] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (13s, 10/360)
+[  2 none      ] def=0 face=-y     FAILURE    label=None extra=0 aborted=inspection_unknown (15s, 11/360)
+[  0 llm       ] def=0 face=+x     SUCCESS    label=normal extra=1 aborted=None (15s, 12/360)
+[  2 fixed     ] def=0 face=-y     FAILURE    label=None extra=4 aborted=inspection_unknown (16s, 13/360)
+[  2 coverage  ] def=0 face=-y     FAILURE    label=None extra=4 aborted=inspection_unknown (18s, 14/360)
+[  0 llm_cond  ] def=0 face=+x     SUCCESS    label=normal extra=2 aborted=None (19s, 15/360)
+[  2 coverage_cond] def=0 face=-y     FAILURE    label=None extra=3 aborted=inspection_unknown (19s, 16/360)
+[  3 none      ] def=1 face=+x     SUCCESS    label=defective extra=0 aborted=None (21s, 17/360)
+[  3 fixed     ] def=1 face=+x     SUCCESS    label=defective extra=0 aborted=None (21s, 18/360)
+[  3 coverage_cond] def=1 face=+x     SUCCESS    label=defective extra=0 aborted=None (24s, 19/360)
+[  3 coverage  ] def=1 face=+x     SUCCESS    label=defective extra=0 aborted=None (24s, 20/360)
+[  3 llm_cond  ] def=1 face=+x     SUCCESS    label=defective extra=0 aborted=None (27s, 21/360)
+[  3 llm       ] def=1 face=+x     SUCCESS    label=defective extra=0 aborted=None (27s, 22/360)
+[  4 none      ] def=0 face=-y     FAILURE    label=None extra=0 aborted=inspection_unknown (29s, 23/360)
+[  4 fixed     ] def=0 face=-y     FAILURE    label=None extra=4 aborted=inspection_unknown (31s, 24/360)
+[  4 coverage  ] def=0 face=-y     SUCCESS    label=None extra=4 aborted=inspection_unknown (32s, 25/360)
+[  4 coverage_cond] def=0 face=-y     FAILURE    label=None extra=4 aborted=inspection_unknown (35s, 26/360)
+[  2 llm       ] def=0 face=-y     FAILURE    label=None extra=4 aborted=inspection_unknown (74s, 27/360)
+[  5 none      ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (77s, 28/360)
+[  5 fixed     ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (79s, 29/360)
+[  5 coverage  ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (81s, 30/360)
+[  2 llm_cond  ] def=0 face=-y     FAILURE    label=None extra=3 aborted=inspection_unknown (81s, 31/360)
+[  4 llm_cond  ] def=0 face=-y     FAILURE    label=None extra=2 aborted=inspection_unknown (81s, 32/360)
+[  5 llm       ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (83s, 33/360)
+[  5 llm_cond  ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (83s, 34/360)
+[  5 coverage_cond] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (83s, 35/360)
+[  6 none      ] def=0 face=-x     FAILURE    label=None extra=0 aborted=inspection_unknown (85s, 36/360)
+[  6 fixed     ] def=0 face=-x     FAILURE    label=None extra=4 aborted=inspection_unknown (86s, 37/360)
+[  4 llm       ] def=0 face=-y     FAILURE    label=None extra=4 aborted=inspection_unknown (86s, 38/360)
+[  6 coverage  ] def=0 face=-x     FAILURE    label=None extra=4 aborted=inspection_unknown (87s, 39/360)
+[  6 coverage_cond] def=0 face=-x     FAILURE    label=None extra=4 aborted=inspection_unknown (87s, 40/360)
+[  7 none      ] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (88s, 41/360)
+[  7 fixed     ] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (88s, 42/360)
+[  7 coverage  ] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (91s, 43/360)
+[  7 coverage_cond] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (91s, 44/360)
+[  7 llm       ] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (93s, 45/360)
+[  7 llm_cond  ] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (93s, 46/360)
+[  8 none      ] def=0 face=-x     FAILURE    label=None extra=0 aborted=inspection_unknown (95s, 47/360)
+[  8 fixed     ] def=0 face=-x     FAILURE    label=None extra=4 aborted=inspection_unknown (96s, 48/360)
+[  8 coverage  ] def=0 face=-x     FAILURE    label=None extra=4 aborted=inspection_unknown (98s, 49/360)
+[  8 coverage_cond] def=0 face=-x     FAILURE    label=None extra=4 aborted=inspection_unknown (99s, 50/360)
+[  6 llm_cond  ] def=0 face=-x     FAILURE    label=None extra=3 aborted=inspection_unknown (163s, 51/360)
+[  9 none      ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (165s, 52/360)
+[  9 fixed     ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (167s, 53/360)
+[  6 llm       ] def=0 face=-x     FAILURE    label=None extra=4 aborted=inspection_unknown (168s, 54/360)
+[  9 coverage  ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (170s, 55/360)
+[  9 coverage_cond] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (171s, 56/360)
+[  9 llm       ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (173s, 57/360)
+[ 10 none      ] def=0 face=bottom FAILURE    label=None extra=0 aborted=inspection_unknown (174s, 58/360)
+[  9 llm_cond  ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (174s, 59/360)
+[ 10 coverage  ] def=0 face=bottom SUCCESS    label=normal extra=2 aborted=None (177s, 60/360)
+[  8 llm_cond  ] def=0 face=-x     FAILURE    label=None extra=3 aborted=inspection_unknown (177s, 61/360)
+[ 10 fixed     ] def=0 face=bottom SUCCESS    label=normal extra=1 aborted=None (177s, 62/360)
+[  8 llm       ] def=0 face=-x     FAILURE    label=None extra=3 aborted=inspection_unknown (179s, 63/360)
+[ 10 coverage_cond] def=0 face=bottom SUCCESS    label=normal extra=2 aborted=None (179s, 64/360)
+[ 11 fixed     ] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (181s, 65/360)
+[ 11 none      ] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (181s, 66/360)
+[ 11 coverage  ] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (184s, 67/360)
+[ 11 coverage_cond] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (184s, 68/360)
+[ 11 llm_cond  ] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (186s, 69/360)
+[ 11 llm       ] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (186s, 70/360)
+[ 12 none      ] def=0 face=-y     FAILURE    label=None extra=0 aborted=inspection_unknown (188s, 71/360)
+[ 12 fixed     ] def=0 face=-y     SUCCESS    label=normal extra=1 aborted=None (189s, 72/360)
+[ 12 coverage  ] def=0 face=-y     SUCCESS    label=normal extra=1 aborted=None (190s, 73/360)
+[ 12 coverage_cond] def=0 face=-y     SUCCESS    label=normal extra=1 aborted=None (192s, 74/360)
+[ 10 llm_cond  ] def=0 face=bottom SUCCESS    label=normal extra=1 aborted=None (217s, 75/360)
+[ 12 llm       ] def=0 face=-y     SUCCESS    label=normal extra=1 aborted=None (217s, 76/360)
+[ 12 llm_cond  ] def=0 face=-y     SUCCESS    label=normal extra=1 aborted=None (218s, 77/360)
+[ 13 none      ] def=1 face=-x     SUCCESS    label=defective extra=0 aborted=None (219s, 78/360)
+[ 13 fixed     ] def=1 face=-x     SUCCESS    label=defective extra=0 aborted=None (220s, 79/360)
+[ 13 coverage  ] def=1 face=-x     SUCCESS    label=defective extra=0 aborted=None (220s, 80/360)
+[ 13 coverage_cond] def=1 face=-x     SUCCESS    label=defective extra=0 aborted=None (221s, 81/360)
+[ 13 llm_cond  ] def=1 face=-x     SUCCESS    label=defective extra=0 aborted=None (222s, 82/360)
+[ 13 llm       ] def=1 face=-x     SUCCESS    label=defective extra=0 aborted=None (222s, 83/360)
+[ 14 none      ] def=0 face=bottom FAILURE    label=None extra=0 aborted=inspection_unknown (223s, 84/360)
+[ 14 fixed     ] def=0 face=bottom SUCCESS    label=normal extra=3 aborted=None (225s, 85/360)
+[ 14 coverage  ] def=0 face=bottom SUCCESS    label=normal extra=4 aborted=None (225s, 86/360)
+[ 14 coverage_cond] def=0 face=bottom SUCCESS    label=normal extra=2 aborted=None (227s, 87/360)
+[ 15 none      ] def=1 face=+x     SUCCESS    label=defective extra=0 aborted=None (228s, 88/360)
+[ 15 fixed     ] def=1 face=+x     SUCCESS    label=defective extra=0 aborted=None (231s, 89/360)
+[ 15 coverage  ] def=1 face=+x     SUCCESS    label=defective extra=0 aborted=None (233s, 90/360)
+[ 15 coverage_cond] def=1 face=+x     SUCCESS    label=defective extra=0 aborted=None (235s, 91/360)
+[ 15 llm       ] def=1 face=+x     SUCCESS    label=defective extra=0 aborted=None (238s, 92/360)
+[ 15 llm_cond  ] def=1 face=+x     SUCCESS    label=defective extra=0 aborted=None (240s, 93/360)
+[ 16 none      ] def=0 face=bottom FAILURE    label=None extra=0 aborted=inspection_unknown (242s, 94/360)
+[ 16 fixed     ] def=0 face=bottom SUCCESS    label=normal extra=1 aborted=None (246s, 95/360)
+[ 10 llm       ] def=0 face=bottom SUCCESS    label=normal extra=2 aborted=None (247s, 96/360)
+[ 16 coverage  ] def=0 face=bottom FAILURE    label=None extra=4 aborted=inspection_unknown (249s, 97/360)
+[ 16 coverage_cond] def=0 face=bottom SUCCESS    label=normal extra=1 aborted=None (250s, 98/360)
+[ 14 llm_cond  ] def=0 face=bottom SUCCESS    label=normal extra=2 aborted=None (274s, 99/360)
+[ 17 none      ] def=1 face=-y     SUCCESS    label=defective extra=0 aborted=None (276s, 100/360)
+[ 17 fixed     ] def=1 face=-y     SUCCESS    label=defective extra=0 aborted=None (277s, 101/360)
+[ 17 coverage  ] def=1 face=-y     SUCCESS    label=defective extra=0 aborted=None (278s, 102/360)
+[ 17 coverage_cond] def=1 face=-y     SUCCESS    label=defective extra=0 aborted=None (280s, 103/360)
+[ 16 llm_cond  ] def=0 face=bottom SUCCESS    label=normal extra=2 aborted=None (280s, 104/360)
+[ 14 llm       ] def=0 face=bottom SUCCESS    label=normal extra=4 aborted=None (281s, 105/360)
+[ 17 llm       ] def=1 face=-y     SUCCESS    label=defective extra=0 aborted=None (281s, 106/360)
+[ 18 none      ] def=0 face=-x     FAILURE    label=None extra=0 aborted=inspection_unknown (282s, 107/360)
+[ 17 llm_cond  ] def=1 face=-y     SUCCESS    label=defective extra=0 aborted=None (282s, 108/360)
+[ 16 llm       ] def=0 face=bottom FAILURE    label=None extra=4 aborted=inspection_unknown (282s, 109/360)
+[ 18 fixed     ] def=0 face=-x     SUCCESS    label=normal extra=3 aborted=None (284s, 110/360)
+[ 18 coverage  ] def=0 face=-x     SUCCESS    label=normal extra=1 aborted=None (284s, 111/360)
+[ 18 coverage_cond] def=0 face=-x     SUCCESS    label=normal extra=1 aborted=None (284s, 112/360)
+[ 19 none      ] def=1 face=bottom FAILURE    label=None extra=0 aborted=inspection_unknown (285s, 113/360)
+[ 19 fixed     ] def=1 face=bottom SUCCESS    label=defective extra=1 aborted=None (286s, 114/360)
+[ 19 coverage  ] def=1 face=bottom SUCCESS    label=defective extra=1 aborted=None (287s, 115/360)
+[ 18 llm       ] def=0 face=-x     SUCCESS    label=normal extra=1 aborted=None (288s, 116/360)
+[ 19 coverage_cond] def=1 face=bottom SUCCESS    label=defective extra=1 aborted=None (289s, 117/360)
+[ 20 none      ] def=0 face=-x     FAILURE    label=None extra=0 aborted=inspection_unknown (290s, 118/360)
+[ 18 llm_cond  ] def=0 face=-x     SUCCESS    label=normal extra=2 aborted=None (291s, 119/360)
+[ 20 fixed     ] def=0 face=-x     SUCCESS    label=normal extra=1 aborted=None (292s, 120/360)
+[ 19 llm       ] def=1 face=bottom SUCCESS    label=defective extra=1 aborted=None (293s, 121/360)
+[ 20 coverage  ] def=0 face=-x     SUCCESS    label=normal extra=1 aborted=None (293s, 122/360)
+[ 20 coverage_cond] def=0 face=-x     SUCCESS    label=normal extra=1 aborted=None (294s, 123/360)
+[ 19 llm_cond  ] def=1 face=bottom SUCCESS    label=defective extra=1 aborted=None (294s, 124/360)
+[ 21 none      ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (296s, 125/360)
+[ 21 fixed     ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (296s, 126/360)
+[ 21 coverage  ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (298s, 127/360)
+[ 21 coverage_cond] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (298s, 128/360)
+[ 21 llm       ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (300s, 129/360)
+[ 21 llm_cond  ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (300s, 130/360)
+[ 22 none      ] def=0 face=bottom FAILURE    label=None extra=0 aborted=inspection_unknown (301s, 131/360)
+[ 22 fixed     ] def=0 face=bottom SUCCESS    label=normal extra=1 aborted=None (302s, 132/360)
+[ 22 coverage  ] def=0 face=bottom FAILURE    label=None extra=4 aborted=inspection_unknown (302s, 133/360)
+[ 22 coverage_cond] def=0 face=bottom SUCCESS    label=normal extra=1 aborted=None (304s, 134/360)
+[ 20 llm_cond  ] def=0 face=-x     SUCCESS    label=normal extra=1 aborted=None (305s, 135/360)
+[ 20 llm       ] def=0 face=-x     SUCCESS    label=normal extra=1 aborted=None (306s, 136/360)
+[ 23 none      ] def=1 face=+x     SUCCESS    label=defective extra=0 aborted=None (307s, 137/360)
+[ 23 fixed     ] def=1 face=+x     SUCCESS    label=defective extra=0 aborted=None (307s, 138/360)
+[ 23 coverage  ] def=1 face=+x     SUCCESS    label=defective extra=0 aborted=None (308s, 139/360)
+[ 23 coverage_cond] def=1 face=+x     SUCCESS    label=defective extra=0 aborted=None (309s, 140/360)
+[ 23 llm       ] def=1 face=+x     SUCCESS    label=defective extra=0 aborted=None (310s, 141/360)
+[ 23 llm_cond  ] def=1 face=+x     SUCCESS    label=defective extra=0 aborted=None (310s, 142/360)
+[ 24 none      ] def=0 face=-x     FAILURE    label=None extra=0 aborted=inspection_unknown (311s, 143/360)
+[ 24 fixed     ] def=0 face=-x     SUCCESS    label=normal extra=1 aborted=None (312s, 144/360)
+[ 24 coverage  ] def=0 face=-x     SUCCESS    label=normal extra=1 aborted=None (313s, 145/360)
+[ 22 llm_cond  ] def=0 face=bottom SUCCESS    label=normal extra=2 aborted=None (313s, 146/360)
+[ 24 coverage_cond] def=0 face=-x     SUCCESS    label=normal extra=1 aborted=None (314s, 147/360)
+[ 22 llm       ] def=0 face=bottom FAILURE    label=None extra=4 aborted=inspection_unknown (315s, 148/360)
+[ 25 none      ] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (316s, 149/360)
+[ 25 fixed     ] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (316s, 150/360)
+[ 25 coverage  ] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (318s, 151/360)
+[ 25 coverage_cond] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (318s, 152/360)
+[ 25 llm       ] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (320s, 153/360)
+[ 25 llm_cond  ] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (320s, 154/360)
+[ 24 llm_cond  ] def=0 face=-x     SUCCESS    label=normal extra=1 aborted=None (320s, 155/360)
+[ 24 llm       ] def=0 face=-x     SUCCESS    label=normal extra=1 aborted=None (320s, 156/360)
+[ 26 none      ] def=0 face=top    FAILURE    label=None extra=0 aborted=inspection_unknown (321s, 157/360)
+[ 26 coverage  ] def=0 face=top    SUCCESS    label=normal extra=1 aborted=None (322s, 158/360)
+[ 26 fixed     ] def=0 face=top    SUCCESS    label=normal extra=1 aborted=None (322s, 159/360)
+[ 26 coverage_cond] def=0 face=top    SUCCESS    label=normal extra=1 aborted=None (322s, 160/360)
+[ 27 none      ] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (323s, 161/360)
+[ 27 fixed     ] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (323s, 162/360)
+[ 27 coverage  ] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (325s, 163/360)
+[ 27 coverage_cond] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (325s, 164/360)
+[ 27 llm       ] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (326s, 165/360)
+[ 27 llm_cond  ] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (326s, 166/360)
+[ 28 none      ] def=0 face=-y     FAILURE    label=None extra=0 aborted=inspection_unknown (327s, 167/360)
+[ 28 fixed     ] def=0 face=-y     SUCCESS    label=normal extra=1 aborted=None (328s, 168/360)
+[ 28 coverage  ] def=0 face=-y     SUCCESS    label=normal extra=1 aborted=None (329s, 169/360)
+[ 26 llm       ] def=0 face=top    SUCCESS    label=normal extra=1 aborted=None (330s, 170/360)
+[ 28 coverage_cond] def=0 face=-y     SUCCESS    label=normal extra=2 aborted=None (330s, 171/360)
+[ 26 llm_cond  ] def=0 face=top    SUCCESS    label=normal extra=1 aborted=None (330s, 172/360)
+[ 29 none      ] def=1 face=+x     SUCCESS    label=defective extra=0 aborted=None (332s, 173/360)
+[ 29 fixed     ] def=1 face=+x     SUCCESS    label=defective extra=0 aborted=None (332s, 174/360)
+[ 29 coverage  ] def=1 face=+x     SUCCESS    label=defective extra=0 aborted=None (333s, 175/360)
+[ 29 coverage_cond] def=1 face=+x     SUCCESS    label=defective extra=0 aborted=None (333s, 176/360)
+[ 29 llm       ] def=1 face=+x     SUCCESS    label=defective extra=0 aborted=None (335s, 177/360)
+[ 29 llm_cond  ] def=1 face=+x     SUCCESS    label=defective extra=0 aborted=None (335s, 178/360)
+[ 30 none      ] def=0 face=+x     FAILURE    label=None extra=0 aborted=inspection_unknown (337s, 179/360)
+[ 30 fixed     ] def=0 face=+x     SUCCESS    label=normal extra=1 aborted=None (338s, 180/360)
+[ 28 llm_cond  ] def=0 face=-y     SUCCESS    label=normal extra=1 aborted=None (339s, 181/360)
+[ 30 coverage  ] def=0 face=+x     SUCCESS    label=normal extra=1 aborted=None (339s, 182/360)
+[ 30 coverage_cond] def=0 face=+x     SUCCESS    label=normal extra=1 aborted=None (341s, 183/360)
+[ 31 none      ] def=1 face=-y     SUCCESS    label=defective extra=0 aborted=None (342s, 184/360)
+[ 31 fixed     ] def=1 face=-y     SUCCESS    label=defective extra=0 aborted=None (344s, 185/360)
+[ 31 coverage  ] def=1 face=-y     SUCCESS    label=defective extra=0 aborted=None (345s, 186/360)
+[ 31 coverage_cond] def=1 face=-y     SUCCESS    label=defective extra=0 aborted=None (347s, 187/360)
+[ 28 llm       ] def=0 face=-y     SUCCESS    label=normal extra=4 aborted=None (347s, 188/360)
+[ 30 llm       ] def=0 face=+x     SUCCESS    label=normal extra=1 aborted=None (348s, 189/360)
+[ 30 llm_cond  ] def=0 face=+x     SUCCESS    label=normal extra=1 aborted=None (348s, 190/360)
+[ 31 llm       ] def=1 face=-y     SUCCESS    label=defective extra=0 aborted=None (349s, 191/360)
+[ 31 llm_cond  ] def=1 face=-y     SUCCESS    label=defective extra=0 aborted=None (349s, 192/360)
+[ 32 none      ] def=0 face=bottom FAILURE    label=None extra=0 aborted=inspection_unknown (349s, 193/360)
+[ 32 fixed     ] def=0 face=bottom SUCCESS    label=normal extra=1 aborted=None (350s, 194/360)
+[ 32 coverage_cond] def=0 face=bottom SUCCESS    label=normal extra=2 aborted=None (350s, 195/360)
+[ 32 coverage  ] def=0 face=bottom SUCCESS    label=normal extra=2 aborted=None (350s, 196/360)
+[ 33 none      ] def=1 face=-x     SUCCESS    label=defective extra=0 aborted=None (352s, 197/360)
+[ 33 fixed     ] def=1 face=-x     SUCCESS    label=defective extra=0 aborted=None (352s, 198/360)
+[ 33 coverage_cond] def=1 face=-x     SUCCESS    label=defective extra=0 aborted=None (353s, 199/360)
+[ 33 coverage  ] def=1 face=-x     SUCCESS    label=defective extra=0 aborted=None (353s, 200/360)
+[ 33 llm       ] def=1 face=-x     SUCCESS    label=defective extra=0 aborted=None (354s, 201/360)
+[ 33 llm_cond  ] def=1 face=-x     SUCCESS    label=defective extra=0 aborted=None (354s, 202/360)
+[ 34 none      ] def=0 face=-y     FAILURE    label=None extra=0 aborted=inspection_unknown (356s, 203/360)
+[ 34 fixed     ] def=0 face=-y     FAILURE    label=None extra=4 aborted=inspection_unknown (357s, 204/360)
+[ 34 coverage  ] def=0 face=-y     FAILURE    label=None extra=4 aborted=inspection_unknown (358s, 205/360)
+[ 34 coverage_cond] def=0 face=-y     FAILURE    label=None extra=4 aborted=inspection_unknown (359s, 206/360)
+[ 32 llm_cond  ] def=0 face=bottom SUCCESS    label=normal extra=2 aborted=None (370s, 207/360)
+[ 32 llm       ] def=0 face=bottom SUCCESS    label=normal extra=2 aborted=None (370s, 208/360)
+[ 35 none      ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (372s, 209/360)
+[ 35 fixed     ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (372s, 210/360)
+[ 35 coverage  ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (373s, 211/360)
+[ 35 coverage_cond] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (374s, 212/360)
+[ 35 llm       ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (375s, 213/360)
+[ 35 llm_cond  ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (376s, 214/360)
+[ 36 none      ] def=0 face=+x     FAILURE    label=None extra=0 aborted=inspection_unknown (377s, 215/360)
+[ 36 fixed     ] def=0 face=+x     SUCCESS    label=normal extra=2 aborted=None (378s, 216/360)
+[ 36 coverage  ] def=0 face=+x     SUCCESS    label=normal extra=1 aborted=None (379s, 217/360)
+[ 36 coverage_cond] def=0 face=+x     SUCCESS    label=normal extra=1 aborted=None (380s, 218/360)
+[ 36 llm       ] def=0 face=+x     SUCCESS    label=normal extra=1 aborted=None (392s, 219/360)
+[ 36 llm_cond  ] def=0 face=+x     SUCCESS    label=normal extra=1 aborted=None (392s, 220/360)
+[ 37 none      ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (393s, 221/360)
+[ 37 fixed     ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (393s, 222/360)
+[ 37 coverage  ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (394s, 223/360)
+[ 37 coverage_cond] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (394s, 224/360)
+[ 37 llm       ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (395s, 225/360)
+[ 37 llm_cond  ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (395s, 226/360)
+[ 38 none      ] def=0 face=+x     FAILURE    label=None extra=0 aborted=inspection_unknown (396s, 227/360)
+[ 38 fixed     ] def=0 face=+x     SUCCESS    label=normal extra=3 aborted=None (398s, 228/360)
+[ 34 llm_cond  ] def=0 face=-y     FAILURE    label=None extra=3 aborted=inspection_unknown (398s, 229/360)
+[ 34 llm       ] def=0 face=-y     FAILURE    label=None extra=4 aborted=inspection_unknown (398s, 230/360)
+[ 38 coverage  ] def=0 face=+x     SUCCESS    label=normal extra=1 aborted=None (398s, 231/360)
+[ 38 coverage_cond] def=0 face=+x     SUCCESS    label=normal extra=1 aborted=None (400s, 232/360)
+[ 39 none      ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (400s, 233/360)
+[ 39 fixed     ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (401s, 234/360)
+[ 39 coverage  ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (401s, 235/360)
+[ 39 coverage_cond] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (403s, 236/360)
+[ 39 llm       ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (403s, 237/360)
+[ 40 none      ] def=0 face=+x     FAILURE    label=None extra=0 aborted=inspection_unknown (404s, 238/360)
+[ 39 llm_cond  ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (404s, 239/360)
+[ 40 fixed     ] def=0 face=+x     FAILURE    label=None extra=4 aborted=inspection_unknown (406s, 240/360)
+[ 40 coverage  ] def=0 face=+x     FAILURE    label=None extra=4 aborted=inspection_unknown (406s, 241/360)
+[ 40 coverage_cond] def=0 face=+x     FAILURE    label=None extra=4 aborted=inspection_unknown (408s, 242/360)
+[ 38 llm       ] def=0 face=+x     SUCCESS    label=normal extra=1 aborted=None (410s, 243/360)
+[ 41 none      ] def=1 face=-x     SUCCESS    label=defective extra=0 aborted=None (412s, 244/360)
+[ 41 fixed     ] def=1 face=-x     SUCCESS    label=defective extra=0 aborted=None (413s, 245/360)
+[ 41 coverage  ] def=1 face=-x     SUCCESS    label=defective extra=0 aborted=None (415s, 246/360)
+[ 41 coverage_cond] def=1 face=-x     SUCCESS    label=defective extra=0 aborted=None (416s, 247/360)
+[ 41 llm       ] def=1 face=-x     SUCCESS    label=defective extra=0 aborted=None (418s, 248/360)
+[ 41 llm_cond  ] def=1 face=-x     SUCCESS    label=defective extra=0 aborted=None (419s, 249/360)
+[ 42 none      ] def=0 face=-y     FAILURE    label=None extra=0 aborted=inspection_unknown (420s, 250/360)
+[ 42 fixed     ] def=0 face=-y     SUCCESS    label=normal extra=3 aborted=None (423s, 251/360)
+[ 42 coverage  ] def=0 face=-y     FAILURE    label=None extra=4 aborted=inspection_unknown (425s, 252/360)
+[ 42 coverage_cond] def=0 face=-y     SUCCESS    label=normal extra=1 aborted=None (427s, 253/360)
+[ 38 llm_cond  ] def=0 face=+x     SUCCESS    label=normal extra=3 aborted=None (430s, 254/360)
+[ 42 llm_cond  ] def=0 face=-y     SUCCESS    label=normal extra=1 aborted=None (441s, 255/360)
+[ 43 none      ] def=1 face=bottom FAILURE    label=None extra=0 aborted=inspection_unknown (442s, 256/360)
+[ 43 fixed     ] def=1 face=bottom SUCCESS    label=defective extra=1 aborted=None (443s, 257/360)
+[ 43 coverage  ] def=1 face=bottom SUCCESS    label=defective extra=1 aborted=None (445s, 258/360)
+[ 43 coverage_cond] def=1 face=bottom SUCCESS    label=defective extra=1 aborted=None (447s, 259/360)
+[ 40 llm_cond  ] def=0 face=+x     FAILURE    label=None extra=3 aborted=inspection_unknown (447s, 260/360)
+[ 40 llm       ] def=0 face=+x     FAILURE    label=None extra=3 aborted=inspection_unknown (448s, 261/360)
+[ 44 none      ] def=0 face=bottom FAILURE    label=None extra=0 aborted=inspection_unknown (449s, 262/360)
+[ 44 fixed     ] def=0 face=bottom FAILURE    label=None extra=4 aborted=inspection_unknown (451s, 263/360)
+[ 44 coverage  ] def=0 face=bottom FAILURE    label=None extra=4 aborted=inspection_unknown (453s, 264/360)
+[ 44 coverage_cond] def=0 face=bottom FAILURE    label=None extra=4 aborted=inspection_unknown (455s, 265/360)
+[ 42 llm       ] def=0 face=-y     FAILURE    label=None extra=4 aborted=inspection_unknown (456s, 266/360)
+[ 43 llm       ] def=1 face=bottom SUCCESS    label=defective extra=1 aborted=None (457s, 267/360)
+[ 43 llm_cond  ] def=1 face=bottom SUCCESS    label=defective extra=1 aborted=None (457s, 268/360)
+[ 45 none      ] def=1 face=+x     SUCCESS    label=defective extra=0 aborted=None (458s, 269/360)
+[ 45 fixed     ] def=1 face=+x     SUCCESS    label=defective extra=0 aborted=None (458s, 270/360)
+[ 45 coverage  ] def=1 face=+x     SUCCESS    label=defective extra=0 aborted=None (459s, 271/360)
+[ 45 coverage_cond] def=1 face=+x     SUCCESS    label=defective extra=0 aborted=None (459s, 272/360)
+[ 45 llm       ] def=1 face=+x     SUCCESS    label=defective extra=0 aborted=None (461s, 273/360)
+[ 45 llm_cond  ] def=1 face=+x     SUCCESS    label=defective extra=0 aborted=None (461s, 274/360)
+[ 46 none      ] def=0 face=bottom FAILURE    label=None extra=0 aborted=inspection_unknown (462s, 275/360)
+[ 46 fixed     ] def=0 face=bottom SUCCESS    label=normal extra=3 aborted=None (463s, 276/360)
+[ 46 coverage  ] def=0 face=bottom SUCCESS    label=normal extra=2 aborted=None (464s, 277/360)
+[ 46 coverage_cond] def=0 face=bottom SUCCESS    label=normal extra=2 aborted=None (466s, 278/360)
+[ 46 llm       ] def=0 face=bottom SUCCESS    label=normal extra=2 aborted=None (478s, 279/360)
+[ 47 none      ] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (480s, 280/360)
+[ 47 fixed     ] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (481s, 281/360)
+[ 47 coverage  ] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (483s, 282/360)
+[ 46 llm_cond  ] def=0 face=bottom FAILURE    label=None extra=1 aborted=inspection_unknown (484s, 283/360)
+[ 44 llm_cond  ] def=0 face=bottom FAILURE    label=None extra=3 aborted=inspection_unknown (484s, 284/360)
+[ 47 coverage_cond] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (484s, 285/360)
+[ 44 llm       ] def=0 face=bottom FAILURE    label=None extra=4 aborted=inspection_unknown (485s, 286/360)
+[ 47 llm       ] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (485s, 287/360)
+[ 48 none      ] def=0 face=bottom FAILURE    label=None extra=0 aborted=inspection_unknown (485s, 288/360)
+[ 47 llm_cond  ] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (486s, 289/360)
+[ 48 coverage  ] def=0 face=bottom SUCCESS    label=normal extra=1 aborted=None (487s, 290/360)
+[ 48 fixed     ] def=0 face=bottom SUCCESS    label=normal extra=3 aborted=None (487s, 291/360)
+[ 48 coverage_cond] def=0 face=bottom SUCCESS    label=normal extra=1 aborted=None (487s, 292/360)
+[ 49 fixed     ] def=1 face=-y     SUCCESS    label=defective extra=0 aborted=None (489s, 293/360)
+[ 49 none      ] def=1 face=-y     SUCCESS    label=defective extra=0 aborted=None (489s, 294/360)
+[ 49 coverage_cond] def=1 face=-y     SUCCESS    label=defective extra=0 aborted=None (491s, 295/360)
+[ 49 coverage  ] def=1 face=-y     SUCCESS    label=defective extra=0 aborted=None (492s, 296/360)
+[ 48 llm       ] def=0 face=bottom SUCCESS    label=normal extra=1 aborted=None (493s, 297/360)
+[ 49 llm       ] def=1 face=-y     SUCCESS    label=defective extra=0 aborted=None (494s, 298/360)
+[ 49 llm_cond  ] def=1 face=-y     SUCCESS    label=defective extra=0 aborted=None (494s, 299/360)
+[ 50 none      ] def=0 face=-x     FAILURE    label=None extra=0 aborted=inspection_unknown (494s, 300/360)
+[ 48 llm_cond  ] def=0 face=bottom SUCCESS    label=normal extra=2 aborted=None (495s, 301/360)
+[ 50 coverage  ] def=0 face=-x     FAILURE    label=None extra=4 aborted=inspection_unknown (495s, 302/360)
+[ 50 fixed     ] def=0 face=-x     SUCCESS    label=normal extra=1 aborted=None (496s, 303/360)
+[ 50 coverage_cond] def=0 face=-x     SUCCESS    label=normal extra=1 aborted=None (496s, 304/360)
+[ 51 none      ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (497s, 305/360)
+[ 51 fixed     ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (498s, 306/360)
+[ 51 coverage  ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (499s, 307/360)
+[ 51 coverage_cond] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (499s, 308/360)
+[ 51 llm       ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (500s, 309/360)
+[ 51 llm_cond  ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (501s, 310/360)
+[ 52 none      ] def=0 face=-x     FAILURE    label=None extra=0 aborted=inspection_unknown (501s, 311/360)
+[ 52 fixed     ] def=0 face=-x     SUCCESS    label=normal extra=1 aborted=None (502s, 312/360)
+[ 52 coverage  ] def=0 face=-x     FAILURE    label=None extra=4 aborted=inspection_unknown (503s, 313/360)
+[ 52 coverage_cond] def=0 face=-x     SUCCESS    label=normal extra=1 aborted=None (504s, 314/360)
+[ 50 llm_cond  ] def=0 face=-x     SUCCESS    label=normal extra=1 aborted=None (504s, 315/360)
+[ 50 llm       ] def=0 face=-x     FAILURE    label=None extra=2 aborted=inspection_unknown (505s, 316/360)
+[ 53 none      ] def=1 face=-x     SUCCESS    label=defective extra=0 aborted=None (505s, 317/360)
+[ 53 fixed     ] def=1 face=-x     SUCCESS    label=defective extra=0 aborted=None (506s, 318/360)
+[ 53 coverage  ] def=1 face=-x     SUCCESS    label=defective extra=0 aborted=None (507s, 319/360)
+[ 53 coverage_cond] def=1 face=-x     SUCCESS    label=defective extra=0 aborted=None (507s, 320/360)
+[ 53 llm       ] def=1 face=-x     SUCCESS    label=defective extra=0 aborted=None (508s, 321/360)
+[ 53 llm_cond  ] def=1 face=-x     SUCCESS    label=defective extra=0 aborted=None (509s, 322/360)
+[ 54 none      ] def=0 face=-x     FAILURE    label=None extra=0 aborted=inspection_unknown (509s, 323/360)
+[ 52 llm_cond  ] def=0 face=-x     SUCCESS    label=normal extra=1 aborted=None (509s, 324/360)
+[ 52 llm       ] def=0 face=-x     FAILURE    label=None extra=4 aborted=inspection_unknown (511s, 325/360)
+[ 54 fixed     ] def=0 face=-x     SUCCESS    label=normal extra=1 aborted=None (511s, 326/360)
+[ 54 coverage  ] def=0 face=-x     SUCCESS    label=normal extra=1 aborted=None (512s, 327/360)
+[ 54 coverage_cond] def=0 face=-x     SUCCESS    label=normal extra=1 aborted=None (512s, 328/360)
+[ 55 none      ] def=1 face=bottom FAILURE    label=None extra=0 aborted=inspection_unknown (513s, 329/360)
+[ 55 fixed     ] def=1 face=bottom FAILURE    label=None extra=4 aborted=inspection_unknown (513s, 330/360)
+[ 55 coverage  ] def=1 face=bottom SUCCESS    label=defective extra=4 aborted=None (515s, 331/360)
+[ 55 coverage_cond] def=1 face=bottom FAILURE    label=None extra=4 aborted=inspection_unknown (515s, 332/360)
+[ 54 llm       ] def=0 face=-x     SUCCESS    label=normal extra=1 aborted=None (517s, 333/360)
+[ 54 llm_cond  ] def=0 face=-x     SUCCESS    label=normal extra=1 aborted=None (517s, 334/360)
+[ 56 none      ] def=0 face=top    FAILURE    label=None extra=0 aborted=inspection_unknown (518s, 335/360)
+[ 56 fixed     ] def=0 face=top    SUCCESS    label=normal extra=1 aborted=None (519s, 336/360)
+[ 56 coverage  ] def=0 face=top    SUCCESS    label=normal extra=1 aborted=None (520s, 337/360)
+[ 56 coverage_cond] def=0 face=top    SUCCESS    label=normal extra=1 aborted=None (521s, 338/360)
+[ 55 llm_cond  ] def=1 face=bottom FAILURE    label=None extra=2 aborted=inspection_unknown (525s, 339/360)
+[ 55 llm       ] def=1 face=bottom FAILURE    label=None extra=3 aborted=inspection_unknown (525s, 340/360)
+[ 56 llm       ] def=0 face=top    SUCCESS    label=normal extra=1 aborted=None (526s, 341/360)
+[ 56 llm_cond  ] def=0 face=top    SUCCESS    label=normal extra=1 aborted=None (526s, 342/360)
+[ 57 none      ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (527s, 343/360)
+[ 57 fixed     ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (527s, 344/360)
+[ 57 coverage  ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (528s, 345/360)
+[ 57 coverage_cond] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (528s, 346/360)
+[ 57 llm       ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (528s, 347/360)
+[ 57 llm_cond  ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (529s, 348/360)
+[ 58 none      ] def=0 face=bottom FAILURE    label=None extra=0 aborted=inspection_unknown (529s, 349/360)
+[ 58 fixed     ] def=0 face=bottom FAILURE    label=None extra=4 aborted=inspection_unknown (530s, 350/360)
+[ 58 coverage  ] def=0 face=bottom FAILURE    label=None extra=4 aborted=inspection_unknown (530s, 351/360)
+[ 58 coverage_cond] def=0 face=bottom FAILURE    label=None extra=3 aborted=inspection_unknown (530s, 352/360)
+[ 59 none      ] def=1 face=-x     SUCCESS    label=defective extra=0 aborted=None (531s, 353/360)
+[ 59 fixed     ] def=1 face=-x     SUCCESS    label=defective extra=0 aborted=None (531s, 354/360)
+[ 59 coverage  ] def=1 face=-x     SUCCESS    label=defective extra=0 aborted=None (532s, 355/360)
+[ 59 coverage_cond] def=1 face=-x     SUCCESS    label=defective extra=0 aborted=None (533s, 356/360)
+[ 59 llm       ] def=1 face=-x     SUCCESS    label=defective extra=0 aborted=None (534s, 357/360)
+[ 59 llm_cond  ] def=1 face=-x     SUCCESS    label=defective extra=0 aborted=None (534s, 358/360)
+[ 58 llm       ] def=0 face=bottom FAILURE    label=None extra=4 aborted=inspection_unknown (540s, 359/360)
+[ 58 llm_cond  ] def=0 face=bottom FAILURE    label=None extra=3 aborted=inspection_unknown (541s, 360/360)
+{
+  "policies": {
+    "none": {
+      "n": 60,
+      "known_rate": 0.45,
+      "known_rate_defective": 0.9,
+      "known_rate_normal": 0.0,
+      "accuracy_of_known": 1.0,
+      "inspection_unknown_rate": 0.55,
+      "success_rate": 0.45,
+      "success_with_correct_label_rate": 0.45,
+      "success_but_aborted": 0,
+      "verdicts": {
+        "FAILURE": 33,
+        "SUCCESS": 27
+      },
+      "aborted": {
+        "inspection_unknown": 33,
+        "None": 27
+      },
+      "mean_extra_poses": 0.0,
+      "truncated_rate": 0.0,
+      "mean_frames": 521.4,
+      "mean_wall_s": 1.3
+    },
+    "fixed": {
+      "n": 60,
+      "known_rate": 0.85,
+      "known_rate_defective": 0.967,
+      "known_rate_normal": 0.733,
+      "accuracy_of_known": 1.0,
+      "inspection_unknown_rate": 0.15,
+      "success_rate": 0.85,
+      "success_with_correct_label_rate": 0.85,
+      "success_but_aborted": 0,
+      "verdicts": {
+        "SUCCESS": 51,
+        "FAILURE": 9
+      },
+      "aborted": {
+        "None": 51,
+        "inspection_unknown": 9
+      },
+      "mean_extra_poses": 1.25,
+      "truncated_rate": 0.0,
+      "mean_frames": 869.3,
+      "mean_wall_s": 1.89
+    },
+    "coverage": {
+      "n": 60,
+      "known_rate": 0.783,
+      "known_rate_defective": 1.0,
+      "known_rate_normal": 0.567,
+      "accuracy_of_known": 1.0,
+      "inspection_unknown_rate": 0.217,
+      "success_rate": 0.8,
+      "success_with_correct_label_rate": 0.783,
+      "success_but_aborted": 1,
+      "verdicts": {
+        "SUCCESS": 48,
+        "FAILURE": 12
+      },
+      "aborted": {
+        "None": 47,
+        "inspection_unknown": 13
+      },
+      "mean_extra_poses": 1.35,
+      "truncated_rate": 0.0,
+      "mean_frames": 797.7,
+      "mean_wall_s": 1.81
+    },
+    "coverage_cond": {
+      "n": 60,
+      "known_rate": 0.85,
+      "known_rate_defective": 0.967,
+      "known_rate_normal": 0.733,
+      "accuracy_of_known": 1.0,
+      "inspection_unknown_rate": 0.15,
+      "success_rate": 0.85,
+      "success_with_correct_label_rate": 0.85,
+      "success_but_aborted": 0,
+      "verdicts": {
+        "SUCCESS": 51,
+        "FAILURE": 9
+      },
+      "aborted": {
+        "None": 51,
+        "inspection_unknown": 9
+      },
+      "mean_extra_poses": 1.05,
+      "truncated_rate": 0.0,
+      "mean_frames": 860.9,
+      "mean_wall_s": 1.87
+    },
+    "llm": {
+      "n": 60,
+      "known_rate": 0.767,
+      "known_rate_defective": 0.967,
+      "known_rate_normal": 0.567,
+      "accuracy_of_known": 1.0,
+      "inspection_unknown_rate": 0.233,
+      "success_rate": 0.767,
+      "success_with_correct_label_rate": 0.767,
+      "success_but_aborted": 0,
+      "verdicts": {
+        "SUCCESS": 46,
+        "FAILURE": 14
+      },
+      "aborted": {
+        "None": 46,
+        "inspection_unknown": 14
+      },
+      "mean_extra_poses": 1.317,
+      "truncated_rate": 0.0,
+      "mean_frames": 783.7,
+      "mean_wall_s": 14.24,
+      "llm": {
+        "calls": 83,
+        "calls_per_episode": 1.38,
+        "transport_errors": 0,
+        "invalid_outputs": 0,
+        "invalid_output_rate": 0.0,
+        "decision_failures_after_repair": 0,
+        "latency_s_mean": 8.897,
+        "latency_s_p50": 6.172,
+        "latency_s_p95": 23.381,
+        "prompt_tokens_mean": 5715.8,
+        "completion_tokens_mean": 56.3
+      }
+    },
+    "llm_cond": {
+      "n": 60,
+      "known_rate": 0.833,
+      "known_rate_defective": 0.967,
+      "known_rate_normal": 0.7,
+      "accuracy_of_known": 1.0,
+      "inspection_unknown_rate": 0.167,
+      "success_rate": 0.833,
+      "success_with_correct_label_rate": 0.833,
+      "success_but_aborted": 0,
+      "verdicts": {
+        "SUCCESS": 50,
+        "FAILURE": 10
+      },
+      "aborted": {
+        "None": 50,
+        "inspection_unknown": 10
+      },
+      "mean_extra_poses": 0.967,
+      "truncated_rate": 0.0,
+      "mean_frames": 884.4,
+      "mean_wall_s": 13.08,
+      "llm": {
+        "calls": 68,
+        "calls_per_episode": 1.13,
+        "transport_errors": 0,
+        "invalid_outputs": 0,
+        "invalid_output_rate": 0.0,
+        "decision_failures_after_repair": 0,
+        "latency_s_mean": 9.812,
+        "latency_s_p50": 7.627,
+        "latency_s_p95": 26.719,
+        "prompt_tokens_mean": 4958.7,
+        "completion_tokens_mean": 55.4
+      }
+    }
+  },
+  "config": {
+    "n": 60,
+    "seed": 7,
+    "max_extra_shows": 4,
+    "max_frames": 1600,
+    "grid": "E:\\digital_twin_armigo\\results\\inspection-visibility\\base-poses\\pose_grid.jsonl",
+    "menu_size": 88,
+    "table_layouts": 60,
+    "fixed_poses": [
+      [
+        0.0,
+        120.0
+      ],
+      [
+        0.8,
+        90.0
+      ],
+      [
+        0.4,
+        -150.0
+      ],
+      [
+        0.8,
+        -90.0
+      ]
+    ],
+    "llm": {
+      "base_url": "http://localhost:8000/v1",
+      "model": "qwen3.8-vllm",
+      "enable_thinking": false,
+      "max_tokens": 512
+    },
+    "workers": 4,
+    "wall_s": 542.4
+  }
+}

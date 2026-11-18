@@ -1,0 +1,35 @@
+{
+  "counts": {
+    "scan_vertical": 56,
+    "over_bowl": 88,
+    "relocate": 30,
+    "scan_outside": 32,
+    "unreachable": 54
+  },
+  "vertical_zone_outer_edge_m_by_azimuth": {
+    "-90": 0.26,
+    "-75": null,
+    "-60": null,
+    "-45": null,
+    "-30": 0.26,
+    "-15": 0.26,
+    "0": 0.12,
+    "15": 0.1,
+    "30": 0.1,
+    "45": 0.12,
+    "60": 0.26,
+    "75": 0.26,
+    "90": 0.26
+  },
+  "vertical_zone_radius_band_m": [
+    0.08,
+    0.26
+  ],
+  "relocate_carry_m": {
+    "min": 0.04,
+    "median": 0.13,
+    "max": 0.3
+  },
+  "graspable_outer_radius_m": 0.38,
+  "over_bowl_positions": 88
+}

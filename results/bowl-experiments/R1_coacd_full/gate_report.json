@@ -1,0 +1,47 @@
+{
+  "id": "R1_coacd_full",
+  "passed": false,
+  "failed_gate": "G0",
+  "detail": {
+    "missing_area_frac": 0.0,
+    "flat_floor_r_mm": 60.0,
+    "flat_min_mm": 3.0001017772111895,
+    "flat_max_mm": 5.193777856142889,
+    "basin_min_mm": 3.0001017772111895,
+    "rim_min_mm": 21.921760102525514,
+    "rim_max_mm": 22.00000001488657,
+    "wall_devs_mm": {
+      "6": 7.375364637872323,
+      "12": 5.501289369306278,
+      "18": 4.2751673920750335
+    },
+    "max_wall_dev_mm": 7.375364637872323,
+    "wall_miss": 0,
+    "protrusion_mm": 0.0025612763108284753
+  },
+  "wall_s": 0.036,
+  "gates": [
+    {
+      "gate": "G0",
+      "passed": false,
+      "wall_s": 0.036,
+      "detail": {
+        "missing_area_frac": 0.0,
+        "flat_floor_r_mm": 60.0,
+        "flat_min_mm": 3.0001017772111895,
+        "flat_max_mm": 5.193777856142889,
+        "basin_min_mm": 3.0001017772111895,
+        "rim_min_mm": 21.921760102525514,
+        "rim_max_mm": 22.00000001488657,
+        "wall_devs_mm": {
+          "6": 7.375364637872323,
+          "12": 5.501289369306278,
+          "18": 4.2751673920750335
+        },
+        "max_wall_dev_mm": 7.375364637872323,
+        "wall_miss": 0,
+        "protrusion_mm": 0.0025612763108284753
+      }
+    }
+  ]
+}

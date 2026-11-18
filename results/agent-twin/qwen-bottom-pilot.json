@@ -1,0 +1,122 @@
+{
+  "model": "qwen3.8-vllm",
+  "rows": [
+    {
+      "seed": 772405,
+      "defective": true,
+      "qwen": "cross_visible",
+      "v6_score": 1.2477269544180005,
+      "latency_s": 1.432
+    },
+    {
+      "seed": 772402,
+      "defective": true,
+      "qwen": "cross_visible",
+      "v6_score": 1.1197953332412507,
+      "latency_s": 1.274
+    },
+    {
+      "seed": 772401,
+      "defective": true,
+      "qwen": "cross_visible",
+      "v6_score": 1.3046806527952144,
+      "latency_s": 1.275
+    },
+    {
+      "seed": 772403,
+      "defective": true,
+      "qwen": "cross_visible",
+      "v6_score": 0.9641024325642288,
+      "latency_s": 1.284
+    },
+    {
+      "seed": 772406,
+      "defective": false,
+      "qwen": "no_cross_visible",
+      "v6_score": -0.07238048141551635,
+      "latency_s": 0.982
+    },
+    {
+      "seed": 772401,
+      "defective": false,
+      "qwen": "no_cross_visible",
+      "v6_score": 0.07020421304517534,
+      "latency_s": 1.571
+    },
+    {
+      "seed": 772405,
+      "defective": false,
+      "qwen": "no_cross_visible",
+      "v6_score": -0.34408283835871784,
+      "latency_s": 1.062
+    },
+    {
+      "seed": 772404,
+      "defective": false,
+      "qwen": "no_cross_visible",
+      "v6_score": -0.29725333307695734,
+      "latency_s": 1.639
+    },
+    {
+      "seed": 772403,
+      "defective": false,
+      "qwen": "no_cross_visible",
+      "v6_score": -0.3671935033029633,
+      "latency_s": 1.65
+    },
+    {
+      "seed": 772402,
+      "defective": false,
+      "qwen": "no_cross_visible",
+      "v6_score": -0.300902385436575,
+      "latency_s": 1.538
+    },
+    {
+      "seed": 772407,
+      "defective": true,
+      "qwen": "cross_visible",
+      "v6_score": 1.017621867171955,
+      "latency_s": 0.874
+    },
+    {
+      "seed": 772400,
+      "defective": false,
+      "qwen": "no_cross_visible",
+      "v6_score": 0.13211849457139244,
+      "latency_s": 1.068
+    },
+    {
+      "seed": 772400,
+      "defective": true,
+      "qwen": "cross_visible",
+      "v6_score": 0.9349100136872871,
+      "latency_s": 1.476
+    },
+    {
+      "seed": 772406,
+      "defective": true,
+      "qwen": "cross_visible",
+      "v6_score": 1.283499797193884,
+      "latency_s": 1.496
+    },
+    {
+      "seed": 772407,
+      "defective": false,
+      "qwen": "no_cross_visible",
+      "v6_score": -0.47423237251841593,
+      "latency_s": 1.616
+    },
+    {
+      "seed": 772404,
+      "defective": true,
+      "qwen": "cross_visible",
+      "v6_score": 0.8601878243459316,
+      "latency_s": 0.97
+    }
+  ],
+  "positives": 8,
+  "detects": 8,
+  "negatives": 8,
+  "false_alarms": 0,
+  "non_decisions": 0
+}

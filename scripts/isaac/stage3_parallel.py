@@ -40,6 +40,9 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
 from digital_twin_armigo.camera import opengl_axes
 from digital_twin_armigo.constants import TOP_CROP, TOP_FULL
+from digital_twin_armigo.physics import load_physics_spec
+
+_PHYS = load_physics_spec()
 
 USD_ASSETS = ROOT / "assets"
 OUT_DIR = ROOT / "results" / "stage3"
@@ -66,6 +69,13 @@ class ParallelCellSceneCfg(InteractiveSceneCfg):
 			size=(1.1, 1.1, 0.02),
 			rigid_props=sim_utils.RigidBodyPropertiesCfg(kinematic_enabled=True),
 			collision_props=sim_utils.UsdPhysicsCollisionCfg(),
+			physics_material=sim_utils.RigidBodyMaterialCfg(
+				static_friction=_PHYS.table.static_friction,
+				dynamic_friction=_PHYS.table.dynamic_friction,
+				restitution=_PHYS.table.restitution,
+				friction_combine_mode="max",
+				restitution_combine_mode="max",
+			),
 			visual_material=sim_utils.PreviewSurfaceCfg(diffuse_color=(0.66, 0.66, 0.66), roughness=0.85),
 		),
 		init_state=RigidObjectCfg.InitialStateCfg(pos=(0.25, 0.0, -0.01)),
@@ -93,12 +103,28 @@ class ParallelCellSceneCfg(InteractiveSceneCfg):
 			}
 		),
 		actuators={
-			"sts3215": ImplicitActuatorCfg(
-				joint_names_expr=[".*"],
-				stiffness=350.0,
-				damping=30.0,
-				effort_limit_sim=2.94,
-			)
+			"sts3215_arm": ImplicitActuatorCfg(
+				joint_names_expr=["shoulder_pan", "shoulder_lift", "elbow_flex", "wrist_flex", "wrist_roll"],
+				stiffness=_PHYS.arm_actuator.stiffness,
+				damping=_PHYS.arm_actuator.damping,
+				effort_limit_sim=_PHYS.arm_actuator.effort_limit,
+				velocity_limit_sim=_PHYS.arm_actuator.velocity_limit,
+				armature=_PHYS.arm_actuator.armature,
+				friction=_PHYS.arm_actuator.frictionloss,
+				dynamic_friction=_PHYS.arm_actuator.frictionloss,
+				viscous_friction=_PHYS.arm_actuator.joint_damping,
+			),
+			"sts3215_gripper": ImplicitActuatorCfg(
+				joint_names_expr=["gripper"],
+				stiffness=_PHYS.gripper_actuator.stiffness,
+				damping=_PHYS.gripper_actuator.damping,
+				effort_limit_sim=_PHYS.gripper_actuator.effort_limit,
+				velocity_limit_sim=_PHYS.gripper_actuator.velocity_limit,
+				armature=_PHYS.gripper_actuator.armature,
+				friction=_PHYS.gripper_actuator.frictionloss,
+				dynamic_friction=_PHYS.gripper_actuator.frictionloss,
+				viscous_friction=_PHYS.gripper_actuator.joint_damping,
+			),
 		},
 	)
 	green_plate = RigidObjectCfg(

@@ -1,0 +1,200 @@
+{
+  "n_episodes": 60,
+  "n_reached_show": 60,
+  "verdicts": {
+    "FAILURE": 34,
+    "SUCCESS": 26
+  },
+  "aborted": {
+    "inspection_unknown": 33,
+    "None": 27
+  },
+  "labels": {
+    "defective": {
+      "defective": 27,
+      "None": 3
+    },
+    "normal": {
+      "None": 30
+    }
+  },
+  "wrong_labels": 0,
+  "face_coverage_base_poses": {
+    "top": {
+      "+x": 0.883,
+      "-x": 0.467,
+      "+y": 0.617,
+      "-y": 0.483,
+      "top": 0.717,
+      "bottom": 0.0
+    },
+    "wrist_cam": {
+      "+x": 0.417,
+      "-x": 0.533,
+      "+y": 0.5,
+      "-y": 0.05,
+      "top": 1.0,
+      "bottom": 0.0
+    },
+    "either": {
+      "+x": 0.883,
+      "-x": 0.683,
+      "+y": 0.783,
+      "-y": 0.533,
+      "top": 1.0,
+      "bottom": 0.0
+    }
+  },
+  "defect_visible_by_face": {
+    "+x": "3/3",
+    "+y": "10/10",
+    "-x": "3/3",
+    "-y": "5/5",
+    "bottom": "0/3",
+    "top": "6/6"
+  },
+  "grid_face_reachable": {
+    "+x": 0.983,
+    "-x": 0.983,
+    "+y": 1.0,
+    "-y": 0.983,
+    "top": 1.0,
+    "bottom": 0.783
+  },
+  "grid_best_poses_per_face": {
+    "+x": [
+      {
+        "flex": 0.8,
+        "roll_deg": 0,
+        "camera": "top",
+        "episodes": 40
+      },
+      {
+        "flex": 1.2,
+        "roll_deg": 0,
+        "camera": "top",
+        "episodes": 38
+      },
+      {
+        "flex": 0.8,
+        "roll_deg": 60,
+        "camera": "top",
+        "episodes": 37
+      }
+    ],
+    "-x": [
+      {
+        "flex": 0.8,
+        "roll_deg": 150,
+        "camera": "top",
+        "episodes": 42
+      },
+      {
+        "flex": 0.4,
+        "roll_deg": 150,
+        "camera": "top",
+        "episodes": 41
+      },
+      {
+        "flex": 1.2,
+        "roll_deg": 150,
+        "camera": "top",
+        "episodes": 36
+      }
+    ],
+    "+y": [
+      {
+        "flex": 0.8,
+        "roll_deg": -120,
+        "camera": "top",
+        "episodes": 42
+      },
+      {
+        "flex": 0.4,
+        "roll_deg": -120,
+        "camera": "top",
+        "episodes": 38
+      },
+      {
+        "flex": 1.2,
+        "roll_deg": -30,
+        "camera": "top",
+        "episodes": 37
+      }
+    ],
+    "-y": [
+      {
+        "flex": 0.8,
+        "roll_deg": 60,
+        "camera": "top",
+        "episodes": 42
+      },
+      {
+        "flex": 1.2,
+        "roll_deg": 60,
+        "camera": "top",
+        "episodes": 41
+      },
+      {
+        "flex": 0.8,
+        "roll_deg": 90,
+        "camera": "top",
+        "episodes": 39
+      }
+    ],
+    "top": [
+      {
+        "flex": 1.6,
+        "roll_deg": 150,
+        "camera": "wrist_cam",
+        "episodes": 60
+      },
+      {
+        "flex": 1.6,
+        "roll_deg": 120,
+        "camera": "wrist_cam",
+        "episodes": 60
+      },
+      {
+        "flex": 1.6,
+        "roll_deg": 60,
+        "camera": "wrist_cam",
+        "episodes": 60
+      }
+    ],
+    "bottom": [
+      {
+        "flex": 0.0,
+        "roll_deg": 150,
+        "camera": "top",
+        "episodes": 46
+      },
+      {
+        "flex": 0.0,
+        "roll_deg": 120,
+        "camera": "top",
+        "episodes": 46
+      },
+      {
+        "flex": 0.0,
+        "roll_deg": 90,
+        "camera": "top",
+        "episodes": 45
+      }
+    ]
+  },
+  "grid_safe_pose_fraction": 1.0,
+  "config": {
+    "n": 60,
+    "seed": 2026,
+    "stop_when_known": false,
+    "extra_show_poses": [],
+    "cameras": [
+      "top",
+      "wrist_cam"
+    ],
+    "min_face_px": 60,
+    "min_defect_px": 25,
+    "max_frames": 900
+  }
+}

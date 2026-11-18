@@ -1,0 +1,1321 @@
+{
+  "device": "cuda",
+  "torch": "2.11.0+cu128",
+  "input_size": 224,
+  "val_quantile": 0.95,
+  "data": {
+    "n_fit": 4734,
+    "n_val": 845,
+    "n_test": 5070,
+    "fit_layouts": 171,
+    "val_layouts": 30,
+    "test_layouts": 184
+  },
+  "models": {
+    "padim/top": {
+      "n_normal": 919,
+      "n_abnormal": 293,
+      "n_hidden_defect": 730,
+      "auroc": 0.4999,
+      "threshold": 33.967255,
+      "at_threshold": {
+        "precision": 0.3051,
+        "recall": 0.0614,
+        "f1": 0.1023,
+        "fpr": 0.0446,
+        "tp": 18,
+        "fp": 41,
+        "fn": 275
+      },
+      "best_f1_oracle": 0.3937,
+      "by_kind": {
+        "chip": {
+          "n_abnormal": 53,
+          "auroc": 0.5282,
+          "recall": 0.0189
+        },
+        "cross": {
+          "n_abnormal": 67,
+          "auroc": 0.4778,
+          "recall": 0.0149
+        },
+        "discolor": {
+          "n_abnormal": 82,
+          "auroc": 0.5238,
+          "recall": 0.1098
+        },
+        "scuff": {
+          "n_abnormal": 40,
+          "auroc": 0.4517,
+          "recall": 0.075
+        },
+        "tape": {
+          "n_abnormal": 51,
+          "auroc": 0.4988,
+          "recall": 0.0784
+        }
+      },
+      "by_face": {
+        "0": {
+          "n_abnormal": 50,
+          "auroc": 0.4756,
+          "recall": 0.04
+        },
+        "1": {
+          "n_abnormal": 48,
+          "auroc": 0.4812,
+          "recall": 0.0208
+        },
+        "2": {
+          "n_abnormal": 29,
+          "auroc": 0.5297,
+          "recall": 0.1379
+        },
+        "3": {
+          "n_abnormal": 40,
+          "auroc": 0.4649,
+          "recall": 0.05
+        },
+        "4": {
+          "n_abnormal": 79,
+          "auroc": 0.4854,
+          "recall": 0.038
+        },
+        "5": {
+          "n_abnormal": 47,
+          "auroc": 0.5805,
+          "recall": 0.1277
+        }
+      },
+      "by_defect_px": {
+        "25-60": {
+          "n_abnormal": 128,
+          "auroc": 0.4695,
+          "recall": 0.0625
+        },
+        "60-150": {
+          "n_abnormal": 139,
+          "auroc": 0.5232,
+          "recall": 0.0432
+        },
+        "150+": {
+          "n_abnormal": 26,
+          "auroc": 0.5248,
+          "recall": 0.1538
+        }
+      },
+      "by_camera": {
+        "top": {
+          "n_normal": 919,
+          "n_abnormal": 293,
+          "auroc": 0.4999
+        }
+      },
+      "by_virtual": {
+        "False": {
+          "auroc": 0.4276
+        },
+        "True": {
+          "auroc": 0.504
+        }
+      },
+      "hidden_defect": {
+        "auroc_vs_normal": 0.5103,
+        "frac_above_threshold": 0.0589,
+        "normal_frac_above_threshold": 0.0446,
+        "quantiles": [
+          15.6192,
+          18.7213,
+          21.5521,
+          25.479,
+          35.2737
+        ],
+        "normal_quantiles": [
+          15.998,
+          18.6902,
+          21.3405,
+          25.0969,
+          33.6059
+        ]
+      },
+      "n_fit": 1827,
+      "n_val": 335,
+      "fit_seconds": 16.4,
+      "seconds": 22.6,
+      "gpu_peak_mb": 1247
+    },
+    "padim/wrist_cam": {
+      "n_normal": 1547,
+      "n_abnormal": 578,
+      "n_hidden_defect": 1003,
+      "auroc": 0.8058,
+      "threshold": 40.45993,
+      "at_threshold": {
+        "precision": 0.8156,
+        "recall": 0.4516,
+        "f1": 0.5813,
+        "fpr": 0.0381,
+        "tp": 261,
+        "fp": 59,
+        "fn": 317
+      },
+      "best_f1_oracle": 0.6393,
+      "by_kind": {
+        "chip": {
+          "n_abnormal": 85,
+          "auroc": 0.7119,
+          "recall": 0.1765
+        },
+        "cross": {
+          "n_abnormal": 102,
+          "auroc": 0.9955,
+          "recall": 1.0
+        },
+        "discolor": {
+          "n_abnormal": 119,
+          "auroc": 0.8351,
+          "recall": 0.4538
+        },
+        "scuff": {
+          "n_abnormal": 136,
+          "auroc": 0.6519,
+          "recall": 0.2059
+        },
+        "tape": {
+          "n_abnormal": 136,
+          "auroc": 0.8505,
+          "recall": 0.4559
+        }
+      },
+      "by_face": {
+        "0": {
+          "n_abnormal": 51,
+          "auroc": 0.9488,
+          "recall": 0.4706
+        },
+        "1": {
+          "n_abnormal": 68,
+          "auroc": 0.7468,
+          "recall": 0.4559
+        },
+        "2": {
+          "n_abnormal": 85,
+          "auroc": 0.7902,
+          "recall": 0.2588
+        },
+        "4": {
+          "n_abnormal": 357,
+          "auroc": 0.8149,
+          "recall": 0.5126
+        },
+        "5": {
+          "n_abnormal": 17,
+          "auroc": 0.4996,
+          "recall": 0.0588
+        }
+      },
+      "by_defect_px": {
+        "25-60": {
+          "n_abnormal": 17,
+          "auroc": 0.454,
+          "recall": 0.0
+        },
+        "60-150": {
+          "n_abnormal": 51,
+          "auroc": 0.5771,
+          "recall": 0.0392
+        },
+        "150+": {
+          "n_abnormal": 510,
+          "auroc": 0.8404,
+          "recall": 0.5078
+        }
+      },
+      "by_camera": {
+        "wrist_cam": {
+          "n_normal": 1547,
+          "n_abnormal": 578,
+          "auroc": 0.8058
+        }
+      },
+      "by_virtual": {
+        "False": {
+          "auroc": 0.8064
+        },
+        "True": {
+          "auroc": 0.8062
+        }
+      },
+      "hidden_defect": {
+        "auroc_vs_normal": 0.5029,
+        "frac_above_threshold": 0.0568,
+        "normal_frac_above_threshold": 0.0381,
+        "quantiles": [
+          9.7883,
+          17.1066,
+          22.0378,
+          28.5698,
+          42.0427
+        ],
+        "normal_quantiles": [
+          9.2873,
+          17.8772,
+          21.9361,
+          27.5076,
+          39.1613
+        ]
+      },
+      "n_fit": 2907,
+      "n_val": 510,
+      "fit_seconds": 2.3,
+      "seconds": 8.8,
+      "gpu_peak_mb": 1366
+    },
+    "padim/pooled": {
+      "n_normal": 2466,
+      "n_abnormal": 871,
+      "n_hidden_defect": 1733,
+      "auroc": 0.6161,
+      "threshold": 38.449253,
+      "at_threshold": {
+        "precision": 0.4026,
+        "recall": 0.0712,
+        "f1": 0.121,
+        "fpr": 0.0373,
+        "tp": 62,
+        "fp": 92,
+        "fn": 809
+      },
+      "best_f1_oracle": 0.4551,
+      "by_kind": {
+        "chip": {
+          "n_abnormal": 138,
+          "auroc": 0.5688,
+          "recall": 0.058
+        },
+        "cross": {
+          "n_abnormal": 169,
+          "auroc": 0.8266,
+          "recall": 0.1302
+        },
+        "discolor": {
+          "n_abnormal": 201,
+          "auroc": 0.6088,
+          "recall": 0.0896
+        },
+        "scuff": {
+          "n_abnormal": 176,
+          "auroc": 0.5014,
+          "recall": 0.0398
+        },
+        "tape": {
+          "n_abnormal": 187,
+          "auroc": 0.5766,
+          "recall": 0.0374
+        }
+      },
+      "by_face": {
+        "0": {
+          "n_abnormal": 101,
+          "auroc": 0.7009,
+          "recall": 0.198
+        },
+        "1": {
+          "n_abnormal": 116,
+          "auroc": 0.5831,
+          "recall": 0.0431
+        },
+        "2": {
+          "n_abnormal": 114,
+          "auroc": 0.5651,
+          "recall": 0.0702
+        },
+        "3": {
+          "n_abnormal": 40,
+          "auroc": 0.7327,
+          "recall": 0.1
+        },
+        "4": {
+          "n_abnormal": 436,
+          "auroc": 0.5981,
+          "recall": 0.0275
+        },
+        "5": {
+          "n_abnormal": 64,
+          "auroc": 0.6824,
+          "recall": 0.2031
+        }
+      },
+      "by_defect_px": {
+        "25-60": {
+          "n_abnormal": 145,
+          "auroc": 0.6941,
+          "recall": 0.1172
+        },
+        "60-150": {
+          "n_abnormal": 190,
+          "auroc": 0.6683,
+          "recall": 0.0842
+        },
+        "150+": {
+          "n_abnormal": 536,
+          "auroc": 0.5765,
+          "recall": 0.0541
+        }
+      },
+      "by_camera": {
+        "top": {
+          "n_normal": 919,
+          "n_abnormal": 293,
+          "auroc": 0.4786
+        },
+        "wrist_cam": {
+          "n_normal": 1547,
+          "n_abnormal": 578,
+          "auroc": 0.7212
+        }
+      },
+      "by_virtual": {
+        "False": {
+          "auroc": 0.562
+        },
+        "True": {
+          "auroc": 0.6201
+        }
+      },
+      "hidden_defect": {
+        "auroc_vs_normal": 0.52,
+        "frac_above_threshold": 0.0617,
+        "normal_frac_above_threshold": 0.0373,
+        "quantiles": [
+          9.7155,
+          15.7161,
+          21.4443,
+          28.0248,
+          40.421
+        ],
+        "normal_quantiles": [
+          9.2549,
+          15.4195,
+          20.8732,
+          27.0062,
+          36.4753
+        ]
+      },
+      "n_fit": 4734,
+      "n_val": 845,
+      "fit_seconds": 5.8,
+      "seconds": 23.1,
+      "gpu_peak_mb": 1380
+    },
+    "patchcore/top": {
+      "n_normal": 919,
+      "n_abnormal": 293,
+      "n_hidden_defect": 730,
+      "auroc": 0.6292,
+      "threshold": 63.760956,
+      "at_threshold": {
+        "precision": 0.5204,
+        "recall": 0.1741,
+        "f1": 0.2609,
+        "fpr": 0.0511,
+        "tp": 51,
+        "fp": 47,
+        "fn": 242
+      },
+      "best_f1_oracle": 0.4266,
+      "by_kind": {
+        "chip": {
+          "n_abnormal": 53,
+          "auroc": 0.5514,
+          "recall": 0.0
+        },
+        "cross": {
+          "n_abnormal": 67,
+          "auroc": 0.7988,
+          "recall": 0.4328
+        },
+        "discolor": {
+          "n_abnormal": 82,
+          "auroc": 0.5694,
+          "recall": 0.1098
+        },
+        "scuff": {
+          "n_abnormal": 40,
+          "auroc": 0.5822,
+          "recall": 0.1
+        },
+        "tape": {
+          "n_abnormal": 51,
+          "auroc": 0.6205,
+          "recall": 0.1765
+        }
+      },
+      "by_face": {
+        "0": {
+          "n_abnormal": 50,
+          "auroc": 0.6627,
+          "recall": 0.28
+        },
+        "1": {
+          "n_abnormal": 48,
+          "auroc": 0.5759,
+          "recall": 0.125
+        },
+        "2": {
+          "n_abnormal": 29,
+          "auroc": 0.6696,
+          "recall": 0.2069
+        },
+        "3": {
+          "n_abnormal": 40,
+          "auroc": 0.6243,
+          "recall": 0.175
+        },
+        "4": {
+          "n_abnormal": 79,
+          "auroc": 0.6421,
+          "recall": 0.1392
+        },
+        "5": {
+          "n_abnormal": 47,
+          "auroc": 0.6056,
+          "recall": 0.1489
+        }
+      },
+      "by_defect_px": {
+        "25-60": {
+          "n_abnormal": 128,
+          "auroc": 0.5634,
+          "recall": 0.1094
+        },
+        "60-150": {
+          "n_abnormal": 139,
+          "auroc": 0.6586,
+          "recall": 0.1655
+        },
+        "150+": {
+          "n_abnormal": 26,
+          "auroc": 0.7963,
+          "recall": 0.5385
+        }
+      },
+      "by_camera": {
+        "top": {
+          "n_normal": 919,
+          "n_abnormal": 293,
+          "auroc": 0.6292
+        }
+      },
+      "by_virtual": {
+        "False": {
+          "auroc": 0.6065
+        },
+        "True": {
+          "auroc": 0.631
+        }
+      },
+      "hidden_defect": {
+        "auroc_vs_normal": 0.5021,
+        "frac_above_threshold": 0.0712,
+        "normal_frac_above_threshold": 0.0511,
+        "quantiles": [
+          50.999,
+          53.8818,
+          56.4356,
+          59.4195,
+          64.5192
+        ],
+        "normal_quantiles": [
+          51.4374,
+          54.1366,
+          56.328,
+          58.8872,
+          63.9322
+        ]
+      },
+      "n_fit": 1827,
+      "n_val": 335,
+      "fit_seconds": 37.4,
+      "seconds": 62.0,
+      "gpu_peak_mb": 2454
+    },
+    "patchcore/wrist_cam": {
+      "n_normal": 1547,
+      "n_abnormal": 578,
+      "n_hidden_defect": 1003,
+      "auroc": 0.8276,
+      "threshold": 57.169155,
+      "at_threshold": {
+        "precision": 0.7668,
+        "recall": 0.455,
+        "f1": 0.5711,
+        "fpr": 0.0517,
+        "tp": 263,
+        "fp": 80,
+        "fn": 315
+      },
+      "best_f1_oracle": 0.6366,
+      "by_kind": {
+        "chip": {
+          "n_abnormal": 85,
+          "auroc": 0.7392,
+          "recall": 0.4118
+        },
+        "cross": {
+          "n_abnormal": 102,
+          "auroc": 1.0,
+          "recall": 1.0
+        },
+        "discolor": {
+          "n_abnormal": 119,
+          "auroc": 0.7754,
+          "recall": 0.1933
+        },
+        "scuff": {
+          "n_abnormal": 136,
+          "auroc": 0.7551,
+          "recall": 0.2647
+        },
+        "tape": {
+          "n_abnormal": 136,
+          "auroc": 0.8718,
+          "recall": 0.4926
+        }
+      },
+      "by_face": {
+        "0": {
+          "n_abnormal": 51,
+          "auroc": 0.9517,
+          "recall": 0.6667
+        },
+        "1": {
+          "n_abnormal": 68,
+          "auroc": 0.6888,
+          "recall": 0.2059
+        },
+        "2": {
+          "n_abnormal": 85,
+          "auroc": 0.8406,
+          "recall": 0.6235
+        },
+        "4": {
+          "n_abnormal": 357,
+          "auroc": 0.8497,
+          "recall": 0.4538
+        },
+        "5": {
+          "n_abnormal": 17,
+          "auroc": 0.4817,
+          "recall": 0.0
+        }
+      },
+      "by_defect_px": {
+        "25-60": {
+          "n_abnormal": 17,
+          "auroc": 0.4028,
+          "recall": 0.0
+        },
+        "60-150": {
+          "n_abnormal": 51,
+          "auroc": 0.5977,
+          "recall": 0.1765
+        },
+        "150+": {
+          "n_abnormal": 510,
+          "auroc": 0.8648,
+          "recall": 0.498
+        }
+      },
+      "by_camera": {
+        "wrist_cam": {
+          "n_normal": 1547,
+          "n_abnormal": 578,
+          "auroc": 0.8276
+        }
+      },
+      "by_virtual": {
+        "False": {
+          "auroc": 0.8352
+        },
+        "True": {
+          "auroc": 0.8277
+        }
+      },
+      "hidden_defect": {
+        "auroc_vs_normal": 0.4828,
+        "frac_above_threshold": 0.0588,
+        "normal_frac_above_threshold": 0.0517,
+        "quantiles": [
+          39.1575,
+          42.5948,
+          45.848,
+          49.6404,
+          57.6183
+        ],
+        "normal_quantiles": [
+          39.148,
+          42.9655,
+          46.2008,
+          49.891,
+          57.3305
+        ]
+      },
+      "n_fit": 2907,
+      "n_val": 510,
+      "fit_seconds": 80.7,
+      "seconds": 103.3,
+      "gpu_peak_mb": 2561
+    },
+    "patchcore/pooled": {
+      "n_normal": 2466,
+      "n_abnormal": 871,
+      "n_hidden_defect": 1733,
+      "auroc": 0.7476,
+      "threshold": 62.410316,
+      "at_threshold": {
+        "precision": 0.6338,
+        "recall": 0.2365,
+        "f1": 0.3445,
+        "fpr": 0.0483,
+        "tp": 206,
+        "fp": 119,
+        "fn": 665
+      },
+      "best_f1_oracle": 0.5352,
+      "by_kind": {
+        "chip": {
+          "n_abnormal": 138,
+          "auroc": 0.6689,
+          "recall": 0.0217
+        },
+        "cross": {
+          "n_abnormal": 169,
+          "auroc": 0.9609,
+          "recall": 0.7988
+        },
+        "discolor": {
+          "n_abnormal": 201,
+          "auroc": 0.6979,
+          "recall": 0.0846
+        },
+        "scuff": {
+          "n_abnormal": 176,
+          "auroc": 0.6386,
+          "recall": 0.108
+        },
+        "tape": {
+          "n_abnormal": 187,
+          "auroc": 0.7689,
+          "recall": 0.1711
+        }
+      },
+      "by_face": {
+        "0": {
+          "n_abnormal": 101,
+          "auroc": 0.8751,
+          "recall": 0.3762
+        },
+        "1": {
+          "n_abnormal": 116,
+          "auroc": 0.6346,
+          "recall": 0.0862
+        },
+        "2": {
+          "n_abnormal": 114,
+          "auroc": 0.7497,
+          "recall": 0.1316
+        },
+        "3": {
+          "n_abnormal": 40,
+          "auroc": 0.825,
+          "recall": 0.2
+        },
+        "4": {
+          "n_abnormal": 436,
+          "auroc": 0.7517,
+          "recall": 0.289
+        },
+        "5": {
+          "n_abnormal": 64,
+          "auroc": 0.6711,
+          "recall": 0.1406
+        }
+      },
+      "by_defect_px": {
+        "25-60": {
+          "n_abnormal": 145,
+          "auroc": 0.7177,
+          "recall": 0.131
+        },
+        "60-150": {
+          "n_abnormal": 190,
+          "auroc": 0.7251,
+          "recall": 0.1684
+        },
+        "150+": {
+          "n_abnormal": 536,
+          "auroc": 0.7637,
+          "recall": 0.2892
+        }
+      },
+      "by_camera": {
+        "top": {
+          "n_normal": 919,
+          "n_abnormal": 293,
+          "auroc": 0.6178
+        },
+        "wrist_cam": {
+          "n_normal": 1547,
+          "n_abnormal": 578,
+          "auroc": 0.8261
+        }
+      },
+      "by_virtual": {
+        "False": {
+          "auroc": 0.7269
+        },
+        "True": {
+          "auroc": 0.7495
+        }
+      },
+      "hidden_defect": {
+        "auroc_vs_normal": 0.5115,
+        "frac_above_threshold": 0.0629,
+        "normal_frac_above_threshold": 0.0483,
+        "quantiles": [
+          45.7747,
+          49.0267,
+          52.8728,
+          57.2617,
+          63.0153
+        ],
+        "normal_quantiles": [
+          45.6899,
+          49.0353,
+          52.7467,
+          56.9044,
+          62.2845
+        ]
+      },
+      "n_fit": 4734,
+      "n_val": 845,
+      "fit_seconds": 143.5,
+      "seconds": 183.3,
+      "gpu_peak_mb": 2592
+    },
+    "patchcore_fine/top": {
+      "n_normal": 919,
+      "n_abnormal": 293,
+      "n_hidden_defect": 730,
+      "auroc": 0.6397,
+      "threshold": 47.914787,
+      "at_threshold": {
+        "precision": 0.4328,
+        "recall": 0.099,
+        "f1": 0.1611,
+        "fpr": 0.0413,
+        "tp": 29,
+        "fp": 38,
+        "fn": 264
+      },
+      "best_f1_oracle": 0.4315,
+      "by_kind": {
+        "chip": {
+          "n_abnormal": 53,
+          "auroc": 0.5857,
+          "recall": 0.0189
+        },
+        "cross": {
+          "n_abnormal": 67,
+          "auroc": 0.7955,
+          "recall": 0.209
+        },
+        "discolor": {
+          "n_abnormal": 82,
+          "auroc": 0.5796,
+          "recall": 0.1098
+        },
+        "scuff": {
+          "n_abnormal": 40,
+          "auroc": 0.5891,
+          "recall": 0.075
+        },
+        "tape": {
+          "n_abnormal": 51,
+          "auroc": 0.6273,
+          "recall": 0.0392
+        }
+      },
+      "by_face": {
+        "0": {
+          "n_abnormal": 50,
+          "auroc": 0.7164,
+          "recall": 0.18
+        },
+        "1": {
+          "n_abnormal": 48,
+          "auroc": 0.6086,
+          "recall": 0.0833
+        },
+        "2": {
+          "n_abnormal": 29,
+          "auroc": 0.7139,
+          "recall": 0.2069
+        },
+        "3": {
+          "n_abnormal": 40,
+          "auroc": 0.6368,
+          "recall": 0.125
+        },
+        "4": {
+          "n_abnormal": 79,
+          "auroc": 0.617,
+          "recall": 0.038
+        },
+        "5": {
+          "n_abnormal": 47,
+          "auroc": 0.5845,
+          "recall": 0.0426
+        }
+      },
+      "by_defect_px": {
+        "25-60": {
+          "n_abnormal": 128,
+          "auroc": 0.5894,
+          "recall": 0.0781
+        },
+        "60-150": {
+          "n_abnormal": 139,
+          "auroc": 0.6638,
+          "recall": 0.0863
+        },
+        "150+": {
+          "n_abnormal": 26,
+          "auroc": 0.7584,
+          "recall": 0.2692
+        }
+      },
+      "by_camera": {
+        "top": {
+          "n_normal": 919,
+          "n_abnormal": 293,
+          "auroc": 0.6397
+        }
+      },
+      "by_virtual": {
+        "False": {
+          "auroc": 0.6398
+        },
+        "True": {
+          "auroc": 0.6384
+        }
+      },
+      "hidden_defect": {
+        "auroc_vs_normal": 0.5156,
+        "frac_above_threshold": 0.0562,
+        "normal_frac_above_threshold": 0.0413,
+        "quantiles": [
+          38.1659,
+          40.1551,
+          41.9322,
+          44.1033,
+          48.0838
+        ],
+        "normal_quantiles": [
+          38.4087,
+          40.1556,
+          41.7683,
+          43.8458,
+          47.415
+        ]
+      },
+      "n_fit": 1827,
+      "n_val": 335,
+      "fit_seconds": 29.1,
+      "seconds": 57.4,
+      "gpu_peak_mb": 1221
+    },
+    "patchcore_fine/wrist_cam": {
+      "n_normal": 1547,
+      "n_abnormal": 578,
+      "n_hidden_defect": 1003,
+      "auroc": 0.8128,
+      "threshold": 44.161816,
+      "at_threshold": {
+        "precision": 0.6779,
+        "recall": 0.3131,
+        "f1": 0.4284,
+        "fpr": 0.0556,
+        "tp": 181,
+        "fp": 86,
+        "fn": 397
+      },
+      "best_f1_oracle": 0.6258,
+      "by_kind": {
+        "chip": {
+          "n_abnormal": 85,
+          "auroc": 0.7167,
+          "recall": 0.1294
+        },
+        "cross": {
+          "n_abnormal": 102,
+          "auroc": 0.9929,
+          "recall": 1.0
+        },
+        "discolor": {
+          "n_abnormal": 119,
+          "auroc": 0.7249,
+          "recall": 0.042
+        },
+        "scuff": {
+          "n_abnormal": 136,
+          "auroc": 0.7799,
+          "recall": 0.2059
+        },
+        "tape": {
+          "n_abnormal": 136,
+          "auroc": 0.8475,
+          "recall": 0.2574
+        }
+      },
+      "by_face": {
+        "0": {
+          "n_abnormal": 51,
+          "auroc": 0.9395,
+          "recall": 0.5686
+        },
+        "1": {
+          "n_abnormal": 68,
+          "auroc": 0.6342,
+          "recall": 0.0147
+        },
+        "2": {
+          "n_abnormal": 85,
+          "auroc": 0.8098,
+          "recall": 0.2471
+        },
+        "4": {
+          "n_abnormal": 357,
+          "auroc": 0.846,
+          "recall": 0.3641
+        },
+        "5": {
+          "n_abnormal": 17,
+          "auroc": 0.4626,
+          "recall": 0.0
+        }
+      },
+      "by_defect_px": {
+        "25-60": {
+          "n_abnormal": 17,
+          "auroc": 0.3537,
+          "recall": 0.0
+        },
+        "60-150": {
+          "n_abnormal": 51,
+          "auroc": 0.5847,
+          "recall": 0.1176
+        },
+        "150+": {
+          "n_abnormal": 510,
+          "auroc": 0.8509,
+          "recall": 0.3431
+        }
+      },
+      "by_camera": {
+        "wrist_cam": {
+          "n_normal": 1547,
+          "n_abnormal": 578,
+          "auroc": 0.8128
+        }
+      },
+      "by_virtual": {
+        "False": {
+          "auroc": 0.8045
+        },
+        "True": {
+          "auroc": 0.8135
+        }
+      },
+      "hidden_defect": {
+        "auroc_vs_normal": 0.4868,
+        "frac_above_threshold": 0.0489,
+        "normal_frac_above_threshold": 0.0556,
+        "quantiles": [
+          30.2987,
+          33.1293,
+          35.5134,
+          38.3773,
+          43.9994
+        ],
+        "normal_quantiles": [
+          30.2496,
+          33.2828,
+          35.6687,
+          38.6302,
+          44.4941
+        ]
+      },
+      "n_fit": 2907,
+      "n_val": 510,
+      "fit_seconds": 45.3,
+      "seconds": 91.2,
+      "gpu_peak_mb": 1448
+    },
+    "patchcore_fine/pooled": {
+      "n_normal": 2466,
+      "n_abnormal": 871,
+      "n_hidden_defect": 1733,
+      "auroc": 0.7208,
+      "threshold": 47.434803,
+      "at_threshold": {
+        "precision": 0.6089,
+        "recall": 0.1894,
+        "f1": 0.289,
+        "fpr": 0.043,
+        "tp": 165,
+        "fp": 106,
+        "fn": 706
+      },
+      "best_f1_oracle": 0.5124,
+      "by_kind": {
+        "chip": {
+          "n_abnormal": 138,
+          "auroc": 0.6604,
+          "recall": 0.029
+        },
+        "cross": {
+          "n_abnormal": 169,
+          "auroc": 0.9426,
+          "recall": 0.7101
+        },
+        "discolor": {
+          "n_abnormal": 201,
+          "auroc": 0.6354,
+          "recall": 0.0547
+        },
+        "scuff": {
+          "n_abnormal": 176,
+          "auroc": 0.6484,
+          "recall": 0.0852
+        },
+        "tape": {
+          "n_abnormal": 187,
+          "auroc": 0.7248,
+          "recall": 0.0802
+        }
+      },
+      "by_face": {
+        "0": {
+          "n_abnormal": 101,
+          "auroc": 0.8413,
+          "recall": 0.297
+        },
+        "1": {
+          "n_abnormal": 116,
+          "auroc": 0.6207,
+          "recall": 0.0517
+        },
+        "2": {
+          "n_abnormal": 114,
+          "auroc": 0.7481,
+          "recall": 0.1053
+        },
+        "3": {
+          "n_abnormal": 40,
+          "auroc": 0.7687,
+          "recall": 0.2
+        },
+        "4": {
+          "n_abnormal": 436,
+          "auroc": 0.7204,
+          "recall": 0.2431
+        },
+        "5": {
+          "n_abnormal": 64,
+          "auroc": 0.6359,
+          "recall": 0.0469
+        }
+      },
+      "by_defect_px": {
+        "25-60": {
+          "n_abnormal": 145,
+          "auroc": 0.6945,
+          "recall": 0.1103
+        },
+        "60-150": {
+          "n_abnormal": 190,
+          "auroc": 0.7149,
+          "recall": 0.0947
+        },
+        "150+": {
+          "n_abnormal": 536,
+          "auroc": 0.7299,
+          "recall": 0.2444
+        }
+      },
+      "by_camera": {
+        "top": {
+          "n_normal": 919,
+          "n_abnormal": 293,
+          "auroc": 0.6187
+        },
+        "wrist_cam": {
+          "n_normal": 1547,
+          "n_abnormal": 578,
+          "auroc": 0.795
+        }
+      },
+      "by_virtual": {
+        "False": {
+          "auroc": 0.7008
+        },
+        "True": {
+          "auroc": 0.7219
+        }
+      },
+      "hidden_defect": {
+        "auroc_vs_normal": 0.5103,
+        "frac_above_threshold": 0.0531,
+        "normal_frac_above_threshold": 0.043,
+        "quantiles": [
+          34.9041,
+          37.3216,
+          40.1073,
+          42.9064,
+          47.528
+        ],
+        "normal_quantiles": [
+          34.794,
+          37.3706,
+          39.9188,
+          42.661,
+          47.1023
+        ]
+      },
+      "n_fit": 4734,
+      "n_val": 845,
+      "fit_seconds": 37.8,
+      "seconds": 114.5,
+      "gpu_peak_mb": 1482
+    }
+  },
+  "configs": {
+    "padim": {
+      "backbone": "resnet18",
+      "layers": [
+        "layer1",
+        "layer2",
+        "layer3"
+      ],
+      "n_features": 100
+    },
+    "patchcore": {
+      "backbone": "wide_resnet50_2",
+      "layers": [
+        "layer2",
+        "layer3"
+      ],
+      "num_neighbors": 9
+    },
+    "patchcore_fine": {
+      "backbone": "wide_resnet50_2",
+      "layers": [
+        "layer1",
+        "layer2"
+      ],
+      "num_neighbors": 9
+    }
+  },
+  "anomalib": "2.7.0",
+  "best_pooled_model": "patchcore/pooled",
+  "dataset_summary": {
+    "n_layouts": 600,
+    "layout_status": {
+      "ok": 385,
+      "skipped_defective_train": 215
+    },
+    "layouts_with_crops_by_split": {
+      "train": 201,
+      "test": 184
+    },
+    "n_crops": 10649,
+    "by_split_label": {
+      "test/abnormal": 871,
+      "test/hidden_defect": 1733,
+      "test/normal": 2466,
+      "train/normal": 5579
+    },
+    "by_split_camera_label": {
+      "test/top/abnormal": 293,
+      "test/top/hidden_defect": 730,
+      "test/top/normal": 919,
+      "test/wrist_cam/abnormal": 578,
+      "test/wrist_cam/hidden_defect": 1003,
+      "test/wrist_cam/normal": 1547,
+      "train/top/normal": 2162,
+      "train/wrist_cam/normal": 3417
+    },
+    "test_by_kind_label": {
+      "chip/abnormal": 138,
+      "chip/hidden_defect": 288,
+      "chip/normal": 404,
+      "cross/abnormal": 169,
+      "cross/hidden_defect": 361,
+      "cross/normal": 633,
+      "discolor/abnormal": 201,
+      "discolor/hidden_defect": 448,
+      "discolor/normal": 408,
+      "scuff/abnormal": 176,
+      "scuff/hidden_defect": 362,
+      "scuff/normal": 550,
+      "tape/abnormal": 187,
+      "tape/hidden_defect": 274,
+      "tape/normal": 471,
+      "train": 5579
+    },
+    "test_by_face_label": {
+      "0/abnormal": 101,
+      "0/hidden_defect": 316,
+      "0/normal": 333,
+      "1/abnormal": 116,
+      "1/hidden_defect": 324,
+      "1/normal": 397,
+      "2/abnormal": 114,
+      "2/hidden_defect": 168,
+      "2/normal": 316,
+      "3/abnormal": 40,
+      "3/hidden_defect": 387,
+      "3/normal": 558,
+      "4/abnormal": 436,
+      "4/hidden_defect": 151,
+      "4/normal": 330,
+      "5/abnormal": 64,
+      "5/hidden_defect": 387,
+      "5/normal": 532,
+      "train": 5579
+    },
+    "virtual_fraction": 0.93,
+    "config": {
+      "n": 600,
+      "seed": 2027,
+      "k_virtual": 16,
+      "image_size": 128,
+      "p_defective": 0.5,
+      "train_fraction": 0.7,
+      "min_defect_px": 25,
+      "min_brick_px": 150,
+      "table_clearance_m": 0.02,
+      "flex_range": [
+        -1.2,
+        1.6
+      ],
+      "roll_range_deg": [
+        -150.0,
+        150.0
+      ]
+    },
+    "seconds": 196.8
+  }
+}

@@ -1,0 +1,106 @@
+{
+  "strategies": {
+    "show": {
+      "n": 24,
+      "success_rate": 0.833,
+      "success_with_correct_label_rate": 0.833,
+      "known_rate": 1.0,
+      "accuracy_of_known": 1.0,
+      "confusion": {
+        "defective->defective": 12,
+        "defective->normal": 0,
+        "defective->unknown": 0,
+        "normal->normal": 12,
+        "normal->defective": 0,
+        "normal->unknown": 0
+      },
+      "top_confirmed_of_defective_labels": 8,
+      "verdicts": {
+        "SUCCESS": 20,
+        "FAILURE": 4
+      },
+      "aborted": {
+        "None": 20,
+        "brick_lost": 4
+      },
+      "mean_views": 8.58,
+      "mean_present": 0.0,
+      "mean_frames": 2061.5,
+      "truncated_rate": 0.042,
+      "mean_wall_s": 3.53
+    },
+    "heuristic": {
+      "n": 24,
+      "success_rate": 0.958,
+      "success_with_correct_label_rate": 0.958,
+      "known_rate": 1.0,
+      "accuracy_of_known": 1.0,
+      "confusion": {
+        "defective->defective": 12,
+        "defective->normal": 0,
+        "defective->unknown": 0,
+        "normal->normal": 12,
+        "normal->defective": 0,
+        "normal->unknown": 0
+      },
+      "top_confirmed_of_defective_labels": 5,
+      "verdicts": {
+        "SUCCESS": 23,
+        "FAILURE": 1
+      },
+      "aborted": {
+        "None": 24
+      },
+      "mean_views": 4.12,
+      "mean_present": 0.54,
+      "mean_frames": 1401.6,
+      "truncated_rate": 0.0,
+      "mean_wall_s": 13.99
+    },
+    "heuristic_fast": {
+      "n": 24,
+      "success_rate": 0.958,
+      "success_with_correct_label_rate": 0.958,
+      "known_rate": 1.0,
+      "accuracy_of_known": 1.0,
+      "confusion": {
+        "defective->defective": 12,
+        "defective->normal": 0,
+        "defective->unknown": 0,
+        "normal->normal": 12,
+        "normal->defective": 0,
+        "normal->unknown": 0
+      },
+      "top_confirmed_of_defective_labels": 0,
+      "verdicts": {
+        "SUCCESS": 23,
+        "FAILURE": 1
+      },
+      "aborted": {
+        "None": 24
+      },
+      "mean_views": 3.58,
+      "mean_present": 0.0,
+      "mean_frames": 1046.7,
+      "truncated_rate": 0.0,
+      "mean_wall_s": 13.26
+    }
+  },
+  "config": {
+    "n": 24,
+    "seed": 23,
+    "strategies": "show,heuristic,heuristic_fast",
+    "detector": "oracle",
+    "models_root": "E:\\digital_twin_armigo\\results\\anomaly\\models-v2",
+    "closeup_library": "E:\\digital_twin_armigo\\results\\top-camera-reach\\poses.jsonl",
+    "closeup_per_layout": 15,
+    "min_face_px_wrist": 800,
+    "min_face_px_top": 250,
+    "max_presents": 4,
+    "max_frames": 4000,
+    "out": "results\\heuristic-inspection\\oracle-n24",
+    "thresholds": {},
+    "closeup_library_size": 120,
+    "wall_s": 749.9
+  }
+}

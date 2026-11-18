@@ -1,0 +1,64 @@
+{
+  "version": "v1-nominal-assumed",
+  "provenance": "Assumed nominal literature/catalog specs (BrickLink ABS DUPLO weights, ABS friction, Feetech STS3215 1:345 12V/7.4V specs). Pending real-hardware scale and tribology measurement.",
+  "bricks": {
+    "2x2": {
+      "name": "2x2",
+      "size_m": [0.0318, 0.0318, 0.0192],
+      "mass_kg": 0.007,
+      "static_friction": 0.4,
+      "dynamic_friction": 0.35,
+      "restitution": 0.05
+    },
+    "2x3": {
+      "name": "2x3",
+      "size_m": [0.0477, 0.0318, 0.0192],
+      "mass_kg": 0.0096,
+      "static_friction": 0.4,
+      "dynamic_friction": 0.35,
+      "restitution": 0.05
+    },
+    "2x4": {
+      "name": "2x4",
+      "size_m": [0.0636, 0.0318, 0.0192],
+      "mass_kg": 0.0135,
+      "static_friction": 0.4,
+      "dynamic_friction": 0.35,
+      "restitution": 0.05
+    }
+  },
+  "plate": {
+    "mass_kg": 0.12,
+    "static_friction": 0.55,
+    "dynamic_friction": 0.45,
+    "restitution": 0.05
+  },
+  "table": {
+    "static_friction": 0.45,
+    "dynamic_friction": 0.38,
+    "restitution": 0.05
+  },
+  "gripper_pad": {
+    "static_friction": 1.45,
+    "dynamic_friction": 1.25,
+    "restitution": 0.02
+  },
+  "arm_actuator": {
+    "stiffness": 180.0,
+    "damping": 12.0,
+    "effort_limit": 2.94,
+    "velocity_limit": 5.45,
+    "joint_damping": 0.6,
+    "frictionloss": 0.052,
+    "armature": 0.028
+  },
+  "gripper_actuator": {
+    "stiffness": 30.0,
+    "damping": 2.5,
+    "effort_limit": 0.55,
+    "velocity_limit": 5.45,
+    "joint_damping": 0.3,
+    "frictionloss": 0.03,
+    "armature": 0.015
+  }
+}

@@ -1,0 +1,121 @@
+{
+ "id": "layouts_seed1001_idx37",
+ "category": "flagged",
+ "flags": [
+  "NEAR_FRAME_CAP"
+ ],
+ "source": "results/physics-expert-v2/independent_acceptance/layouts_seed1001.json",
+ "mode": "layouts",
+ "condition": "layout",
+ "key": 37,
+ "layout_seed": 1001,
+ "recorded_episode": {
+  "layout_index": 37,
+  "layout": {
+   "brick_xy": [
+    0.1701394000932764,
+    -0.011866817517493989
+   ],
+   "brick_yaw_deg": 13.003448733916201,
+   "brick_size": [
+    0.0636,
+    0.0318,
+    0.0192
+   ],
+   "green": [
+    0.1962926659885772,
+    0.154595052526005
+   ],
+   "pink": [
+    0.19712289185165985,
+    -0.15046109682145142
+   ],
+   "defective": true,
+   "n_clutter": 2
+  },
+  "verdict": "SUCCESS",
+  "reason_codes": [],
+  "info": {
+   "grasp_push_mm": 2.5536260732480374,
+   "jaw_normal_at_lift_N": 6.975476547342138,
+   "release_peak_speed_mps": 0.024505718028611654,
+   "show_hold_measured_s": [
+    0.4666666666666667,
+    0.4666666666666667,
+    0.4
+   ],
+   "n_frames": 899,
+   "grasp_retries": 0,
+   "brick_lost": false,
+   "aborted": null,
+   "truncated": false,
+   "assisted_grasp": false,
+   "grasp_geometry": {
+    "fixed_face_m": -0.01934999999999995,
+    "moving_face_m": null,
+    "offset_m": 0.0014499999999999479,
+    "grasp_z_m": 0.011145694235560066,
+    "roll": 1.9258780711111112,
+    "clearance_m": 0.004986167097036555
+   },
+   "jaw_env_contact_max_N": 0.0
+  },
+  "health": {
+   "verdict": "SUCCESS",
+   "reason_codes": [],
+   "evidence_refs": {
+    "n_frames": 899,
+    "ref_frame": 116,
+    "slip_peak_frame": 772,
+    "release_obs_window": [
+     798,
+     888
+    ],
+    "req_settle_frames": 15,
+    "trailing_settle_frames": 89,
+    "final_contained_in_bowl": true,
+    "ever_contained_in_bowl": true,
+    "substep_collision_frames": [],
+    "unintended_collision_frames": []
+   },
+   "evaluator_version": "v2-audited",
+   "terminal_ok": true,
+   "process_ok": true,
+   "success": true,
+   "failure_mode": "ok",
+   "grasped_ok": true,
+   "max_slip_pos_m": 0.008912554099085208,
+   "max_slip_rot_deg": 6.56431693753362,
+   "dual_contact_ratio": 1.0,
+   "mean_pinch_force_N": 7.4967424852162265,
+   "max_pinch_force_N": 8.405559280272517,
+   "pinch_normal_peak_N": 8.594069446824523,
+   "pinch_tangential_peak_N": 1.761357225679625,
+   "pinch_impulse_Ns": 166.99785669123685,
+   "max_tracking_error_rad": 0.5386781057372415,
+   "tracking_error_ratio": 0.02335928809788654,
+   "max_tracking_lag_duration_s": 0.4,
+   "max_stall_duration_s": 1.4666666666666666,
+   "torque_saturation_ratio": 0.2825361512791991,
+   "torque_evidence_source": "solver_measured",
+   "unintended_collision_count": 0,
+   "max_unintended_force_N": 0.0,
+   "unintended_collision_impulse_Ns": 0.0,
+   "settled_in_bowl": true,
+   "settle_consecutive_frames": 89,
+   "final_dist_to_bowl_m": 0.02462111809884329,
+   "final_brick_speed_mps": 2.7844083561051577e-16,
+   "final_brick_ang_vel_rps": 2.6719782393978337e-08
+  }
+ },
+ "replay_check": {
+  "verdict_match": true,
+  "reason_codes_match": true,
+  "n_frames_recorded": 899,
+  "n_frames_replay": 899,
+  "release_speed_recorded": 0.024505718028611654,
+  "release_speed_replay": 0.024505718028611654,
+  "video_frames": 899,
+  "h264": true
+ }
+}

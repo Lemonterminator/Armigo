@@ -1,0 +1,5 @@
+open_g=0.85: FAILURE ['pick_miss'] aborted=no_clamp retries=2 n=540 jaw_env_max=23.1N clearance=-0.004233980998924149
+open_g=0.70: FAILURE ['pick_miss'] aborted=no_clamp retries=2 n=621 jaw_env_max=55.5N clearance=-0.006198925332302605
+open_g=0.55: FAILURE ['pick_miss', 'torque_stall', 'tracking_lag'] aborted=no_clamp retries=2 n=630 jaw_env_max=48.5N clearance=-0.0051365160755119914
+open_g=0.40: SUCCESS [] aborted=None retries=0 n=818 jaw_env_max=0.0N clearance=0.0020789543834598126
+open_g=0.30: FAILURE ['place_miss'] aborted=None retries=0 n=900 jaw_env_max=0.0N clearance=0.007696206197901217

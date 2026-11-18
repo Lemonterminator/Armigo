@@ -1,0 +1,49 @@
+{
+  "strategies": {
+    "heuristic_x2": {
+      "n": 24,
+      "success_rate": 0.542,
+      "success_with_correct_label_rate": 0.542,
+      "known_rate": 1.0,
+      "accuracy_of_known": 0.583,
+      "confusion": {
+        "defective->defective": 5,
+        "defective->normal": 7,
+        "defective->unknown": 0,
+        "normal->normal": 9,
+        "normal->defective": 3,
+        "normal->unknown": 0
+      },
+      "top_confirmed_of_defective_labels": 1,
+      "verdicts": {
+        "SUCCESS": 13,
+        "FAILURE": 11
+      },
+      "aborted": {
+        "None": 24
+      },
+      "mean_views": 6.33,
+      "mean_present": 0.42,
+      "mean_frames": 1455.6,
+      "truncated_rate": 0.0,
+      "mean_wall_s": 13.3
+    }
+  },
+  "config": {
+    "n": 24,
+    "seed": 23,
+    "strategies": "heuristic_x2",
+    "detector": "anomalib",
+    "models_root": "results\\anomaly\\models-v2",
+    "closeup_library": "E:\\digital_twin_armigo\\results\\top-camera-reach\\poses.jsonl",
+    "closeup_per_layout": 15,
+    "min_face_px_wrist": 800,
+    "min_face_px_top": 250,
+    "max_presents": 4,
+    "max_frames": 4000,
+    "out": "results\\heuristic-inspection\\anomalib-n24-x2",
+    "thresholds": {},
+    "closeup_library_size": 120,
+    "wall_s": 323.9
+  }
+}

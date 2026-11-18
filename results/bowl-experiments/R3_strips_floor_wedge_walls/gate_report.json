@@ -1,0 +1,49 @@
+{
+  "id": "R3_strips_floor_wedge_walls",
+  "passed": false,
+  "failed_gate": "G1",
+  "detail": {
+    "f552_worst_dist_mm": -3.3333599614682217,
+    "f552_bad_normals": 1,
+    "f552_ok": false,
+    "worst_dist_mm": -7.091316800162605,
+    "bad_normals": 121
+  },
+  "wall_s": 4.718,
+  "gates": [
+    {
+      "gate": "G0",
+      "passed": true,
+      "wall_s": 0.052,
+      "detail": {
+        "missing_area_frac": 0.0,
+        "flat_floor_r_mm": 60.0,
+        "flat_min_mm": 3.0000000000000027,
+        "flat_max_mm": 3.0000000000000027,
+        "basin_min_mm": 3.0000000000000027,
+        "rim_min_mm": 21.929257298159158,
+        "rim_max_mm": 21.991981254261496,
+        "wall_devs_mm": {
+          "6": 0.1520431503768691,
+          "12": 0.16902859791174762,
+          "18": 0.1790423098084517
+        },
+        "max_wall_dev_mm": 0.1790423098084517,
+        "wall_miss": 0,
+        "protrusion_mm": 4.097333779496964
+      }
+    },
+    {
+      "gate": "G1",
+      "passed": false,
+      "wall_s": 4.664,
+      "detail": {
+        "f552_worst_dist_mm": -3.3333599614682217,
+        "f552_bad_normals": 1,
+        "f552_ok": false,
+        "worst_dist_mm": -7.091316800162605,
+        "bad_normals": 121
+      }
+    }
+  ]
+}

@@ -1,0 +1,263 @@
+[  0 coverage  ] def=0 face=+x     SUCCESS    label=normal extra=1 aborted=None (6s, 1/60)
+[  0 none      ] def=0 face=+x     FAILURE    label=None extra=0 aborted=inspection_unknown (6s, 2/60)
+[  0 fixed     ] def=0 face=+x     SUCCESS    label=normal extra=3 aborted=None (6s, 3/60)
+[  0 coverage_cond] def=0 face=+x     SUCCESS    label=normal extra=1 aborted=None (7s, 4/60)
+[  1 none      ] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (8s, 5/60)
+[  1 fixed     ] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (9s, 6/60)
+[  1 coverage  ] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (10s, 7/60)
+[  1 coverage_cond] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (11s, 8/60)
+[  1 llm       ] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (12s, 9/60)
+[  1 llm_cond  ] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (13s, 10/60)
+[  2 none      ] def=0 face=-y     FAILURE    label=None extra=0 aborted=inspection_unknown (14s, 11/60)
+[  2 fixed     ] def=0 face=-y     FAILURE    label=None extra=4 aborted=inspection_unknown (16s, 12/60)
+[  2 coverage  ] def=0 face=-y     FAILURE    label=None extra=4 aborted=inspection_unknown (16s, 13/60)
+[  2 coverage_cond] def=0 face=-y     FAILURE    label=None extra=3 aborted=inspection_unknown (19s, 14/60)
+[  0 llm       ] def=0 face=+x     SUCCESS    label=normal extra=1 aborted=None (70s, 15/60)
+[  3 none      ] def=1 face=+x     SUCCESS    label=defective extra=0 aborted=None (72s, 16/60)
+[  0 llm_cond  ] def=0 face=+x     SUCCESS    label=normal extra=2 aborted=None (73s, 17/60)
+[  3 fixed     ] def=1 face=+x     SUCCESS    label=defective extra=0 aborted=None (74s, 18/60)
+[  3 coverage  ] def=1 face=+x     SUCCESS    label=defective extra=0 aborted=None (74s, 19/60)
+[  3 coverage_cond] def=1 face=+x     SUCCESS    label=defective extra=0 aborted=None (77s, 20/60)
+[  3 llm       ] def=1 face=+x     SUCCESS    label=defective extra=0 aborted=None (77s, 21/60)
+[  4 none      ] def=0 face=-y     FAILURE    label=None extra=0 aborted=inspection_unknown (79s, 22/60)
+[  3 llm_cond  ] def=1 face=+x     SUCCESS    label=defective extra=0 aborted=None (79s, 23/60)
+[  4 coverage  ] def=0 face=-y     SUCCESS    label=None extra=4 aborted=inspection_unknown (82s, 24/60)
+[  4 fixed     ] def=0 face=-y     FAILURE    label=None extra=4 aborted=inspection_unknown (82s, 25/60)
+[  4 coverage_cond] def=0 face=-y     FAILURE    label=None extra=4 aborted=inspection_unknown (85s, 26/60)
+[  2 llm_cond  ] def=0 face=-y     FAILURE    label=None extra=3 aborted=inspection_unknown (172s, 27/60)
+[  2 llm       ] def=0 face=-y     FAILURE    label=None extra=4 aborted=inspection_unknown (172s, 28/60)
+[  5 none      ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (173s, 29/60)
+[  5 fixed     ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (173s, 30/60)
+[  5 coverage  ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (175s, 31/60)
+[  5 coverage_cond] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (175s, 32/60)
+[  5 llm       ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (178s, 33/60)
+[  5 llm_cond  ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (178s, 34/60)
+[  6 none      ] def=0 face=-x     FAILURE    label=None extra=0 aborted=inspection_unknown (179s, 35/60)
+[  6 fixed     ] def=0 face=-x     FAILURE    label=None extra=4 aborted=inspection_unknown (180s, 36/60)
+[  6 coverage  ] def=0 face=-x     FAILURE    label=None extra=4 aborted=inspection_unknown (182s, 37/60)
+[  6 coverage_cond] def=0 face=-x     FAILURE    label=None extra=4 aborted=inspection_unknown (182s, 38/60)
+[  4 llm_cond  ] def=0 face=-y     SUCCESS    label=None extra=3 aborted=inspection_unknown (326s, 39/60)
+[  4 llm       ] def=0 face=-y     SUCCESS    label=None extra=3 aborted=inspection_unknown (327s, 40/60)
+[  7 none      ] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (328s, 41/60)
+[  7 fixed     ] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (329s, 42/60)
+[  7 coverage  ] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (331s, 43/60)
+[  7 coverage_cond] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (332s, 44/60)
+[  7 llm       ] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (333s, 45/60)
+[  7 llm_cond  ] def=1 face=top    SUCCESS    label=defective extra=0 aborted=None (334s, 46/60)
+[  8 none      ] def=0 face=-x     FAILURE    label=None extra=0 aborted=inspection_unknown (336s, 47/60)
+[  8 fixed     ] def=0 face=-x     FAILURE    label=None extra=4 aborted=inspection_unknown (338s, 48/60)
+[  8 coverage  ] def=0 face=-x     FAILURE    label=None extra=4 aborted=inspection_unknown (339s, 49/60)
+[  8 coverage_cond] def=0 face=-x     FAILURE    label=None extra=4 aborted=inspection_unknown (341s, 50/60)
+[  6 llm_cond  ] def=0 face=-x     FAILURE    label=None extra=3 aborted=inspection_unknown (342s, 51/60)
+[  6 llm       ] def=0 face=-x     FAILURE    label=None extra=4 aborted=inspection_unknown (342s, 52/60)
+[  9 none      ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (344s, 53/60)
+[  9 fixed     ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (344s, 54/60)
+[  9 coverage  ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (347s, 55/60)
+[  9 coverage_cond] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (347s, 56/60)
+[  9 llm       ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (350s, 57/60)
+[  9 llm_cond  ] def=1 face=+y     SUCCESS    label=defective extra=0 aborted=None (350s, 58/60)
+[  8 llm       ] def=0 face=-x     FAILURE    label=None extra=1 aborted=inspection_unknown (371s, 59/60)
+[  8 llm_cond  ] def=0 face=-x     FAILURE    label=None extra=4 aborted=inspection_unknown (391s, 60/60)
+{
+  "policies": {
+    "none": {
+      "n": 10,
+      "known_rate": 0.5,
+      "known_rate_defective": 1.0,
+      "known_rate_normal": 0.0,
+      "accuracy_of_known": 1.0,
+      "inspection_unknown_rate": 0.5,
+      "success_rate": 0.5,
+      "success_with_correct_label_rate": 0.5,
+      "success_but_aborted": 0,
+      "verdicts": {
+        "FAILURE": 5,
+        "SUCCESS": 5
+      },
+      "aborted": {
+        "inspection_unknown": 5,
+        "None": 5
+      },
+      "mean_extra_poses": 0.0,
+      "truncated_rate": 0.0,
+      "mean_frames": 535.4,
+      "mean_wall_s": 1.74
+    },
+    "fixed": {
+      "n": 10,
+      "known_rate": 0.6,
+      "known_rate_defective": 1.0,
+      "known_rate_normal": 0.2,
+      "accuracy_of_known": 1.0,
+      "inspection_unknown_rate": 0.4,
+      "success_rate": 0.6,
+      "success_with_correct_label_rate": 0.6,
+      "success_but_aborted": 0,
+      "verdicts": {
+        "SUCCESS": 6,
+        "FAILURE": 4
+      },
+      "aborted": {
+        "None": 6,
+        "inspection_unknown": 4
+      },
+      "mean_extra_poses": 1.9,
+      "truncated_rate": 0.0,
+      "mean_frames": 799.8,
+      "mean_wall_s": 2.36
+    },
+    "coverage": {
+      "n": 10,
+      "known_rate": 0.6,
+      "known_rate_defective": 1.0,
+      "known_rate_normal": 0.2,
+      "accuracy_of_known": 1.0,
+      "inspection_unknown_rate": 0.4,
+      "success_rate": 0.7,
+      "success_with_correct_label_rate": 0.6,
+      "success_but_aborted": 1,
+      "verdicts": {
+        "SUCCESS": 7,
+        "FAILURE": 3
+      },
+      "aborted": {
+        "None": 6,
+        "inspection_unknown": 4
+      },
+      "mean_extra_poses": 1.7,
+      "truncated_rate": 0.0,
+      "mean_frames": 709.9,
+      "mean_wall_s": 2.24
+    },
+    "coverage_cond": {
+      "n": 10,
+      "known_rate": 0.6,
+      "known_rate_defective": 1.0,
+      "known_rate_normal": 0.2,
+      "accuracy_of_known": 1.0,
+      "inspection_unknown_rate": 0.4,
+      "success_rate": 0.6,
+      "success_with_correct_label_rate": 0.6,
+      "success_but_aborted": 0,
+      "verdicts": {
+        "SUCCESS": 6,
+        "FAILURE": 4
+      },
+      "aborted": {
+        "None": 6,
+        "inspection_unknown": 4
+      },
+      "mean_extra_poses": 1.6,
+      "truncated_rate": 0.0,
+      "mean_frames": 744.8,
+      "mean_wall_s": 2.23
+    },
+    "llm": {
+      "n": 10,
+      "known_rate": 0.6,
+      "known_rate_defective": 1.0,
+      "known_rate_normal": 0.2,
+      "accuracy_of_known": 1.0,
+      "inspection_unknown_rate": 0.4,
+      "success_rate": 0.7,
+      "success_with_correct_label_rate": 0.6,
+      "success_but_aborted": 1,
+      "verdicts": {
+        "SUCCESS": 7,
+        "FAILURE": 3
+      },
+      "aborted": {
+        "None": 6,
+        "inspection_unknown": 4
+      },
+      "mean_extra_poses": 1.3,
+      "truncated_rate": 0.0,
+      "mean_frames": 698.8,
+      "mean_wall_s": 66.52,
+      "llm": {
+        "calls": 15,
+        "calls_per_episode": 1.5,
+        "transport_errors": 0,
+        "invalid_outputs": 0,
+        "invalid_output_rate": 0.0,
+        "decision_failures_after_repair": 0,
+        "latency_s_mean": 42.278,
+        "latency_s_p50": 33.796,
+        "latency_s_p95": 85.187,
+        "prompt_tokens_mean": 5711.1,
+        "completion_tokens_mean": 60.8
+      }
+    },
+    "llm_cond": {
+      "n": 10,
+      "known_rate": 0.6,
+      "known_rate_defective": 1.0,
+      "known_rate_normal": 0.2,
+      "accuracy_of_known": 1.0,
+      "inspection_unknown_rate": 0.4,
+      "success_rate": 0.7,
+      "success_with_correct_label_rate": 0.6,
+      "success_but_aborted": 1,
+      "verdicts": {
+        "SUCCESS": 7,
+        "FAILURE": 3
+      },
+      "aborted": {
+        "None": 6,
+        "inspection_unknown": 4
+      },
+      "mean_extra_poses": 1.5,
+      "truncated_rate": 0.0,
+      "mean_frames": 849.9,
+      "mean_wall_s": 67.68,
+      "llm": {
+        "calls": 18,
+        "calls_per_episode": 1.8,
+        "transport_errors": 0,
+        "invalid_outputs": 0,
+        "invalid_output_rate": 0.0,
+        "decision_failures_after_repair": 0,
+        "latency_s_mean": 35.682,
+        "latency_s_p50": 21.747,
+        "latency_s_p95": 95.943,
+        "prompt_tokens_mean": 4865.6,
+        "completion_tokens_mean": 60.7
+      }
+    }
+  },
+  "config": {
+    "n": 10,
+    "seed": 7,
+    "max_extra_shows": 4,
+    "max_frames": 1600,
+    "grid": "E:\\digital_twin_armigo\\results\\inspection-visibility\\base-poses\\pose_grid.jsonl",
+    "menu_size": 88,
+    "table_layouts": 60,
+    "fixed_poses": [
+      [
+        0.0,
+        120.0
+      ],
+      [
+        0.8,
+        90.0
+      ],
+      [
+        0.4,
+        -150.0
+      ],
+      [
+        0.8,
+        -90.0
+      ]
+    ],
+    "llm": {
+      "base_url": "http://localhost:8000/v1",
+      "model": "qwen3.8-vllm",
+      "enable_thinking": false,
+      "max_tokens": 512
+    },
+    "workers": 4,
+    "wall_s": 391.5
+  }
+}

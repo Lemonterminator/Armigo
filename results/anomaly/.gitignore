@@ -1,0 +1,11 @@
+# Rendered crops and trained models are reproducible and large: keep only metadata, summaries and reports.
+*.png
+*.ckpt
+*.pt
+*.pth
+*.onnx
+*.xml
+*.bin
+*.safetensors
+models/
+lightning_logs/

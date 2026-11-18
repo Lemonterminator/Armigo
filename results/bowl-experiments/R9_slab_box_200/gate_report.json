@@ -1,0 +1,47 @@
+{
+  "id": "R9_slab_box_200",
+  "passed": false,
+  "failed_gate": "G0",
+  "detail": {
+    "missing_area_frac": 0.0,
+    "flat_floor_r_mm": 60.0,
+    "flat_min_mm": 3.0000000000000027,
+    "flat_max_mm": 3.0000000000000027,
+    "basin_min_mm": 3.0000000000000027,
+    "rim_min_mm": 3.0000000000000027,
+    "rim_max_mm": 22.019388337463724,
+    "wall_devs_mm": {
+      "6": Infinity,
+      "12": Infinity,
+      "18": Infinity
+    },
+    "max_wall_dev_mm": Infinity,
+    "wall_miss": 3,
+    "protrusion_mm": 41.42135623730954
+  },
+  "wall_s": 0.019,
+  "gates": [
+    {
+      "gate": "G0",
+      "passed": false,
+      "wall_s": 0.019,
+      "detail": {
+        "missing_area_frac": 0.0,
+        "flat_floor_r_mm": 60.0,
+        "flat_min_mm": 3.0000000000000027,
+        "flat_max_mm": 3.0000000000000027,
+        "basin_min_mm": 3.0000000000000027,
+        "rim_min_mm": 3.0000000000000027,
+        "rim_max_mm": 22.019388337463724,
+        "wall_devs_mm": {
+          "6": Infinity,
+          "12": Infinity,
+          "18": Infinity
+        },
+        "max_wall_dev_mm": Infinity,
+        "wall_miss": 3,
+        "protrusion_mm": 41.42135623730954
+      }
+    }
+  ]
+}
