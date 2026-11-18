@@ -1,0 +1,65 @@
+{
+ "common_episodes": 16,
+ "runs": [
+  {
+   "name": "old",
+   "episodes": 16,
+   "success": 14,
+   "rewinds": 2,
+   "failure_codes": [
+    "PHYSICAL_HEALTH_FAILED"
+   ],
+   "wrist_alarms": 9,
+   "wrist_views_mean": 1.6875,
+   "sim_frames_total": 26375,
+   "weakest_side_px_median": 828.0,
+   "weakest_side_px_min": 3,
+   "episodes_weakest_side_below_1500": 16,
+   "top_px_median": 12295.5,
+   "modes": {
+    "vertical": 16
+   }
+  },
+  {
+   "name": "orbit",
+   "episodes": 16,
+   "success": 14,
+   "rewinds": 0,
+   "failure_codes": [],
+   "wrist_alarms": 8,
+   "wrist_views_mean": 1.5,
+   "sim_frames_total": 20864,
+   "weakest_side_px_median": 1045.5,
+   "weakest_side_px_min": 2,
+   "episodes_weakest_side_below_1500": 8,
+   "top_px_median": 11818.0,
+   "modes": {
+    "orbit": 16
+   }
+  }
+ ],
+ "paired": {
+  "weakest_side_ratio_median": 1.224686028257457,
+  "orbit_higher": 8,
+  "verdict_changes": [
+   {
+    "case": [
+     600001,
+     false,
+     5
+    ],
+    "old": "FAILED",
+    "orbit": "SUCCESS"
+   },
+   {
+    "case": [
+     600008,
+     false,
+     5
+    ],
+    "old": "SUCCESS",
+    "orbit": "FAILED"
+   }
+  ]
+ }
+}

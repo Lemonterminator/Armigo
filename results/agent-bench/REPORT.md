@@ -45,6 +45,94 @@ Notes:
   14/16 on bench16. The old search also kept the default.
 - The files named `*_w1.json` were originally saved as `*_oldsrv`, but they ran against the new vLLM settings.
 
+### LLM choices against the rule default
+
+Every LLM decision was compared with `choices[0]`, the option the rule path takes, and every LLM episode was paired
+with the rule run of the same fixture (`llm_disagreement.py`, output in `summary/llm_disagreement.json`). The LLM is
+consulted only when there is more than one choice or a prior failure; "rule only" counts the other decisions.
+
+| Run | Consulted (view / recover) | Rule only | Differs from default | Sorted, LLM vs rule |
+|---|---|---|---|---|
+| Before, dev4 | 10 (8 / 2) | 2 | 2, both recover | 4/4 vs 2/4 |
+| Before, bench16 | 19 (17 / 2) | 8 | 2, both recover | 12/16 vs 12/16, same verdict in all 16 |
+| After, dev4 | 10 (8 / 2) | 2 | 0 | 4/4 vs 4/4 |
+| After, bench16 (w1 and w4) | 22 (20 / 2) | 7 | 1, choose view | 14/16 vs 14/16, same verdict in all 16 |
+
+- Before: in dev4 cases 0 and 1 the default rewound to `checkpoint-1`, taken after the torque stall began, and
+  failed again. Qwen chose `checkpoint-0` and both sorted. The overhaul made this the rule (the checkpoint before
+  the stall comes first), which is where the rule path's extra sorts come from. In bench16 cases 14 and 15 Qwen
+  chose `stop`; the rule run rewound and still failed.
+- After: the one difference is bench16 case 14, where Qwen showed the bottom before scanning the wrist. Both runs
+  sorted, each with one `slow_scan` rewind; Qwen's run used 4,539 simulated frames against 4,886. The w1 and w4 LLM
+  runs made the same choice. All four recovery decisions (seven choices each) took the default.
+- The two bench16 episodes that fail on both paths (cases 0 and 4) are normal bricks labelled defective by the
+  detector. No motion failure is left.
+- The old runs have no `task.json`, so they are paired with the rule run by fixture index.
+
+### Bottom-face defects
+
+bench16 had one bottom view of a defective brick, so bottom-face detection was untested. `bottom48`
+(`config/agent_bench/bottom48.json`) pairs a face-5 defect with a normal brick on each of 24 fresh seeds (610001 to
+610024), run with the rule path and the hover wrist scan. `bottom_views.py` lists every view
+(`summary/bottom_views.json`).
+
+| | Defect on face 5 | Normal |
+|---|---|---|
+| Labelled correctly | 23/24 | 18/24 |
+| Bottom score, median | 1.159 | -0.257 |
+| Bottom views at or above the threshold (0) | 23/24 | 6/24 |
+| Wrist alarms | 0 | 0 |
+
+- No episode had a motion failure or a rewind.
+- The missed defect (610007, score -0.405) is a red 2x2 whose cross is dark red on red, partly behind the bottom tube.
+- Five of the six false alarms are 2x4 bricks: five of the six normal 2x4 bottoms scored 0.169 to 0.568. One of 18
+  normal 2x2 bottoms alarmed (0.541). The 2x4 classes overlap (defective minimum 0.365, normal maximum 0.568), so no
+  threshold separates them; the held 2x4 bottom, with its three tubes, needs more normal training views. For the 2x2
+  bricks alone, a threshold between 0.541 and 0.950 would detect 17/18 with no false alarm.
+
+### Bottom-view training data
+
+A second suite of 24 fresh 2x4 seeds (`bottom2x4.json`, seeds 610042 to 610187, paired as in bottom48) confirmed
+the false alarms. Run with the orbit scan and the old detector, it labelled all 24 defective bricks correctly, but
+only 3 of 24 normal bricks. 20 of 23 normal bottom views scored at or above 0 (median 0.194).
+
+The training sets never put a defect on face 5, and their random show poses rarely show the bottom squarely.
+`scripts/anomaly/render_bottom.py` renders the agent's own bottom views:
+
+- runs the agent backend up to the grasp;
+- poses the held brick at the `plan_bottom_view` poses (seeds 0, 1, 2 and 71) and at 4 jittered copies of them;
+- saves the crop the agent scores.
+
+`dataset-v7bot` has 300 layouts (fixture seeds from 800001, clear of the bench suites and the 7000xx search dev
+suite). Half the bricks are 2x4, half are defective on face 5, and the split is 70/30 by layout, for 2,400 crops.
+`train_sup.py --extra` adds its train layouts to the training and validation pools of the old recipe (v4 normals,
+v5def defects, LoRA r8, 2500 steps). The `--data` splits stay the same and its test crops are reported apart. The
+view statistics are recalibrated on the v6 train normals as before (`models-sup/sup-v7bot.json`). Scores and reports
+are in `results/anomaly/sup-v7bot/` (local).
+
+| | Old detector | New detector |
+|---|---|---|
+| v4 test, single view AUROC (cls / seg, pooled) | 0.952 / 0.952 | 0.952 / 0.950 |
+| v6 bricks, any pipeline view at or above 0: recall | 304/304 | 304/304 |
+| v6 bricks, normal bricks alarmed | 29/84 | 26/84 |
+| v7bot test crops, 2x4: recall, false alarms | 126/143, 42/152 | 141/143, 1/152 |
+| v7bot test crops, 2x2: recall, false alarms | 187/212, 7/120 | 206/212, 0/120 |
+| Agent bottom crops of bottom48 + bottom2x4, re-scored: recall, false alarms | 46/47, 26/47 | 47/47, 0/47 |
+| bottom48 sorted (orbit scan) | 41/48 | 48/48 |
+| bottom2x4 sorted (orbit scan) | 27/48 | 47/48 |
+| bench16 sorted (orbit scan) | 14/16 | 16/16 |
+
+- In the new runs the bottom view scored 1.455 to 2.632 on defective bricks and -1.121 to -0.073 on normal ones,
+  so 0 separates them with a margin of more than 0.07 on both sides. The 610007 miss (dark red cross on red) is now
+  caught.
+- The one error left in bottom2x4 is a wrist false alarm on normal 610138 (0.061, second orbit view). The
+  defective twin of that fixture shows the same wrist view with the same score. This is the open wrist threshold for
+  orbit views (`results/orbit-scan/REPORT.md`), not the bottom.
+- bench16 cases 600001 and 600008 (wrist false alarms in the orbit run) are now correct, with no rewinds.
+- The first render started at fixture seed 700001 and overlapped the policy-search dev suite
+  (`dev_suite_700001.json`). It was discarded, and the dataset and model were rebuilt from 800001 before any
+  result here.
+
 ## Motion smoothness
 
 Jerk is the third finite difference of arm joints 0-4 times 30³, in rad/s³. "Measured" uses the simulated joint

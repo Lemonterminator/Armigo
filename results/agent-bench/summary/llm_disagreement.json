@@ -1,0 +1,247 @@
+[
+ {
+  "run": "before / dev4",
+  "llm": "final/before/run-dev4-llm",
+  "rule": "final/before/run-dev4-rule",
+  "stats": {
+   "consulted": 10,
+   "consulted_choose_view": 8,
+   "rule_only": 2,
+   "consulted_recover": 2,
+   "disagree": 2,
+   "paired_episodes": 4,
+   "same_verdict": 2,
+   "llm_success": 4,
+   "rule_success": 2
+  },
+  "disagreements": [
+   {
+    "case": "case-0000",
+    "node": "recover",
+    "branch": 0,
+    "choices": [
+     "checkpoint-1",
+     "checkpoint-0",
+     "stop"
+    ],
+    "choice": "checkpoint-0",
+    "llm_outcome": {
+     "verdict": "SUCCESS",
+     "label": "normal",
+     "rewinds": 1,
+     "recovery_variants": null,
+     "sim_frames": 3285
+    },
+    "rule_outcome": {
+     "verdict": "FAILED",
+     "label": "normal",
+     "rewinds": 1,
+     "recovery_variants": null,
+     "sim_frames": 2823
+    }
+   },
+   {
+    "case": "case-0001",
+    "node": "recover",
+    "branch": 0,
+    "choices": [
+     "checkpoint-1",
+     "checkpoint-0",
+     "stop"
+    ],
+    "choice": "checkpoint-0",
+    "llm_outcome": {
+     "verdict": "SUCCESS",
+     "label": "defective",
+     "rewinds": 1,
+     "recovery_variants": null,
+     "sim_frames": 3373
+    },
+    "rule_outcome": {
+     "verdict": "FAILED",
+     "label": "defective",
+     "rewinds": 1,
+     "recovery_variants": null,
+     "sim_frames": 2911
+    }
+   }
+  ]
+ },
+ {
+  "run": "before / bench16",
+  "llm": "final/before/run-bench16-llm",
+  "rule": "final/before/run-bench16-rule",
+  "stats": {
+   "consulted": 19,
+   "consulted_choose_view": 17,
+   "paired_episodes": 16,
+   "same_verdict": 16,
+   "llm_success": 12,
+   "rule_success": 12,
+   "rule_only": 8,
+   "consulted_recover": 2,
+   "disagree": 2
+  },
+  "disagreements": [
+   {
+    "case": "case-0014",
+    "node": "recover",
+    "branch": 0,
+    "choices": [
+     "checkpoint-2",
+     "checkpoint-1",
+     "checkpoint-0",
+     "stop"
+    ],
+    "choice": "stop",
+    "llm_outcome": {
+     "verdict": "FAILED",
+     "label": "defective",
+     "rewinds": 0,
+     "recovery_variants": null,
+     "sim_frames": 2260
+    },
+    "rule_outcome": {
+     "verdict": "FAILED",
+     "label": "normal",
+     "rewinds": 1,
+     "recovery_variants": null,
+     "sim_frames": 3908
+    }
+   },
+   {
+    "case": "case-0015",
+    "node": "recover",
+    "branch": 0,
+    "choices": [
+     "checkpoint-1",
+     "checkpoint-0",
+     "stop"
+    ],
+    "choice": "stop",
+    "llm_outcome": {
+     "verdict": "FAILED",
+     "label": "defective",
+     "rewinds": 0,
+     "recovery_variants": null,
+     "sim_frames": 1302
+    },
+    "rule_outcome": {
+     "verdict": "FAILED",
+     "label": "defective",
+     "rewinds": 1,
+     "recovery_variants": null,
+     "sim_frames": 1951
+    }
+   }
+  ]
+ },
+ {
+  "run": "after / dev4 w1",
+  "llm": "final/after/run-dev4-llm-oldsrv",
+  "rule": "final/after/run-dev4-rule",
+  "stats": {
+   "consulted": 10,
+   "consulted_choose_view": 8,
+   "rule_only": 2,
+   "consulted_recover": 2,
+   "paired_episodes": 4,
+   "same_verdict": 4,
+   "llm_success": 4,
+   "rule_success": 4
+  },
+  "disagreements": []
+ },
+ {
+  "run": "after / bench16 w1",
+  "llm": "final/after/run-bench16-llm-oldsrv",
+  "rule": "final/after/run-bench16-rule",
+  "stats": {
+   "consulted": 22,
+   "consulted_choose_view": 20,
+   "paired_episodes": 16,
+   "same_verdict": 16,
+   "llm_success": 14,
+   "rule_success": 14,
+   "rule_only": 7,
+   "disagree": 1,
+   "consulted_recover": 2
+  },
+  "disagreements": [
+   {
+    "case": "case-0014",
+    "node": "choose_view",
+    "branch": 0,
+    "choices": [
+     "scan_wrist",
+     "present_bottom"
+    ],
+    "choice": "present_bottom",
+    "llm_outcome": {
+     "verdict": "SUCCESS",
+     "label": "normal",
+     "rewinds": 1,
+     "recovery_variants": [
+      "slow_scan"
+     ],
+     "sim_frames": 4539
+    },
+    "rule_outcome": {
+     "verdict": "SUCCESS",
+     "label": "normal",
+     "rewinds": 1,
+     "recovery_variants": [
+      "slow_scan"
+     ],
+     "sim_frames": 4886
+    }
+   }
+  ]
+ },
+ {
+  "run": "after / bench16 w4",
+  "llm": "final/after/run-bench16-llm-w4",
+  "rule": "final/after/run-bench16-rule",
+  "stats": {
+   "consulted": 22,
+   "consulted_choose_view": 20,
+   "paired_episodes": 16,
+   "same_verdict": 16,
+   "llm_success": 14,
+   "rule_success": 14,
+   "rule_only": 7,
+   "disagree": 1,
+   "consulted_recover": 2
+  },
+  "disagreements": [
+   {
+    "case": "case-0014",
+    "node": "choose_view",
+    "branch": 0,
+    "choices": [
+     "scan_wrist",
+     "present_bottom"
+    ],
+    "choice": "present_bottom",
+    "llm_outcome": {
+     "verdict": "SUCCESS",
+     "label": "normal",
+     "rewinds": 1,
+     "recovery_variants": [
+      "slow_scan"
+     ],
+     "sim_frames": 4539
+    },
+    "rule_outcome": {
+     "verdict": "SUCCESS",
+     "label": "normal",
+     "rewinds": 1,
+     "recovery_variants": [
+      "slow_scan"
+     ],
+     "sim_frames": 4886
+    }
+   }
+  ]
+ }
+]

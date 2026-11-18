@@ -1,0 +1,2608 @@
+[
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0000",
+  "seed": 610042,
+  "defective": true,
+  "face": 5,
+  "verdict": "SUCCESS",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:341:wrist_cam",
+   "0:542:wrist_cam",
+   "0:1050:top"
+  ],
+  "views": [
+   {
+    "id": "0:341:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -0.9695287107888617,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:542:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     3,
+     4
+    ],
+    "score": -0.6701788303528274,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1050:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": 1.2754882339182727,
+    "threshold": 0.0,
+    "face5_px": 10601
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0001",
+  "seed": 610042,
+  "defective": false,
+  "face": 5,
+  "verdict": "FAILED",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:341:wrist_cam",
+   "0:542:wrist_cam",
+   "0:1050:top"
+  ],
+  "views": [
+   {
+    "id": "0:341:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -0.9695287107888617,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:542:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     3,
+     4
+    ],
+    "score": -0.6701788303528274,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1050:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": 0.3712923064088598,
+    "threshold": 0.0,
+    "face5_px": 10601
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0002",
+  "seed": 610053,
+  "defective": true,
+  "face": 5,
+  "verdict": "SUCCESS",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:357:wrist_cam",
+   "0:462:wrist_cam",
+   "0:591:wrist_cam",
+   "0:1103:top"
+  ],
+  "views": [
+   {
+    "id": "0:357:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     3,
+     4
+    ],
+    "score": -0.9255146263727732,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:462:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -0.9729144095900993,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:591:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     2,
+     4
+    ],
+    "score": -0.6961817303044949,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1103:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": 1.3669697636709448,
+    "threshold": 0.0,
+    "face5_px": 10698
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0003",
+  "seed": 610053,
+  "defective": false,
+  "face": 5,
+  "verdict": "FAILED",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:357:wrist_cam",
+   "0:462:wrist_cam",
+   "0:591:wrist_cam",
+   "0:1103:top"
+  ],
+  "views": [
+   {
+    "id": "0:357:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     3,
+     4
+    ],
+    "score": -0.9255146263727732,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:462:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -0.9729144095900993,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:591:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     2,
+     4
+    ],
+    "score": -0.6961817303044949,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1103:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": 0.08212849397046977,
+    "threshold": 0.0,
+    "face5_px": 10698
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0004",
+  "seed": 610057,
+  "defective": true,
+  "face": 5,
+  "verdict": "SUCCESS",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:337:wrist_cam",
+   "0:538:wrist_cam",
+   "0:1036:top"
+  ],
+  "views": [
+   {
+    "id": "0:337:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -0.744417593040116,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:538:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     3,
+     4
+    ],
+    "score": -0.7761237312711455,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1036:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": 1.0322180766104259,
+    "threshold": 0.0,
+    "face5_px": 10580
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0005",
+  "seed": 610057,
+  "defective": false,
+  "face": 5,
+  "verdict": "FAILED",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:337:wrist_cam",
+   "0:538:wrist_cam",
+   "0:1036:top"
+  ],
+  "views": [
+   {
+    "id": "0:337:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -0.744417593040116,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:538:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     3,
+     4
+    ],
+    "score": -0.7761237312711455,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1036:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": 0.29378448039444593,
+    "threshold": 0.0,
+    "face5_px": 10580
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0006",
+  "seed": 610062,
+  "defective": true,
+  "face": 5,
+  "verdict": "SUCCESS",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:326:wrist_cam",
+   "0:527:wrist_cam",
+   "0:1032:top"
+  ],
+  "views": [
+   {
+    "id": "0:326:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -0.957467375543741,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:527:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     3,
+     4
+    ],
+    "score": -0.6385766529678877,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1032:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": 1.3679308936952546,
+    "threshold": 0.0,
+    "face5_px": 10540
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0007",
+  "seed": 610062,
+  "defective": false,
+  "face": 5,
+  "verdict": "FAILED",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:326:wrist_cam",
+   "0:527:wrist_cam",
+   "0:1032:top"
+  ],
+  "views": [
+   {
+    "id": "0:326:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -0.957467375543741,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:527:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     3,
+     4
+    ],
+    "score": -0.6385766529678877,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1032:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": 0.11934681131273048,
+    "threshold": 0.0,
+    "face5_px": 10540
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0008",
+  "seed": 610070,
+  "defective": true,
+  "face": 5,
+  "verdict": "SUCCESS",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:225:wrist_cam",
+   "0:431:wrist_cam",
+   "0:1045:top"
+  ],
+  "views": [
+   {
+    "id": "0:225:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -0.7615514741420977,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:431:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     3,
+     4
+    ],
+    "score": -0.766747220879652,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1045:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": 1.0760067049258384,
+    "threshold": 0.0,
+    "face5_px": 10608
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0009",
+  "seed": 610070,
+  "defective": false,
+  "face": 5,
+  "verdict": "FAILED",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:225:wrist_cam",
+   "0:431:wrist_cam",
+   "0:1045:top"
+  ],
+  "views": [
+   {
+    "id": "0:225:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -0.7611164813919769,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:431:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     3,
+     4
+    ],
+    "score": -0.766747220879652,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1045:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": 0.2043523734547377,
+    "threshold": 0.0,
+    "face5_px": 10608
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0010",
+  "seed": 610079,
+  "defective": true,
+  "face": 5,
+  "verdict": "SUCCESS",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:233:wrist_cam",
+   "0:429:wrist_cam",
+   "0:1035:top"
+  ],
+  "views": [
+   {
+    "id": "0:233:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -0.3372494596577425,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:429:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     3,
+     4
+    ],
+    "score": -1.0372426868136135,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1035:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": 0.7962460240218144,
+    "threshold": 0.0,
+    "face5_px": 10632
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0011",
+  "seed": 610079,
+  "defective": false,
+  "face": 5,
+  "verdict": "FAILED",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:233:wrist_cam",
+   "0:429:wrist_cam",
+   "0:1035:top"
+  ],
+  "views": [
+   {
+    "id": "0:233:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -0.3372494596577425,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:429:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     3,
+     4
+    ],
+    "score": -1.0372426868136135,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1035:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": 0.3116709017823876,
+    "threshold": 0.0,
+    "face5_px": 10632
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0012",
+  "seed": 610083,
+  "defective": true,
+  "face": 5,
+  "verdict": "SUCCESS",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:263:wrist_cam",
+   "0:469:wrist_cam",
+   "0:1054:top"
+  ],
+  "views": [
+   {
+    "id": "0:263:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -0.8628791985498777,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:469:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     3,
+     4
+    ],
+    "score": -0.9153575299690604,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1054:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": 1.1392569458258786,
+    "threshold": 0.0,
+    "face5_px": 10657
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0013",
+  "seed": 610083,
+  "defective": false,
+  "face": 5,
+  "verdict": "FAILED",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:263:wrist_cam",
+   "0:469:wrist_cam",
+   "0:1054:top"
+  ],
+  "views": [
+   {
+    "id": "0:263:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -0.8628791985498777,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:469:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     3,
+     4
+    ],
+    "score": -0.9153575299690604,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1054:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": 0.04337458096326287,
+    "threshold": 0.0,
+    "face5_px": 10657
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0014",
+  "seed": 610084,
+  "defective": true,
+  "face": 5,
+  "verdict": "SUCCESS",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:317:wrist_cam",
+   "0:518:wrist_cam",
+   "0:1037:top"
+  ],
+  "views": [
+   {
+    "id": "0:317:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -0.870082165297245,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:518:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     3,
+     4
+    ],
+    "score": -1.003093281778637,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1037:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": 1.3533346842567837,
+    "threshold": 0.0,
+    "face5_px": 10545
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0015",
+  "seed": 610084,
+  "defective": false,
+  "face": 5,
+  "verdict": "SUCCESS",
+  "label": "normal",
+  "failures": [],
+  "evidence": [
+   "0:317:wrist_cam",
+   "0:518:wrist_cam",
+   "0:1037:top"
+  ],
+  "views": [
+   {
+    "id": "0:317:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -0.870082165297245,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:518:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     3,
+     4
+    ],
+    "score": -1.0038666022232963,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1037:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": -0.12620400371987747,
+    "threshold": 0.0,
+    "face5_px": 10545
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0016",
+  "seed": 610085,
+  "defective": true,
+  "face": 5,
+  "verdict": "SUCCESS",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:238:wrist_cam",
+   "0:444:wrist_cam",
+   "0:1048:top"
+  ],
+  "views": [
+   {
+    "id": "0:238:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -1.0710996748259893,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:444:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     3,
+     4
+    ],
+    "score": -1.0270855904099008,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1048:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": 1.2852190402105867,
+    "threshold": 0.0,
+    "face5_px": 10698
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0017",
+  "seed": 610085,
+  "defective": false,
+  "face": 5,
+  "verdict": "FAILED",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:238:wrist_cam",
+   "0:444:wrist_cam",
+   "0:1048:top"
+  ],
+  "views": [
+   {
+    "id": "0:238:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -1.0710996748259893,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:444:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     3,
+     4
+    ],
+    "score": -1.023699891608663,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1048:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": 0.21361399726952116,
+    "threshold": 0.0,
+    "face5_px": 10698
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0018",
+  "seed": 610086,
+  "defective": true,
+  "face": 5,
+  "verdict": "SUCCESS",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:229:wrist_cam",
+   "0:425:wrist_cam",
+   "0:1045:top"
+  ],
+  "views": [
+   {
+    "id": "0:229:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -0.7079990333494441,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:425:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     3,
+     4
+    ],
+    "score": -0.7312711454809087,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1045:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": 1.183045574141291,
+    "threshold": 0.0,
+    "face5_px": 10622
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0019",
+  "seed": 610086,
+  "defective": false,
+  "face": 5,
+  "verdict": "FAILED",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:229:wrist_cam",
+   "0:425:wrist_cam",
+   "0:1045:top"
+  ],
+  "views": [
+   {
+    "id": "0:229:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -0.7079990333494441,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:425:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     3,
+     4
+    ],
+    "score": -0.7312711454809087,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1045:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": 0.03906765940114101,
+    "threshold": 0.0,
+    "face5_px": 10622
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0020",
+  "seed": 610087,
+  "defective": true,
+  "face": 5,
+  "verdict": "SUCCESS",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:323:wrist_cam",
+   "0:469:wrist_cam",
+   "0:635:wrist_cam",
+   "0:1245:top"
+  ],
+  "views": [
+   {
+    "id": "0:323:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     3,
+     4
+    ],
+    "score": -0.7185113581440309,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:469:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -0.5097148380860319,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:635:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     4
+    ],
+    "score": -0.6210729821169647,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1245:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": 1.0322180766104259,
+    "threshold": 0.0,
+    "face5_px": 10610
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0021",
+  "seed": 610087,
+  "defective": false,
+  "face": 5,
+  "verdict": "FAILED",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:323:wrist_cam",
+   "0:469:wrist_cam",
+   "0:635:wrist_cam",
+   "0:1245:top"
+  ],
+  "views": [
+   {
+    "id": "0:323:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     3,
+     4
+    ],
+    "score": -0.7185113581440309,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:469:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -0.5097148380860319,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:635:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     4
+    ],
+    "score": -0.624939584340261,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1245:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": 0.08528898928963191,
+    "threshold": 0.0,
+    "face5_px": 10610
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0022",
+  "seed": 610102,
+  "defective": true,
+  "face": 5,
+  "verdict": "SUCCESS",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:361:wrist_cam",
+   "0:557:wrist_cam",
+   "0:1035:top"
+  ],
+  "views": [
+   {
+    "id": "0:361:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -0.7968580719257449,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:557:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     3,
+     4
+    ],
+    "score": -0.8896085065248912,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1035:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": 0.5382322393629818,
+    "threshold": 0.0,
+    "face5_px": 10670
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0023",
+  "seed": 610102,
+  "defective": false,
+  "face": 5,
+  "verdict": "FAILED",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:361:wrist_cam",
+   "0:557:wrist_cam",
+   "0:1035:top"
+  ],
+  "views": [
+   {
+    "id": "0:361:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -0.7968580719257449,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:557:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     3,
+     4
+    ],
+    "score": -0.8896085065248912,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1035:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": 0.21031451391738493,
+    "threshold": 0.0,
+    "face5_px": 10670
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0024",
+  "seed": 610107,
+  "defective": true,
+  "face": 5,
+  "verdict": "SUCCESS",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:326:wrist_cam",
+   "0:472:wrist_cam",
+   "0:638:wrist_cam",
+   "0:1244:top"
+  ],
+  "views": [
+   {
+    "id": "0:326:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     3,
+     4
+    ],
+    "score": -0.7240655476991368,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:472:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -0.8628791985498777,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:638:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     4
+    ],
+    "score": -1.0,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1244:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": 1.0857375112181522,
+    "threshold": 0.0,
+    "face5_px": 10577
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0025",
+  "seed": 610107,
+  "defective": false,
+  "face": 5,
+  "verdict": "FAILED",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:326:wrist_cam",
+   "0:472:wrist_cam",
+   "0:638:wrist_cam",
+   "0:1244:top"
+  ],
+  "views": [
+   {
+    "id": "0:326:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     3,
+     4
+    ],
+    "score": -0.7240655476991368,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:472:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -0.8628791985498777,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:638:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     4
+    ],
+    "score": -1.0,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1244:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": 0.5501565202882762,
+    "threshold": 0.0,
+    "face5_px": 10577
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0026",
+  "seed": 610118,
+  "defective": true,
+  "face": 5,
+  "verdict": "SUCCESS",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:361:wrist_cam",
+   "0:557:wrist_cam",
+   "0:1028:top"
+  ],
+  "views": [
+   {
+    "id": "0:361:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -0.6233929434509425,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:557:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     3,
+     4
+    ],
+    "score": -0.8666022232962783,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1028:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": 1.0450141786879952,
+    "threshold": 0.0,
+    "face5_px": 10580
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0027",
+  "seed": 610118,
+  "defective": false,
+  "face": 5,
+  "verdict": "SUCCESS",
+  "label": "normal",
+  "failures": [],
+  "evidence": [
+   "0:361:wrist_cam",
+   "0:557:wrist_cam",
+   "0:1028:top"
+  ],
+  "views": [
+   {
+    "id": "0:361:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -0.6233929434509425,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:557:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     3,
+     4
+    ],
+    "score": -0.8662155630739488,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1028:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": -0.11160779428140666,
+    "threshold": 0.0,
+    "face5_px": 10580
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0028",
+  "seed": 610120,
+  "defective": true,
+  "face": 5,
+  "verdict": "SUCCESS",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:357:wrist_cam",
+   "0:462:wrist_cam",
+   "0:591:wrist_cam",
+   "0:1105:top"
+  ],
+  "views": [
+   {
+    "id": "0:357:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     3,
+     4
+    ],
+    "score": -0.8782020299661673,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:462:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -0.5597873368777188,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:591:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     2,
+     4
+    ],
+    "score": -0.852722102146165,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1105:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": 0.8521981602026192,
+    "threshold": 0.0,
+    "face5_px": 10698
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0029",
+  "seed": 610120,
+  "defective": false,
+  "face": 5,
+  "verdict": "FAILED",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:357:wrist_cam",
+   "0:462:wrist_cam",
+   "0:591:wrist_cam",
+   "0:1105:top"
+  ],
+  "views": [
+   {
+    "id": "0:357:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     3,
+     4
+    ],
+    "score": -0.8824552924117931,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:462:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -0.5597873368777188,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:591:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     2,
+     4
+    ],
+    "score": -0.852722102146165,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1105:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": 0.5024593965870985,
+    "threshold": 0.0,
+    "face5_px": 10698
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0030",
+  "seed": 610124,
+  "defective": true,
+  "face": 5,
+  "verdict": "SUCCESS",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:326:wrist_cam",
+   "0:472:wrist_cam",
+   "0:642:wrist_cam",
+   "0:1262:top"
+  ],
+  "views": [
+   {
+    "id": "0:326:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     3,
+     4
+    ],
+    "score": -0.7156013006960428,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:472:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -0.8186563557274046,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:642:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     4
+    ],
+    "score": -0.8584823586273562,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1262:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": 1.3095460559413714,
+    "threshold": 0.0,
+    "face5_px": 10631
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0031",
+  "seed": 610124,
+  "defective": false,
+  "face": 5,
+  "verdict": "FAILED",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:326:wrist_cam",
+   "0:472:wrist_cam",
+   "0:642:wrist_cam",
+   "0:1262:top"
+  ],
+  "views": [
+   {
+    "id": "0:326:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     3,
+     4
+    ],
+    "score": -0.7156013006960428,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:472:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -0.8155630739487675,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:642:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     4
+    ],
+    "score": -0.8584823586273562,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1262:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": 0.19171968311181492,
+    "threshold": 0.0,
+    "face5_px": 10631
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0032",
+  "seed": 610138,
+  "defective": true,
+  "face": 5,
+  "verdict": "SUCCESS",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:329:wrist_cam",
+   "0:530:wrist_cam",
+   "0:1037:top"
+  ],
+  "views": [
+   {
+    "id": "0:329:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -0.9221289275715355,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:530:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     3,
+     4
+    ],
+    "score": -1.0067713976024752,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1037:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": 1.1343915426797215,
+    "threshold": 0.0,
+    "face5_px": 10650
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0033",
+  "seed": 610138,
+  "defective": false,
+  "face": 5,
+  "verdict": "SUCCESS",
+  "label": "normal",
+  "failures": [],
+  "evidence": [
+   "0:329:wrist_cam",
+   "0:530:wrist_cam",
+   "0:1037:top"
+  ],
+  "views": [
+   {
+    "id": "0:329:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -0.9221289275715355,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:530:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     3,
+     4
+    ],
+    "score": -1.0067713976024752,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1037:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": -0.3489482415048748,
+    "threshold": 0.0,
+    "face5_px": 10650
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0034",
+  "seed": 610142,
+  "defective": true,
+  "face": 5,
+  "verdict": "SUCCESS",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:341:wrist_cam",
+   "0:482:wrist_cam",
+   "0:652:wrist_cam",
+   "0:1256:top"
+  ],
+  "views": [
+   {
+    "id": "0:341:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     3,
+     4
+    ],
+    "score": -0.9322860239752483,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:482:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -1.0100531657805703,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:652:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     4
+    ],
+    "score": -0.9390574215777234,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1256:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": 1.2998152496490576,
+    "threshold": 0.0,
+    "face5_px": 10669
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0035",
+  "seed": 610142,
+  "defective": false,
+  "face": 5,
+  "verdict": "FAILED",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:341:wrist_cam",
+   "0:482:wrist_cam",
+   "0:652:wrist_cam",
+   "0:1256:top"
+  ],
+  "views": [
+   {
+    "id": "0:341:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     3,
+     4
+    ],
+    "score": -0.9322860239752483,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:482:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -1.0100531657805703,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:652:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     4
+    ],
+    "score": -0.9390574215777234,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1256:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": 0.1941523846848934,
+    "threshold": 0.0,
+    "face5_px": 10669
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0036",
+  "seed": 610175,
+  "defective": true,
+  "face": 5,
+  "verdict": "SUCCESS",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:341:wrist_cam",
+   "0:491:wrist_cam",
+   "0:653:wrist_cam"
+  ],
+  "views": [
+   {
+    "id": "0:341:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     3,
+     4
+    ],
+    "score": -0.8165297245045916,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:491:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -0.6541324311261479,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:653:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     4
+    ],
+    "score": 0.30687973727770823,
+    "threshold": 0.0,
+    "face5_px": 0
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0037",
+  "seed": 610175,
+  "defective": false,
+  "face": 5,
+  "verdict": "FAILED",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:341:wrist_cam",
+   "0:491:wrist_cam",
+   "0:653:wrist_cam"
+  ],
+  "views": [
+   {
+    "id": "0:341:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     3,
+     4
+    ],
+    "score": -0.8155630739487675,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:491:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -0.6541324311261479,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:653:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     4
+    ],
+    "score": 0.31026543607894586,
+    "threshold": 0.0,
+    "face5_px": 0
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0038",
+  "seed": 610180,
+  "defective": true,
+  "face": 5,
+  "verdict": "SUCCESS",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:305:wrist_cam",
+   "0:511:wrist_cam",
+   "0:1048:top"
+  ],
+  "views": [
+   {
+    "id": "0:305:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -0.23595940067665538,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:511:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     3,
+     4
+    ],
+    "score": -0.6376993716771387,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1048:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": 1.114929930095094,
+    "threshold": 0.0,
+    "face5_px": 10697
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0039",
+  "seed": 610180,
+  "defective": false,
+  "face": 5,
+  "verdict": "FAILED",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:305:wrist_cam",
+   "0:511:wrist_cam",
+   "0:1048:top"
+  ],
+  "views": [
+   {
+    "id": "0:305:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -0.23286611889801836,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:511:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     3,
+     4
+    ],
+    "score": -0.6376993716771387,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1048:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": 0.17104171974064794,
+    "threshold": 0.0,
+    "face5_px": 10697
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0040",
+  "seed": 610182,
+  "defective": true,
+  "face": 5,
+  "verdict": "SUCCESS",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:311:wrist_cam",
+   "0:517:wrist_cam",
+   "0:1149:top"
+  ],
+  "views": [
+   {
+    "id": "0:311:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -0.923054615756404,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:517:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     3,
+     4
+    ],
+    "score": -0.749631464475592,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1149:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": 1.0760067049258384,
+    "threshold": 0.0,
+    "face5_px": 10615
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0041",
+  "seed": 610182,
+  "defective": false,
+  "face": 5,
+  "verdict": "FAILED",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:311:wrist_cam",
+   "0:517:wrist_cam",
+   "0:1149:top"
+  ],
+  "views": [
+   {
+    "id": "0:311:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -0.923054615756404,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:517:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     3,
+     4
+    ],
+    "score": -0.749631464475592,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1149:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": 0.35936802548356533,
+    "threshold": 0.0,
+    "face5_px": 10615
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0042",
+  "seed": 610183,
+  "defective": true,
+  "face": 5,
+  "verdict": "SUCCESS",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:345:wrist_cam",
+   "0:546:wrist_cam",
+   "0:1046:top"
+  ],
+  "views": [
+   {
+    "id": "0:345:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -0.9289003251740107,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:546:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     3,
+     4
+    ],
+    "score": -0.40411701098218483,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1046:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": 1.0857375112181522,
+    "threshold": 0.0,
+    "face5_px": 10637
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0043",
+  "seed": 610183,
+  "defective": false,
+  "face": 5,
+  "verdict": "FAILED",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:345:wrist_cam",
+   "0:546:wrist_cam",
+   "0:1046:top"
+  ],
+  "views": [
+   {
+    "id": "0:345:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -0.9289003251740107,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:546:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     3,
+     4
+    ],
+    "score": -0.40411701098218483,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1046:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": 0.30362395547342447,
+    "threshold": 0.0,
+    "face5_px": 10637
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0044",
+  "seed": 610186,
+  "defective": true,
+  "face": 5,
+  "verdict": "SUCCESS",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:332:wrist_cam",
+   "0:514:wrist_cam",
+   "0:1010:top"
+  ],
+  "views": [
+   {
+    "id": "0:332:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -1.0773320444659256,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:514:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     3,
+     4
+    ],
+    "score": -0.9996133397776704,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1010:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": 0.5286488509831828,
+    "threshold": 0.0,
+    "face5_px": 10639
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0045",
+  "seed": 610186,
+  "defective": false,
+  "face": 5,
+  "verdict": "FAILED",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:332:wrist_cam",
+   "0:514:wrist_cam",
+   "0:1010:top"
+  ],
+  "views": [
+   {
+    "id": "0:332:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -1.0773320444659256,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:514:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     3,
+     4
+    ],
+    "score": -0.9996133397776704,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1010:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": 0.5335142541293398,
+    "threshold": 0.0,
+    "face5_px": 10639
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0046",
+  "seed": 610187,
+  "defective": true,
+  "face": 5,
+  "verdict": "SUCCESS",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:329:wrist_cam",
+   "0:475:wrist_cam",
+   "0:641:wrist_cam",
+   "0:1253:top"
+  ],
+  "views": [
+   {
+    "id": "0:329:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     3,
+     4
+    ],
+    "score": -0.8950433371616349,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:475:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -1.0778710724284646,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:641:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     4
+    ],
+    "score": -1.0541711808198013,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1253:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": 1.192776380433605,
+    "threshold": 0.0,
+    "face5_px": 10672
+   }
+  ]
+ },
+ {
+  "run": "data\\catalog\\agent\\bottom2x4",
+  "episode": "case-0047",
+  "seed": 610187,
+  "defective": false,
+  "face": 5,
+  "verdict": "FAILED",
+  "label": "defective",
+  "failures": [],
+  "evidence": [
+   "0:329:wrist_cam",
+   "0:475:wrist_cam",
+   "0:641:wrist_cam",
+   "0:1253:top"
+  ],
+  "views": [
+   {
+    "id": "0:329:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     3,
+     4
+    ],
+    "score": -0.8950433371616349,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:475:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     0,
+     2,
+     4
+    ],
+    "score": -1.0778710724284646,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:641:wrist_cam",
+    "camera": "wrist_cam",
+    "faces": [
+     1,
+     4
+    ],
+    "score": -1.0541711808198013,
+    "threshold": 0.0,
+    "face5_px": 0
+   },
+   {
+    "id": "0:1253:top",
+    "camera": "top",
+    "faces": [
+     5
+    ],
+    "score": 0.1596363199848836,
+    "threshold": 0.0,
+    "face5_px": 10672
+   }
+  ]
+ }
+]

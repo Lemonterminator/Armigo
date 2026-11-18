@@ -1,0 +1,41 @@
+{
+  "2x2": {
+    "auroc": 0.9537037037037037,
+    "recall": [
+      17,
+      18
+    ],
+    "false_alarms": [
+      1,
+      18
+    ],
+    "normal_median": -0.31063321232795715,
+    "defective_median": 1.124660849571228
+  },
+  "2x4": {
+    "auroc": 0.985731272294887,
+    "recall": [
+      29,
+      29
+    ],
+    "false_alarms": [
+      25,
+      29
+    ],
+    "normal_median": 0.19839023053646088,
+    "defective_median": 1.1295262575149536
+  },
+  "all": {
+    "auroc": 0.9732910819375283,
+    "recall": [
+      46,
+      47
+    ],
+    "false_alarms": [
+      26,
+      47
+    ],
+    "normal_median": 0.07914742082357407,
+    "defective_median": 1.1295262575149536
+  }
+}

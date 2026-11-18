@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import copy
 import hashlib
+import itertools
 import json
 import math
 import time
@@ -28,7 +29,8 @@ from ..mujoco_cell.episode import PhysicsEpisode, observe
 from ..mujoco_cell.inspection_planning import path_min_z
 from ..mujoco_cell.inspection_views import capture_view, detector_crop
 from ..mujoco_cell.layout import sample_layout
-from ..mujoco_cell.physics_expert import ExpertParams
+from ..mujoco_cell.orbit_scan import OrbitParams, plan_orbit_scan
+from ..mujoco_cell.physics_expert import MIN_JERK_PEAK_RATIO, ExpertParams, _min_jerk
 from ..mujoco_cell.table_relocation import RelocateExpert, RelocateParams, plan_bottom_view, plan_table_scan
 from ..physics import NonIdealityCfg, load_physics_spec
 from .twin_graph import Policy, decision, select_skill
@@ -139,6 +141,13 @@ VARIANT_BY_CODE = MappingProxyType(
 		"PARK_PATH_BLOCKED": "slow_carry",
 	}
 )
+# Orbit-scan rings per wrist-scan attempt (first scan, then repeats and scans after a rewind): later attempts keep
+# the jaws higher and the ring wider, so a repeat does not retrace a ring that already failed.
+ORBIT_ATTEMPTS = (
+	OrbitParams(),
+	OrbitParams(tip_heights_m=(0.025, 0.04, 0.055)),
+	OrbitParams(tip_heights_m=(0.04, 0.06), standoffs_m=(0.04, 0.06)),
+)
 RELOCATE_KEYS = frozenset({"scan_move_s"})  # RelocateParams fields a variant may set
 STALL_REASONS = ("torque_stall", "tracking_lag")
 STALL_SECONDS = 1.5  # metrics.evaluate_episode_health max_stall_secs
@@ -163,6 +172,39 @@ def apply_variant(name, params, relocate):
 		replace(relocate, **rel),
 		float(values.get("scan_peak_speed", SCAN_PEAK_SPEED)),
 	)
+
+
+def sweep(expert, path, peak_speed, min_s, phase="approach", pause_s=None):
+	"""Targets that move the arm from ``expert.last`` through the joint vectors of ``path`` without stopping at them:
+	min-jerk timing along the piecewise-linear joint path (arc length measured as the largest joint change, so no
+	joint exceeds ``peak_speed``), split into chunks of at most ``max_move_chunk_s`` with the expert's chunk pause
+	between them, as :meth:`ClosedLoopExpert._move` does for one segment. Lasts at least ``min_s``."""
+	p = expert.p
+	points = [expert.last.copy(), *(np.clip(np.asarray(q, dtype=np.float64), expert._lo, expert._hi) for q in path)]
+	if len(points) < 2:
+		return
+	# Arc length: the largest arm-joint change, plus a tiny share of the rest so a path that only moves the
+	# gripper still advances to its end.
+	steps = [float(np.max(np.abs(b[:5] - a[:5])) + 1e-6 * np.sum(np.abs(b - a))) for a, b in itertools.pairwise(points)]
+	arc = np.concatenate([[0.0], np.cumsum(steps)])
+	total = float(arc[-1])
+	secs = max(min_s, MIN_JERK_PEAK_RATIO * total / peak_speed)
+	chunks = max(1, math.ceil(secs / p.max_move_chunk_s))
+	stack = np.array(points)
+
+	def at(s):
+		k = int(np.clip(np.searchsorted(arc, s, side="right") - 1, 0, len(steps) - 1))
+		f = 0.0 if steps[k] <= 0 else (s - arc[k]) / steps[k]
+		return stack[k] + min(max(f, 0.0), 1.0) * (stack[k + 1] - stack[k])
+
+	for c in range(chunks):
+		a, b = total * c / chunks, total * (c + 1) / chunks
+		n = max(2, expert._frames(secs / chunks) + 1)
+		for s in _min_jerk(n)[1:]:
+			yield at(a + s * (b - a)), phase
+		if c < chunks - 1:
+			for _ in range(expert._frames(p.chunk_pause_s if pause_s is None else pause_s)):
+				yield at(b), phase
 
 
 def stall_start(torques, limit, fps=FPS):
@@ -241,6 +283,7 @@ class ContinuousCarryExpert(RelocateExpert):
 
 class TwinMujoco:
 	scan_peak_speed = SCAN_PEAK_SPEED
+	sweep_pause_s = None  # pause between chunks of a multi-pose scan sweep; None: the expert's chunk pause
 	recovery_variants: tuple = ()
 
 	def __init__(
@@ -628,36 +671,31 @@ class TwinMujoco:
 				return error
 		ex, cell = self.expert, self.cell
 		ex.kin.data.qpos[:] = cell.data.qpos
-		modes = (
-			{"heights": (0.06, 0.075, 0.09), "offset_m": 0.03},
-			{"heights": (0.07, 0.085, 0.10), "offset_m": 0.02},
-			{"heights": (0.055, 0.08, 0.095), "offset_m": 0.04},
-		)
-		with blind_geometry(cell):
-			candidates, mode = plan_table_scan(
-				cell,
-				ex.kin,
-				ex.last,
-				gripper=ex.p.open_g,
-				min_px=WRIST_MIN_PX,
-				**modes[min(self.wrist_count - 1 + self.rewinds, 2)],
-			)
-		self.event("scan_plan", mode=mode, candidates=len(candidates))
-		for candidate in candidates:
+		attempt = min(self.wrist_count - 1 + self.rewinds, 2)
+		steps, mode, extra = self._scan_plan(previous, attempt)
+		self.event("scan_plan", mode=mode, candidates=len(steps), **extra)
+		pending: list[np.ndarray] = []  # ring poses of skipped views, still swept through to stay on the ring
+		for candidate, via in steps:
+			path = [*pending, *via, candidate.q]
 			_, covered = decision([*previous, *views])
 			if not any(f not in covered and candidate.faces_px[f] >= WRIST_MIN_PX for f in range(5)):
+				pending = path if via else []
 				continue
-			if not self._straight_clear(ex.last, candidate.q):
+			pending = []
+			if not all(self._straight_clear(a, b) for a, b in itertools.pairwise([ex.last, *path])):
 				continue
 
-			def look(q):
-				move_time = max(
-					ex.rp.scan_move_s, 1.875 * float(np.max(np.abs(q[:5] - ex.last[:5]))) / self.scan_peak_speed
+			def look(path):
+				yield from sweep(
+					ex,
+					path,
+					self.scan_peak_speed,
+					ex.rp.scan_move_s,
+					pause_s=self.sweep_pause_s if len(path) > 1 else None,
 				)
-				yield from ex._move(q, move_time, "approach")
-				yield from ex._hold_servo(q, ex.rp.scan_hold_s, "approach")
+				yield from ex._hold_servo(path[-1], ex.rp.scan_hold_s, "approach")
 
-			if error := self._execute(look(candidate.q)):
+			if error := self._execute(look(path)):
 				return error
 			views.append(self._capture("wrist_cam"))
 			if decision(views)[0] == "defective":
@@ -666,6 +704,36 @@ class TwinMujoco:
 			return error
 		self._save([*previous, *views])
 		return None
+
+	def _scan_plan(self, previous, attempt):
+		"""``([(view, via poses)], mode, event fields)``: the orbit scan around the upward face when it covers every
+		side and top face not cleared yet, else the hover scan of :func:`plan_table_scan`."""
+		ex, cell = self.expert, self.cell
+		need = [f for f in range(5) if f not in decision(previous)[1]]
+		with blind_geometry(cell):
+			plan = plan_orbit_scan(
+				cell,
+				ex.kin,
+				ex.last,
+				gripper=ex.p.open_g,
+				params=ORBIT_ATTEMPTS[attempt],
+				faces=need,
+				min_px=WRIST_MIN_PX,
+			)
+		reached = {f for v in plan.views for f in need if v.faces_px[f] >= WRIST_MIN_PX}
+		if plan.views and reached == set(need):
+			extra = {"tip_height_m": plan.tip_height_m, "standoff_m": plan.standoff_m, "ring_poses": len(plan.ring)}
+			return list(zip(plan.views, plan.via, strict=True)), plan.mode, extra
+		modes = (
+			{"heights": (0.06, 0.075, 0.09), "offset_m": 0.03},
+			{"heights": (0.07, 0.085, 0.10), "offset_m": 0.02},
+			{"heights": (0.055, 0.08, 0.095), "offset_m": 0.04},
+		)
+		with blind_geometry(cell):
+			candidates, mode = plan_table_scan(
+				cell, ex.kin, ex.last, gripper=ex.p.open_g, min_px=WRIST_MIN_PX, **modes[attempt]
+			)
+		return [(c, []) for c in candidates], mode, {"orbit_faces": sorted(reached)}
 
 	def _grasp(self):
 		ex = self.expert

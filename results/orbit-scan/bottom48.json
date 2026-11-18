@@ -1,0 +1,44 @@
+{
+ "common_episodes": 48,
+ "runs": [
+  {
+   "name": "old",
+   "episodes": 48,
+   "success": 41,
+   "rewinds": 0,
+   "failure_codes": [],
+   "wrist_alarms": 0,
+   "wrist_views_mean": 2,
+   "sim_frames_total": 82345,
+   "weakest_side_px_median": 999.5,
+   "weakest_side_px_min": 813,
+   "episodes_weakest_side_below_1500": 48,
+   "top_px_median": 12525.0,
+   "modes": {
+    "vertical": 48
+   }
+  },
+  {
+   "name": "orbit",
+   "episodes": 48,
+   "success": 41,
+   "rewinds": 0,
+   "failure_codes": [],
+   "wrist_alarms": 0,
+   "wrist_views_mean": 2.1666666666666665,
+   "sim_frames_total": 81735,
+   "weakest_side_px_median": 2111.0,
+   "weakest_side_px_min": 1554,
+   "episodes_weakest_side_below_1500": 0,
+   "top_px_median": 11824.0,
+   "modes": {
+    "orbit": 48
+   }
+  }
+ ],
+ "paired": {
+  "weakest_side_ratio_median": 2.0997014765292628,
+  "orbit_higher": 48,
+  "verdict_changes": []
+ }
+}

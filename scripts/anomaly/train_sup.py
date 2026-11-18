@@ -15,7 +15,10 @@ The two heads read the concatenated layer2 + layer3 feature map (stride 8):
 Data: ``--data`` (normal and defective TEST layouts, crops of ``render_dataset.py``) and ``--data-defect`` (the
 defective TRAIN layouts of ``render_dataset.py --only-defective-train``, with ``masks/``). Training uses normal train
 crops and ``abnormal`` crops (>= 25 visible defect pixels) of the defective train layouts; ``hidden_defect`` crops are
-never used. Validation and the threshold follow the PatchCore protocol: layouts held out of training, per camera the
+never used. ``--extra DIR`` (repeatable) adds a dataset holding both classes and its own train / test split, with
+``masks/`` for its abnormal crops (``render_bottom.py``): its train layouts join the normal and defective training and
+validation pools (split separately, so the ``--data`` / ``--data-defect`` splits do not change), and its test crops are
+reported on their own (``extra`` in the report), not mixed into the ``--data`` test metrics. Validation and the threshold follow the PatchCore protocol: layouts held out of training, per camera the
 ``--val-quantile`` quantile of the validation normal scores. Test metrics are ``train_eval.evaluate`` on the same test
 crops, so reports compare one to one with PatchCore.
 """
@@ -222,8 +225,12 @@ def main() -> None:
 	ap.add_argument("--real-top-crop", action="store_true")
 	ap.add_argument("--seed", type=int, default=0)
 	ap.add_argument(
-		"--init", type=Path, default=None, help="warm start: a head-*.pt of an earlier run (same --mode / --rank), e.g. the curriculum stage on floating bricks"
+		"--init",
+		type=Path,
+		default=None,
+		help="warm start: a head-*.pt of an earlier run (same --mode / --rank), e.g. the curriculum stage on floating bricks",
 	)
+	ap.add_argument("--extra", type=Path, action="append", default=[], help="extra dataset (both classes, masks/)")
 	ap.add_argument("--tag", required=True)
 	ap.add_argument("--report-dir", type=Path, required=True)
 	a = ap.parse_args()
@@ -239,16 +246,37 @@ def main() -> None:
 	fit_n, val_n = split_layouts(rows, idx_norm, a.val_fraction, a.seed)
 	fit_d, val_d = split_layouts(rows, idx_def, a.val_fraction, a.seed + 1)
 	test_idx = [i for i in range(n_norm) if rows[i]["split"] == "test"]
-	need = sorted(set(fit_n + fit_d + val_n + val_d + test_idx))
+	extra_test: list[int] = []
+	for j, root in enumerate(a.extra):
+		start = len(rows)
+		for r in read_rows(root, True, False):
+			r["layout_index"] = int(r["layout_index"]) + 1_000_000 * (j + 1)
+			rows.append(r)
+		idx = range(start, len(rows))
+		xn, xvn = split_layouts(
+			rows,
+			[i for i in idx if rows[i]["split"] == "train" and rows[i]["label"] == "normal"],
+			a.val_fraction,
+			a.seed + 2,
+		)
+		xd, xvd = split_layouts(
+			rows,
+			[i for i in idx if rows[i]["split"] == "train" and rows[i]["label"] == "abnormal"],
+			a.val_fraction,
+			a.seed + 3,
+		)
+		fit_n, val_n, fit_d, val_d = fit_n + xn, val_n + xvn, fit_d + xd, val_d + xvd
+		extra_test += [i for i in idx if rows[i]["split"] == "test" and rows[i]["label"] in ("normal", "abnormal")]
+	need = sorted(set(fit_n + fit_d + val_n + val_d + test_idx + extra_test))
 	rows = [rows[i] for i in need]
 	remap = {old: new for new, old in enumerate(need)}
-	fit_n, fit_d, val_n, val_d, test_idx = (
-		[remap[i] for i in group] for group in (fit_n, fit_d, val_n, val_d, test_idx)
+	fit_n, fit_d, val_n, val_d, test_idx, extra_test = (
+		[remap[i] for i in group] for group in (fit_n, fit_d, val_n, val_d, test_idx, extra_test)
 	)
 	imgs, masks = load_tensors(rows, 256, device)
 	print(
 		f"loaded {len(rows)} crops ({time.perf_counter() - t0:.0f}s): fit normal {len(fit_n)} defective {len(fit_d)}, "
-		f"val {len(val_n)}/{len(val_d)}, test {len(test_idx)}",
+		f"val {len(val_n)}/{len(val_d)}, test {len(test_idx)}, extra test {len(extra_test)}",
 		flush=True,
 	)
 	net = CrossNet(a.mode, a.rank, a.alpha).to(device).to(memory_format=torch.channels_last)
@@ -301,8 +329,14 @@ def main() -> None:
 		"real_top_crop": a.real_top_crop,
 		"val_quantile": a.val_quantile,
 		"best_val_auroc": best[0],
-		"data": {"normal": str(a.data), "defect": str(a.data_defect)},
-		"n": {"fit_normal": len(fit_n), "fit_defective": len(fit_d), "val": len(val_idx), "test": len(test_idx)},
+		"data": {"normal": str(a.data), "defect": str(a.data_defect), "extra": [str(d) for d in a.extra]},
+		"n": {
+			"fit_normal": len(fit_n),
+			"fit_defective": len(fit_d),
+			"val": len(val_idx),
+			"test": len(test_idx),
+			"extra_test": len(extra_test),
+		},
 		"models": {},
 	}
 	val_cam = cams[np.array(val_n)]
@@ -320,12 +354,29 @@ def main() -> None:
 				f"bestF1 {res['best_f1_oracle']:.3f}",
 				flush=True,
 			)
+	if extra_test:
+		y = np.array([rows[i]["label"] == "abnormal" for i in extra_test])
+		report["extra"] = {}
+		for head, all_scores in (("cls", s_cls_all), ("seg", s_seg_all)):
+			s = all_scores[np.array(extra_test)]
+			thr = report["models"][f"{head}/top"]["threshold"]
+			report["extra"][head] = {
+				"auroc": auroc(s[~y], s[y]),
+				"recall": float((s[y] >= thr).mean()),
+				"fpr": float((s[~y] >= thr).mean()),
+				"n_normal": int((~y).sum()),
+				"n_abnormal": int(y.sum()),
+			}
+			e = report["extra"][head]
+			print(f"{head}/extra     AUROC {e['auroc']:.3f} recall {e['recall']:.3f} fpr {e['fpr']:.3f}", flush=True)
 	a.report_dir.mkdir(parents=True, exist_ok=True)
 	(a.report_dir / f"report-{a.tag}.json").write_text(json.dumps(report, indent=2), encoding="utf-8")
 	np.savez_compressed(
 		a.report_dir / f"scores-{a.tag}.npz",
 		paths=np.array([r["path"] for r in rows]),
+		roots=np.array([r["_root"] for r in rows]),
 		test_idx=np.array(test_idx),
+		extra_test_idx=np.array(extra_test, dtype=np.int64),
 		cls=s_cls_all,
 		seg=s_seg_all,
 	)
