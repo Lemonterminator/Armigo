@@ -273,6 +273,7 @@ class TwinService:
 				result,
 				{
 					"engine": "mujoco",
+					"sensing": self.sensing,
 					"camera_profile": PROFILE,
 					"detector_sha256": self.model_hash,
 					"policy": asdict(policy),
