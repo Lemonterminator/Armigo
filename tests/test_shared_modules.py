@@ -22,9 +22,10 @@ from digital_twin_armigo.constants import (
 	OFFSETS_DEG,
 	REST_U,
 	TICKS_PER_DEG,
+	TOP_CROP,
 	TOP_FULL,
 )
-from digital_twin_armigo.depth import decode_height, depth_plane_to_height, layered_height_image
+from digital_twin_armigo.depth import decode_height, depth_plane_to_height, fit_table_pose, layered_height_image
 from digital_twin_armigo.joints import normalized_to_rad, rad_to_normalized
 
 REPO = Path(__file__).resolve().parents[1]
@@ -122,6 +123,39 @@ def test_depth_plane_to_height_recovers_a_flat_table():
 	assert np.abs(world_z).max() < 1e-12
 	depth[0, 0] = np.inf
 	assert not depth_plane_to_height(TOP, depth)[1][0, 0]
+
+
+def _table_depth(cam: CameraPose) -> np.ndarray:
+	wid, hgt = TOP_FULL
+	right, up, forward = cam.frame()
+	u, v = np.meshgrid(np.arange(wid) + 0.5, np.arange(hgt) + 0.5)
+	ray = ((u - wid / 2) / cam.focal_px)[..., None] * right + (-(v - hgt / 2) / cam.focal_px)[..., None] * up + forward
+	return -cam.height / ray[..., 2]
+
+
+def test_depth_plane_to_height_with_a_crop_matches_the_full_frame():
+	"""``full_shape`` is (height, width): passing ``TOP_FULL`` (width, height) there shifts every ray."""
+	cam = CameraPose(0.45, 0.02, 0.52, 175.0, 27.0, 1.5, 610.0)
+	depth = _table_depth(cam)
+	depth[200:260, 300:360] -= 0.03  # a box
+	x, y, w, h = TOP_CROP
+	full, _ = depth_plane_to_height(cam, depth)
+	crop, _ = depth_plane_to_height(cam, depth[y : y + h, x : x + w], crop=TOP_CROP, full_shape=(TOP_FULL[1], TOP_FULL[0]))
+	assert np.abs(crop - full[y : y + h, x : x + w]).max() < 1e-12
+
+
+def test_fit_table_pose_recovers_height_tilt_and_roll():
+	cam = CameraPose(0.45, 0.02, 0.52, 175.0, 27.0, 1.5, 610.0)
+	depth = _table_depth(cam)
+	depth[200:260, 300:360] -= 0.03  # a box on the table must not disturb the fit
+	x, y, w, h = TOP_CROP
+	fit = fit_table_pose(depth[y : y + h, x : x + w], cam.focal_px, crop=TOP_CROP, full_shape=(TOP_FULL[1], TOP_FULL[0]))
+	assert fit.height == pytest.approx(cam.height, abs=1e-6)
+	assert fit.tilt_deg == pytest.approx(cam.tilt_deg, abs=1e-4)
+	assert fit.roll_deg == pytest.approx(cam.roll_deg, abs=1e-4)
+	truth, _ = depth_plane_to_height(cam, depth)
+	est, _ = depth_plane_to_height(fit, depth)
+	assert np.abs(est - truth).max() < 1e-6
 
 
 def test_mujoco_gl_backend_is_only_forced_on_linux():

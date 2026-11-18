@@ -551,6 +551,6 @@ class Cell:
 				raise ValueError("top CameraPose must be set before applying camera-frame D415 depth noise")
 			rgb = degrade_rgb(rgb, rng, self.sensor_noise)
 			z, valid = degrade_depth_height(
-				z, valid, top_pose, rng, self.sensor_noise, crop=TOP_CROP, full_shape=TOP_FULL
+				z, valid, top_pose, rng, self.sensor_noise, crop=TOP_CROP, full_shape=(TOP_FULL[1], TOP_FULL[0])
 			)
 		return rgb, layered_height_image(z, valid)
