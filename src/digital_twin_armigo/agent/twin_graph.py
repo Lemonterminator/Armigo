@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import json
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from typing import Literal, TypedDict
 
 from .llm import ChatLLM, LLMError
@@ -139,25 +139,6 @@ def build_graph(backend, policy: Policy):
 	return graph.compile()
 
 
-def suggest_policy(llm: ChatLLM, reports: list[dict]) -> Policy:
-	"""Propose a reusable, validated policy without per-brick labels or simulator access."""
-	response = llm.chat(
-		[
-			{
-				"role": "system",
-				"content": (
-					"Choose a generic six-face robot inspection policy. Optimize successful sorts first, then simulation "
-					"time and view count, using only development aggregates. Propose a new candidate. Do not repeat any measured policy. Return one JSON object with exactly these "
-					"fields: order (wrist_first or bottom_first), max_bottom_views (1ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“3), max_wrist_views (1ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“3), "
-					"max_rewinds (0ÃƒÂ¢Ã¢â€šÂ¬Ã¢â‚¬Å“2). The detector, coverage requirements and destinations are fixed."
-				),
-			},
-			{"role": "user", "content": json.dumps({"task": TASK, "development_results": reports})},
-		]
-	)
-	return Policy(**json.loads(response.content))
-
-
 def select_skill(llm: ChatLLM, choices: list[str], distinct_context: dict) -> tuple[str, str]:
 	try:
 		response = llm.chat(
@@ -186,63 +167,8 @@ def select_skill(llm: ChatLLM, choices: list[str], distinct_context: dict) -> tu
 	return choices[0], "fallback"
 
 
-class SearchState(TypedDict):
-	source: str
-	reports: list[dict]
-	pending: Policy
-	remaining: int
+def search_policies(evaluate_batch, cap: int, **options) -> dict:
+	"""Exhaustive successive halving with paired statistics; see ``twin_search``."""
+	from .twin_search import successive_halving
 
-
-def search_policies(llm: ChatLLM, evaluate, budget: int) -> dict:
-	"""Evaluate bounded proposals on one fixed development set and rank successes before cost."""
-	from langgraph.graph import END, START, StateGraph
-
-	if not 1 <= budget <= 8:
-		raise ValueError("budget must be in [1, 8]")
-
-	def measure(state: SearchState):
-		policy = state["pending"]
-		return {
-			"reports": [*state["reports"], {"policy": asdict(policy), "source": state["source"], **evaluate(policy)}],
-			"remaining": state["remaining"] - 1,
-		}
-
-	def propose(state: SearchState):
-		try:
-			next_policy = suggest_policy(llm, state["reports"])
-			source = "llm"
-		except (TypeError, ValueError, LLMError):
-			next_policy = Policy(order="bottom_first")
-			source = "fallback_invalid_proposal"
-		seen = [report["policy"] for report in state["reports"]]
-		if asdict(next_policy) in seen:
-			source = "fallback_duplicate_proposal"
-			next_policy = next(
-				(
-					candidate
-					for candidate in (
-						Policy(order="bottom_first"),
-						Policy(max_bottom_views=3),
-						Policy(max_wrist_views=3),
-					)
-					if asdict(candidate) not in seen
-				),
-				None,
-			)
-			if next_policy is None:
-				return {"remaining": 0}
-		return {"pending": next_policy, "source": source}
-
-	graph = StateGraph(SearchState)
-	graph.add_node("measure", measure)
-	graph.add_node("propose", propose)
-	graph.add_edge(START, "measure")
-	graph.add_conditional_edges("measure", lambda s: "propose" if s["remaining"] else END, ["propose", END])
-	graph.add_conditional_edges("propose", lambda s: "measure" if s["remaining"] else END, ["measure", END])
-	result = graph.compile().invoke({"pending": Policy(), "reports": [], "remaining": budget, "source": "baseline"})
-
-	def rank(report):
-		# Compare total cost only after success and label correctness on the same development set.
-		return (-report["successes"], -report["labels_correct"], report["sim_frames"], report["views"])
-
-	return {"selected": min(result["reports"], key=rank), "candidates": result["reports"]}
+	return successive_halving(evaluate_batch, cap, **options)

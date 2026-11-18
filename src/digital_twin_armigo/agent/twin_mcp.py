@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import itertools
 import json
 import logging
 import math
@@ -22,9 +23,13 @@ from .llm import DEFAULT_MODEL, OpenAICompatLLM
 from .twin_graph import Policy, build_graph, search_policies
 from .twin_mujoco import PROFILE, ROOT, TwinMujoco, file_digest, sample_case
 from .twin_record import EpisodeTrace, export_lerobot, write_json
+from .twin_search import analyze_failures, dev_suite
 
 LOG = logging.getLogger(__name__)
-DEV_CASES = ((442701, False, 5), (442701, True, 5), (442702, True, 4), (442703, True, 1))
+# First 8 cases of the generated dev suite (seeds from 700001, disjoint from DEMO/dev4/bench16).
+DEV_CASES = tuple(dev_suite(8))
+# Policy-search episode cap = SEARCH_EPISODES_PER_BUDGET * (budget + 1); the 54-policy grid needs at least 54.
+SEARCH_EPISODES_PER_BUDGET = 50
 DEMO_CASES = ((187271, False, 5), (187271, True, 5), (187272, False, 5), (187272, True, 5))
 
 
@@ -116,24 +121,23 @@ class TwinService:
 		return self._submit(request_id, ("episode", case, policy, record, use_llm), job, "episodes")
 
 	def optimize(self, request_id, budget):
-		if self.llm is None:
-			raise ValueError("start armigo-mcp with --llm-url to enable policy proposals")
 		if not 1 <= budget <= 8:
 			raise ValueError("policy budget must be in [1, 8]")
+		cap = SEARCH_EPISODES_PER_BUDGET * (budget + 1)
 
 		def job(path):
-			index = 0
+			counter = itertools.count()
 
-			def evaluate(policy):
-				nonlocal index
-				index += 1
-				results = [
-					self.run(case, policy, path / f"candidate-{index}" / f"dev-{i}", video=False)
-					for i, case in enumerate(DEV_CASES)
-				]
-				return aggregate(results)
+			def evaluate_batch(items):
+				jobs = [(case, policy, path / "episodes" / f"{next(counter):04d}") for policy, case in items]
+				if hasattr(self, "run_batch"):
+					return self.run_batch(jobs)
+				return [self.run(case, policy, out, video=False) for case, policy, out in jobs]
 
-			report = search_policies(self.llm, evaluate, budget)
+			report = search_policies(evaluate_batch, cap)
+			report["llm_analysis"] = (
+				analyze_failures(self.llm, report) if self.llm is not None else {"status": "skipped", "error": "no llm"}
+			)
 			write_json(path / "report.json", report)
 			write_json(path / "policy.json", report["selected"]["policy"])
 			return report
