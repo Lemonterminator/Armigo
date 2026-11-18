@@ -1,0 +1,12 @@
+# Keep the knowledge graph on code and prose. Experiment outputs are data, not concepts.
+results/**/*.json
+results/**/*.jsonl
+results/**/*.npz
+results/**/*.png
+results/**/*.mp4
+results/**/*.txt
+results/**/*.log
+*.mp4
+mlflow/
+data/
+results/failure-export/agent_logs/

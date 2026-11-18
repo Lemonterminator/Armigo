@@ -12,7 +12,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "src"))
 
-from digital_twin_armigo.mujoco_cell import *  # noqa: F403 - compatibility exports for existing callers
+from digital_twin_armigo.mujoco_cell import *
 from digital_twin_armigo.mujoco_cell import main
 
 if __name__ == "__main__":
