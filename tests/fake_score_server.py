@@ -21,7 +21,7 @@ def _send(obj: dict[str, Any]) -> None:
 	sys.stdout.flush()
 
 
-def _handle(request: dict[str, Any], thresholds: dict[str, float]) -> dict[str, Any]:
+def _handle(request: dict[str, Any], thresholds: dict[str, float], include_heads: bool) -> dict[str, Any]:
 	request_id = request.get("id")
 	camera = request.get("camera")
 	if camera not in thresholds:
@@ -40,12 +40,16 @@ def _handle(request: dict[str, Any], thresholds: dict[str, float]) -> dict[str, 
 		return {"id": request_id, "error": f"expected {h * w * c} bytes for shape {shape!r}, got {len(raw)}"}
 	value = float(np.frombuffer(raw, dtype=np.uint8).mean() / 255.0 * 100.0)
 	threshold = thresholds[camera]
-	return {"id": request_id, "score": value, "threshold": threshold, "anomalous": bool(value > threshold)}
+	result = {"id": request_id, "score": value, "threshold": threshold, "anomalous": bool(value > threshold)}
+	if include_heads:
+		result["head_scores"] = {"cls": value, "seg": value - 1.25}
+	return result
 
 
 def main() -> int:
 	ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
 	ap.add_argument("--model", action="append", required=True, metavar="CAMERA=THRESHOLD")
+	ap.add_argument("--head-scores", action="store_true")
 	args = ap.parse_args()
 	thresholds: dict[str, float] = {}
 	for spec in args.model:
@@ -78,7 +82,7 @@ def main() -> int:
 			continue
 		if request.get("cmd") == "quit":
 			return 0
-		_send(_handle(request, thresholds))
+		_send(_handle(request, thresholds, args.head_scores))
 	return 0
 
 

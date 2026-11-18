@@ -66,6 +66,11 @@ A recorded episode contains a separate time axis per branch with the common simu
 `events.jsonl` preserves sequence order for nodes sharing one simulator frame. The dashboard can seek to
 a decision, show the two original decision images, or select the earlier branch. FFV1 files archive front,
 wrist, full external RGB and external depth. The original PNG and detector crop are also saved at each keyframe.
+The v6 panel follows published inspection events while a run is active. Select **跟随最新 Episode** to switch
+to new recordings automatically. On replay the panel follows the selected branch and playback position, and
+clicking a timeline event opens its image and scores. The panel shows calibrated classification, segmentation
+and fused scores, the effective threshold, and the score margin. These scores are in calibrated units, without
+a probability scale. Previously recorded runs show the fused score when the per-head outputs were not collected.
 Any RTX replay is a separate set of images.
 
 ## LeRobot

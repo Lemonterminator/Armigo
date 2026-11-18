@@ -71,3 +71,14 @@ def test_fixed_scorer():
 def test_score_rejects_non_uint8(scorer):
 	with pytest.raises(TypeError):
 		scorer.score("top", IMAGE.astype(np.float32))
+
+
+def test_score_details_support_optional_heads(scorer):
+	assert scorer.score_with_details("top", IMAGE) == (100.0, {})
+	with SubprocessAnomalyScorer(
+		sys.executable, FAKE_SERVER, {"top": "60"}, extra_args=("--head-scores",), timeout_s=30.0
+	) as detailed:
+		score, heads = detailed.score_with_details("top", IMAGE)
+		assert score == 100.0
+		assert heads == {"cls": 100.0, "seg": 98.75}
+		assert detailed.score("top", IMAGE) == score

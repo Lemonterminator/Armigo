@@ -49,9 +49,28 @@ v6 in control of sorting.
   is separate from native Isaac physics. The Isaac six-face closed loop and the 299-defect statistical
   acceptance each remain open.
 
+## Known gaps (review, 2026-11-18)
+
+- **Status.** The v6 detector and the fixed wrist-first policy own sorting. The Qwen inner and outer graphs are
+  experimental: one injected rewind and one four-fixture policy comparison, in which Qwen's proposal lost.
+- **Rewind coverage.** The only injected failure fired one frame after the bottom capture, before any placement
+  motion, with the brick still held. Brick drops, gripper jams, failed presentations and process interruption are
+  untested. Checkpoints exist only with the brick on the table and the gripper open, and they are restored within
+  one process.
+- **Real failures repeat after rewind.** On the development fixtures, dev-0 and dev-1 failed placement with
+  `torque_stall`, rewound, and failed identically. The inner model can choose a checkpoint, but it cannot change
+  the grasp or motion parameters. Physical success was 2/4 on development and 16/16 held out, so physical
+  reliability is not yet established.
+- **Bottom operating margin.** Held-out normal bottom scores reached -0.03 against a threshold of 0. The bottom
+  calibration floored to 0 because all eight calibration normals scored below it, yet 2/8 test normals alarmed.
+  The bottom false-alarm rate needs a larger normal-only calibration.
+- **Student data.** The LeRobot set holds the two paired episodes only. Its depth channel is lossy AV1. The
+  lossless FFV1 depth stays in the audit package.
+
 ## Verification
 
-The Python suite passed 428 tests with one skipped. The MCP crop response was checked against the original PNG,
+The Python suite passed 428 tests with one skipped. After the live v6 panel was added, it passed 430 with one
+skipped. Supervised head fusion ignores a non-finite head instead of depending on head order. The MCP crop response was checked against the original PNG,
 and an invalid observation path was rejected. Ruff passed for the changed Python files.
 
 ## Local evidence

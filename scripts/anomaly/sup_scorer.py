@@ -14,6 +14,7 @@ detection threshold of every camera is therefore ``0.0`` (raise it to trade reca
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 
 import numpy as np
@@ -38,11 +39,24 @@ class SupScorer:
 		self.net = load_net(ckpt, self.spec["mode"], int(self.spec["rank"]), float(self.spec["alpha"]), device)
 		self.cameras: dict[str, dict] = self.spec["cameras"]
 
+	@staticmethod
+	def fuse(heads: dict[str, float]) -> float:
+		"""Max over the finite head scores; NaN if none is finite.
+
+		Plain ``max`` is order-dependent with NaN (``max([nan, 1.0])`` is NaN, ``max([1.0, nan])`` is 1.0), so a
+		NaN head could silently hide the other head's alarm.
+		"""
+		finite = [v for v in heads.values() if math.isfinite(v)]
+		return max(finite) if finite else math.nan
+
 	def score(self, camera: str, rgb: np.ndarray) -> float:
-		"""``u`` of one square RGB uint8 crop (resize to ``crop_size`` is the caller's job; ``train_sup`` resizes to
-		``input_size``)."""
+		"""Fuse the calibrated scores of the enabled heads."""
+		return self.fuse(self.head_scores(camera, rgb))
+
+	def head_scores(self, camera: str, rgb: np.ndarray) -> dict[str, float]:
+		"""Calibrated u per enabled head, computed from one pass over the RGB crop."""
 		stats = self.cameras[camera]
 		x = torch.from_numpy(np.ascontiguousarray(rgb)[None]).to(self.device)
 		s_cls, s_seg = raw_scores(self.net, x, self.input_size, 1)
 		raw = {"cls": float(s_cls[0]), "seg": float(s_seg[0])}
-		return max(standardise_value(raw[h], st["t"], st["med"]) for h, st in stats.items())
+		return {h: standardise_value(raw[h], st["t"], st["med"]) for h, st in stats.items()}

@@ -25,20 +25,51 @@ canvas { display: block; width: 100%; height: auto; margin: 10px 0 0; }
 #timeline button[data-kind="rewound"] { color: #8deaaf; }
 #caption, #status, #branch-info, #downloads, #evidence-view { color: #a5bbc4; font-size: 13px; }
 #downloads a, #evidence-view a { color: #8de0b8; margin-right: 12px; }
+#episode-controls { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+#detector-header { display: flex; gap: 12px; justify-content: space-between; align-items: baseline; }
+#detector-mode, #detector-meta, #detector-note, #detector-legend { font-size: 13px; color: #a5bbc4; }
+#detector-verdict { margin: 12px 0 6px; color: #c0d1d7; }
+#detector-panel[data-state="alarm"] #detector-verdict { color: #ffc49b; }
+#detector-panel[data-state="below"] #detector-verdict { color: #91e6b8; }
+#detector-panel[data-state="error"] #detector-verdict { color: #ffad9d; }
+#detector-meta, #detector-note { margin: 6px 0 0; }
+#detector-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(92px, 1fr)); gap: 6px; margin: 12px 0; }
+#detector-metrics div { background: #202f37; padding: 8px; border-radius: 5px; }
+#detector-metrics dt { color: #adc3cd; font-size: 12px; }
+#detector-metrics dd { margin: 3px 0 0; font: 16px ui-monospace, monospace; }
+#detector-legend { display: flex; gap: 14px; flex-wrap: wrap; margin-top: 2px; }
+.dot::before, .dash::before { content: ""; display: inline-block; margin-right: 5px; vertical-align: middle; }
+.dot::before { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.dash::before { width: 14px; border-top: 2px dashed currentColor; }
+.dot.below { color: #91e6b8; } .dot.alarm { color: #ffc49b; }
 #evidence-images { display: grid; grid-template-columns: 2fr 1fr; gap: 7px; margin-top: 8px; }
-@media(max-width:900px) { main { grid-template-columns: 1fr; } body { padding: 12px; } }
+@media(max-width:900px) {
+  body { padding: 12px; }
+  main { grid-template-columns: minmax(0, 1fr); gap: 12px; }
+  article, aside { display: contents; }
+  section { margin-bottom: 0; }
+  #motion { order: 1; }
+  #detector-panel { order: 2; }
+  #evidence-view { order: 3; }
+  #graph-section { order: 4; }
+  #timeline-section { order: 5; }
+}
 </style>
 </head>
 <body>
 <header>
   <h1>Armigo 数字孪生</h1>
-  <label>Episode <select id="episodes" aria-label="Episode"></select></label>
+  <div id="episode-controls">
+    <label>Episode <select id="episodes" aria-label="Episode"></select></label>
+    <label><input id="follow-episode" type="checkbox"> 跟随最新 Episode</label>
+  </div>
 </header>
 <main>
 <article>
-  <section>
+  <section id="motion">
     <div id="controls">
       <label>分支 <select id="branches" aria-label="分支"></select></label>
+      <button type="button" id="follow-branch" hidden>回到实时分支</button>
       <span id="status" role="status">等待 episode</span>
     </div>
     <video id="replay" controls preload="metadata" playsinline hidden></video>
@@ -52,14 +83,37 @@ canvas { display: block; width: 100%; height: auto; margin: 10px 0 0; }
   </section>
 </article>
 <aside>
-  <section><h2>LangGraph 状态机</h2><canvas id="graph" width="520" height="210" aria-label="LangGraph 节点和路径"></canvas></section>
-  <section><h2>事件序列</h2><div id="timeline" aria-label="事件序列"></div></section>
+  <section id="detector-panel" aria-labelledby="detector-title">
+    <div id="detector-header"><h2 id="detector-title">v6 判别器</h2><span id="detector-mode"></span></div>
+    <p id="detector-verdict" role="status">等待判读</p>
+    <p id="detector-meta" hidden></p>
+    <dl id="detector-metrics" hidden>
+      <div><dt>融合分数 u</dt><dd id="detector-score">—</dd></div>
+      <div><dt>当前阈值</dt><dd id="detector-threshold">—</dd></div>
+      <div><dt>分数减阈值</dt><dd id="detector-margin">—</dd></div>
+      <div><dt>分类头 u</dt><dd id="detector-cls">—</dd></div>
+      <div><dt>分割头 u</dt><dd id="detector-seg">—</dd></div>
+    </dl>
+    <p id="detector-note" hidden></p>
+    <canvas id="detector-chart" width="520" height="155" aria-label="该分支的判别器历史分数" role="img" hidden></canvas>
+    <div id="detector-legend" hidden><span class="dot below">低于阈值</span><span class="dot alarm">报警</span><span class="dash">阈值</span></div>
+  </section>
+  <section id="graph-section"><h2>LangGraph 状态机</h2><canvas id="graph" width="520" height="210" aria-label="LangGraph 节点和路径"></canvas></section>
+  <section id="timeline-section"><h2>事件序列</h2><div id="timeline" aria-label="事件序列"></div></section>
 </aside>
 </main>
 <script>
 const el = id => document.getElementById(id);
 const episode = el('episodes'), branch = el('branches'), replay = el('replay'), live = el('live');
-let current = '', data, updateInProgress = false, lastReplay = '', lastEvents = '', pinnedNode = null;
+let current = '', data, updateInProgress = false, lastReplay = '', lastEvents = '';
+let reviewedEvent = null, followingBranch = true, lastDetector = '';
+const detectorKinds = new Set(['view', 'detector_started', 'detector_error', 'view_unavailable']);
+const faceNames = ['+X', '−X', '+Y', '−Y', '顶面', '底面'];
+const cameraNames = {wrist_cam:'腕部相机', top:'外置相机'};
+const detectorReasons = {
+  NO_CROP:'没有可用裁图', TOO_FEW_BRICK_PIXELS:'积木像素不足', NO_READABLE_FACE:'可见面面积不足',
+  NONFINITE_SCORE:'模型返回无效分数', DETECTOR_UNAVAILABLE:'评分服务出错', NO_BOTTOM_PATH:'没有可用的底面展示姿态'
+};
 const captions = {
   prepare:'准备', choose_view:'选择视角', scan_wrist:'腕部扫描', present_bottom:'展示底面',
   recover:'失败恢复', place:'放置', evaluate:'验收'
@@ -104,6 +158,106 @@ function fillOptions(select, choices, fallback) {
   select.dataset.values = JSON.stringify(choices);
 }
 
+function drawDetectorChart(events) {
+  const points = events.filter(ev => Number.isFinite(ev.observation?.score) && Number.isFinite(ev.observation?.threshold));
+  const canvas = el('detector-chart');
+  canvas.hidden = el('detector-legend').hidden = points.length === 0;
+  if (!points.length) return;
+  const ctx = canvas.getContext('2d'), left = 58, right = 502, top = 11, bottom = 125;
+  const values = points.flatMap(({observation:o}) => [o.score, o.threshold]);
+  const min = Math.min(...values), max = Math.max(...values);
+  const padding = Math.max((max-min)*0.12, 0.03), yMin = min-padding, yMax = max+padding;
+  const first = selectedBranch()?.start_frame ?? (activeEvents()[0]?.frame ?? 0);
+  const last = Math.max(first+1, points.at(-1).frame);
+  const x = frame => left + (frame-first)/(last-first)*(right-left);
+  const y = score => bottom - (score-yMin)/(yMax-yMin)*(bottom-top);
+  ctx.clearRect(0,0,canvas.width,canvas.height);
+  ctx.font = '13px ui-monospace, monospace'; ctx.fillStyle = colors.text;
+  for (let i=0; i<=2; i++) {
+    const v = yMin+i*(yMax-yMin)/2, yy = y(v);
+    ctx.textAlign = 'right'; ctx.fillText(v.toFixed(2), left-8, yy+4);
+    ctx.strokeStyle = '#324851'; ctx.beginPath(); ctx.moveTo(left,yy); ctx.lineTo(right,yy); ctx.stroke();
+  }
+  ctx.strokeStyle = '#a5bbc4'; ctx.setLineDash([5,4]);
+  for (let i=0; i<points.length; i++) {
+    const point = points[i], value = point.observation.threshold;
+    ctx.beginPath();
+    ctx.moveTo(i === 0 ? left : x(point.frame), y(value));
+    ctx.lineTo(i === points.length-1 ? right : x(points[i+1].frame), y(value)); ctx.stroke();
+  }
+  ctx.setLineDash([]);
+  for (const point of points) {
+    const o = point.observation;
+    ctx.fillStyle = o.score >= o.threshold ? '#ffc49b' : '#91e6b8';
+    ctx.beginPath(); ctx.arc(x(point.frame), y(o.score), 4.5, 0, Math.PI*2); ctx.fill();
+  }
+  ctx.fillStyle = colors.text; ctx.textAlign = 'left'; ctx.fillText('帧 ' + first, left, 148);
+  ctx.textAlign = 'right'; ctx.fillText(String(last), right, 148);
+}
+
+function showDetector(events, mode) {
+  const readings = events.filter(ev => detectorKinds.has(ev.kind));
+  const latest = readings.at(-1);
+  const signature = JSON.stringify([current, branch.value, mode, latest?.seq]);
+  if (lastDetector === signature) return;
+  lastDetector = signature;
+  const observation = latest?.observation, details = latest?.detector;
+  const score = observation?.score, threshold = observation?.threshold;
+  const scored = Number.isFinite(score) && Number.isFinite(threshold);
+  const state = scored ? (score >= threshold ? 'alarm' : 'below') :
+    latest?.kind === 'detector_started' ? 'pending' : latest?.kind === 'detector_error' ? 'error' : 'unknown';
+  const format = value => Number.isFinite(value) ? value.toFixed(3) : '—';
+  el('detector-panel').dataset.state = state;
+  el('detector-mode').textContent = mode;
+  el('detector-verdict').textContent = {
+    alarm:'本视图报警', below:'本视图低于阈值', pending:'正在判读', error:'判读出错',
+    unknown:latest ? '本视图不可判读' : '等待判读'
+  }[state];
+  el('detector-meta').hidden = !latest;
+  if (latest) {
+    const camera = observation?.camera ?? latest.camera;
+    const faces = observation?.faces?.map(face => faceNames[face]).join('、');
+    el('detector-meta').textContent = [cameraNames[camera] ?? camera, '分支 ' + latest.branch, '帧 ' + latest.frame,
+      faces && '可见面 ' + faces, Number.isFinite(details?.elapsed_ms) && details.elapsed_ms.toFixed(0) + ' ms'].filter(Boolean).join(' · ');
+  }
+  el('detector-metrics').hidden = !observation;
+  el('detector-score').textContent = format(score);
+  el('detector-threshold').textContent = format(threshold);
+  el('detector-margin').textContent = format(scored ? score-threshold : null);
+  el('detector-cls').textContent = format(details?.head_scores?.cls);
+  el('detector-seg').textContent = format(details?.head_scores?.seg);
+  const reason = details?.reason ?? latest?.reason;
+  const note = detectorReasons[reason] ?? (scored && !details?.head_scores ? '旧记录仅含融合分数' : '');
+  el('detector-note').hidden = !note; el('detector-note').textContent = note;
+  drawDetectorChart(readings);
+  el('evidence-view').hidden = !observation;
+  if (!observation) return;
+  const stem = media('keyframes/' + observation.id.replaceAll(':','-'));
+  el('raw').src = stem + '-frame.png';
+  el('crop').hidden = !observation.crop_bbox;
+  if (observation.crop_bbox) el('crop').src = stem + '-crop.png';
+  else el('crop').removeAttribute('src');
+  el('caption').textContent = (cameraNames[observation.camera] ?? observation.camera) + ' · 分支 ' +
+    observation.branch + ' · 第 ' + observation.frame + ' 帧';
+}
+
+function eventTime(event, selected = selectedBranch()) {
+  return Math.min(Math.max(0,(event.frame-selected.start_frame)/data.episode.fps), replay.duration || Infinity);
+}
+
+function showAtCursor() {
+  const events = activeEvents(), selected = selectedBranch();
+  let available = events;
+  if (reviewedEvent) available = events.filter(ev => ev.seq <= reviewedEvent.seq);
+  else if (!replay.hidden && selected) {
+    const frame = Math.floor(replay.currentTime*data.episode.fps+1e-5)+selected.start_frame;
+    available = events.filter(ev => ev.frame <= frame);
+  }
+  const node = replay.hidden ? available.at(-1) : available.filter(ev => ev.kind === 'node').at(-1);
+  draw(reviewedEvent?.node ?? node?.node);
+  showDetector(available, reviewedEvent ? '选中事件' : data.episode ? '回放' : '实时');
+}
+
 function timeline() {
   const events = activeEvents();
   const signature = JSON.stringify([current,branch.value,events.length]);
@@ -116,28 +270,20 @@ function timeline() {
     button.textContent = '#' + ev.seq + ' · ' + (ev.frame / 30).toFixed(2) + 's · ' + captions[ev.node] +
       ' · ' + ev.kind + (detail ? ' · ' + detail : '');
     button.onclick = () => {
-      pinnedNode = ev.node;
-      const selected = selectedBranch();
-      if (!replay.hidden && selected) {
-        replay.pause(); replay.currentTime = Math.min(Math.max(0, (ev.frame-selected.start_frame)/data.episode.fps),
-                                                       replay.duration || Infinity);
+      reviewedEvent = ev;
+      if (!data.episode) followingBranch = false;
+      if (!replay.hidden && selectedBranch()) {
+        replay.pause();
+        replay.currentTime = eventTime(ev);
       }
-      draw(ev.node);
-      if (ev.observation) {
-        const o = ev.observation, stem = 'keyframes/' + o.id.replaceAll(':','-');
-        el('raw').src = media(stem + '-frame.png'); el('crop').src = media(stem + '-crop.png');
-        el('evidence-view').hidden = false;
-        el('caption').textContent = o.camera + ' · 帧 ' + o.frame + ' · v6 ' +
-          (o.score === null ? '不可判读' : o.score.toFixed(3)) + ' · 阈值 ' + o.threshold.toFixed(3);
-      } else {
-        el('evidence-view').hidden = true;
-      }
+      el('follow-branch').hidden = Boolean(data.episode);
+      showAtCursor();
     };
     return button;
   }));
 }
 
-function show(branchChanged = false) {
+function show(branchChanged = false, justFinished = false) {
   const finished = data.episode;
   const b = selectedBranch();
   el('status').textContent = finished
@@ -153,7 +299,7 @@ function show(branchChanged = false) {
   } else {
     replay.hidden = true;
     if (lastReplay) { replay.pause(); replay.removeAttribute('src'); replay.load(); lastReplay = ''; }
-    live.hidden = !data.thumbnail;
+    live.hidden = !data.thumbnail || (!finished && String(data.events.at(-1)?.branch) !== branch.value);
     if (!live.hidden) live.src = media('live.jpg') + '?' + Date.now();
   }
   el('downloads').replaceChildren(...(finished?.video && b?.actions
@@ -162,47 +308,60 @@ function show(branchChanged = false) {
       a.href = media('branch-' + b.id + '/' + name + '.mkv');
       a.download = ''; a.textContent = name; return a;
     }) : []));
-  if (branchChanged) { pinnedNode = null; el('evidence-view').hidden = true; }
+  if (branchChanged) reviewedEvent = null;
+  if (justFinished && b && !replay.hidden) {
+    reviewedEvent ??= activeEvents().findLast(ev => detectorKinds.has(ev.kind));
+    if (reviewedEvent) replay.currentTime = eventTime(reviewedEvent, b);
+  }
+  el('follow-branch').hidden = Boolean(finished) || followingBranch;
   timeline();
-  if (replay.hidden || branchChanged) draw(activeEvents().at(-1)?.node);
+  showAtCursor();
 }
 
 replay.ontimeupdate = () => {
-  const b = selectedBranch();
-  if (!b) return;
-  const frame = Math.floor(replay.currentTime * data.episode.fps + 1e-5) + b.start_frame;
-  draw(pinnedNode || activeEvents().filter(ev => ev.frame <= frame && ev.kind === 'node').at(-1)?.node);
+  if (reviewedEvent && selectedBranch() && Math.abs(replay.currentTime-eventTime(reviewedEvent)) > .5/data.episode.fps) {
+    reviewedEvent = null;
+  }
+  showAtCursor();
 };
 replay.onloadedmetadata = replay.ontimeupdate;
-replay.onplay = () => { pinnedNode = null; };
-branch.onchange = () => show(true);
-episode.onchange = () => { current = ''; refresh(); };
+replay.onplay = () => { reviewedEvent = null; showAtCursor(); };
+branch.onchange = () => { followingBranch = false; show(true); };
+episode.onchange = () => {
+  el('follow-episode').checked = false;
+  refresh();
+};
+el('follow-episode').onchange = refresh;
+el('follow-branch').onclick = () => { followingBranch = true; reviewedEvent = null; refresh(); };
 
 async function refresh() {
   if (updateInProgress) return;
   updateInProgress = true;
   try {
-    const ids = await (await fetch('/api/episodes')).json();
+    const ids = await (await fetch('/api/episodes', {cache:'no-store'})).json();
     fillOptions(episode, ids.map(id => [id, id]), ids[0] ?? '');
+    if (el('follow-episode').checked && ids.length) episode.value = ids[0];
     if (!episode.value) return;
     const chosen = episode.value;
     const changed = current !== chosen;
-    if (changed) { current = chosen; branch.replaceChildren(); branch.dataset.values = ''; }
+    if (changed) { current = chosen; followingBranch = true; branch.replaceChildren(); branch.dataset.values = ''; }
     const response = await fetch('/api/episode/' + encodeURIComponent(chosen), {cache:'no-store'});
     if (!response.ok) throw Error('无法读取 episode');
-    data = await response.json();
+    const snapshot = await response.json();
+    const justFinished = !changed && data && !data.episode && Boolean(snapshot.episode);
+    data = snapshot;
     const branches = data.episode?.branches.map(x => x.id)
         ?? [...new Set(data.events.map(x => x.branch))];
     const latest = data.episode?.result.active_branch ?? branches.at(-1) ?? 0;
     const old = branch.value;
     fillOptions(branch, branches.map(i => [String(i),'分支 '+i]), String(latest));
-    if (!data.episode && !branch.matches(':focus') && branches.includes(latest)) branch.value = String(latest);
-    show(changed || old !== branch.value);
+    if (followingBranch && branches.includes(latest)) branch.value = String(latest);
+    show(changed || old !== branch.value, justFinished);
   } catch (err) {
     el('status').textContent = err.message;
   } finally { updateInProgress = false; }
 }
-refresh(); setInterval(refresh, 1600);
+refresh(); setInterval(refresh, 900);
 </script>
 </body>
 </html>

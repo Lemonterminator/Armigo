@@ -135,3 +135,32 @@ def test_recorded_camera_observation_precedes_its_action_and_rewound_trace_is_re
 	(episode / "episode.json").write_text(json.dumps(manifest))
 	with pytest.raises(ValueError, match="not eligible"):
 		next(student_frames(episode))
+
+
+def test_live_preview_retries_after_a_windows_file_lock(tmp_path, monkeypatch):
+	pytest.importorskip("av")
+	pytest.importorskip("cv2")
+	from pathlib import Path
+
+	from digital_twin_armigo.agent.twin_record import EpisodeTrace
+
+	trace = EpisodeTrace(tmp_path / "episode", video=True)
+	pixels = np.zeros((20, 20, 3), dtype=np.uint8)
+	monkeypatch.setattr(trace, "_composite", lambda *_args: pixels)
+	try:
+		trace._publish_preview("prepare")
+		published = trace.path / "live.jpg"
+		previous = published.read_bytes()
+		pixels.fill(120)
+
+		def locked(_source, _target):
+			raise PermissionError("live preview open in browser")
+
+		with monkeypatch.context() as patch:
+			patch.setattr(Path, "replace", locked)
+			trace._publish_preview("scan_wrist")
+		assert published.read_bytes() == previous
+		trace._publish_preview("scan_wrist")
+		assert published.read_bytes() != previous
+	finally:
+		trace.close()

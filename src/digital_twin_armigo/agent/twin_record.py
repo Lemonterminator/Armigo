@@ -109,12 +109,21 @@ class EpisodeTrace:
 			self._push(node)
 			self.images = self._render(cell)
 			if len(self.rows) % 15 == 0:
-				preview = self._composite(node)
-				ok, buf = cv2.imencode(".jpg", cv2.cvtColor(preview, cv2.COLOR_RGB2BGR))
-				if ok:
-					tmp = self.path / "live.tmp"
-					tmp.write_bytes(buf.tobytes())
-					tmp.replace(self.path / "live.jpg")
+				self._publish_preview(node)
+
+	def _publish_preview(self, node, frame=None):
+		preview = self._composite(node, frame)
+		ok, buf = cv2.imencode(".jpg", cv2.cvtColor(preview, cv2.COLOR_RGB2BGR))
+		if not ok:
+			return
+		tmp = self.path / "live.tmp"
+		tmp.write_bytes(buf.tobytes())
+		try:
+			tmp.replace(self.path / "live.jpg")
+		except PermissionError:
+			# A browser streaming the previous preview can briefly lock its file on Windows.
+			# The next preview can retry. Observation frames and video are recorded separately.
+			pass
 
 	def restored(self, cell):
 		if self.video:
@@ -217,15 +226,8 @@ class EpisodeTrace:
 	def finish(self, result, provenance):
 		self._finish_branch()
 		if self.video and self.images is not None:
-			ok, buf = cv2.imencode(
-				".jpg",
-				cv2.cvtColor(
-					self._composite("evaluate", self.branches[-1]["start_frame"] + self.branches[-1]["actions"]),
-					cv2.COLOR_RGB2BGR,
-				),
-			)
-			if ok:
-				(self.path / "live.jpg").write_bytes(buf.tobytes())
+			branch = self.branches[-1]
+			self._publish_preview("evaluate", branch["start_frame"] + branch["actions"])
 		manifest = {
 			"schema": "armigo-agent-episode/v1",
 			"fps": FPS,

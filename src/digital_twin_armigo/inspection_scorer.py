@@ -11,6 +11,7 @@ from __future__ import annotations
 import base64
 import contextlib
 import json
+import math
 import os
 import queue
 import subprocess
@@ -146,7 +147,9 @@ class SubprocessAnomalyScorer:
 			self._proc.stdin.write(json.dumps(obj) + "\n")
 			self._proc.stdin.flush()
 		except (OSError, ValueError) as exc:
-			raise ScoreServerError(f"anomaly score server is not accepting requests: {exc}{self._stderr_tail()}") from None
+			raise ScoreServerError(
+				f"anomaly score server is not accepting requests: {exc}{self._stderr_tail()}"
+			) from None
 
 	def _camera(self, camera: str) -> dict:
 		try:
@@ -163,6 +166,10 @@ class SubprocessAnomalyScorer:
 		return {camera: dict(entry) for camera, entry in self._cameras.items()}
 
 	def score(self, camera: str, image: np.ndarray) -> float:
+		return self.score_with_details(camera, image)[0]
+
+	def score_with_details(self, camera: str, image: np.ndarray) -> tuple[float, dict[str, float]]:
+		"""Read the fused score and any calibrated head scores from one inference request."""
 		img = np.asarray(image)
 		if img.dtype != np.uint8:
 			raise TypeError(f"expected a uint8 image, got {img.dtype}")
@@ -186,12 +193,24 @@ class SubprocessAnomalyScorer:
 		if not isinstance(response, dict):
 			raise ScoreServerError(f"anomaly score server sent {response!r}, expected a JSON object")
 		if response.get("id") != request_id:
-			raise ScoreServerError(f"anomaly score server answered request {response.get('id')!r}, expected {request_id!r}")
+			raise ScoreServerError(
+				f"anomaly score server answered request {response.get('id')!r}, expected {request_id!r}"
+			)
 		if "error" in response:
 			raise ScoreServerError(f"anomaly score server error: {response['error']}")
 		if "score" not in response:
 			raise ScoreServerError(f"anomaly score server response has no score: {response!r}")
-		return float(response["score"])
+		details = response.get("head_scores")
+		heads = (
+			{
+				key: float(value)
+				for key, value in details.items()
+				if key in ("cls", "seg") and type(value) in (int, float) and math.isfinite(value)
+			}
+			if isinstance(details, dict)
+			else {}
+		)
+		return float(response["score"]), heads
 
 	def threshold(self, camera: str) -> float:
 		return float(self._camera(camera)["threshold"])
@@ -284,5 +303,6 @@ def default_sup_scorer(spec_path: str | Path) -> SubprocessAnomalyScorer:
 	Scores are standardised views ``u`` (see ``scripts/anomaly/sup_scorer.py``) shared by both cameras, so the detection
 	threshold of every camera is ``0.0`` unless the caller overrides it (``HeuristicPlanner(thresholds=...)``).
 	"""
-	return SubprocessAnomalyScorer(DEFAULT_ANOMALY_PYTHON, DEFAULT_SERVER_SCRIPT, {}, extra_args=("--sup", str(spec_path)))
-
+	return SubprocessAnomalyScorer(
+		DEFAULT_ANOMALY_PYTHON, DEFAULT_SERVER_SCRIPT, {}, extra_args=("--sup", str(spec_path))
+	)

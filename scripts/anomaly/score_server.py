@@ -13,6 +13,7 @@ line-delimited JSON protocol on stdin/stdout, flushing after every line:
 * server after loading: ``{"ready": true, "cameras": {"top": {"threshold": .., "model": .., "crop_size": ..}, ..}}``
 * request: ``{"id": any, "camera": "top", "shape": [h, w, 3], "rgb_b64": "<raw uint8 RGB>"}``
 * response: ``{"id": same, "score": float, "threshold": float, "anomalous": bool}`` (score >= threshold) or ``{"id": same, "error": ..}``
+* Supervised responses include optional ``head_scores`` with each enabled head's calibrated score.
 * ``{"cmd": "quit"}`` or EOF exits 0.
 
 Crops arrive already RGB; they are resized to the model's ``crop_size`` with ``cv2.INTER_AREA`` exactly as
@@ -25,6 +26,7 @@ import argparse
 import base64
 import binascii
 import json
+import math
 import os
 import sys
 from pathlib import Path
@@ -101,15 +103,21 @@ def _handle(request: dict[str, Any], cameras: dict[str, dict[str, Any]], device:
 	if image.shape[:2] != (crop_size, crop_size):
 		# Same resize as score.py; the crop is already RGB, so no colour conversion here.
 		image = cv2.resize(image, (crop_size, crop_size), interpolation=cv2.INTER_AREA)
+	heads = {}
 	try:
 		if entry.get("sup") is not None:
-			value = float(entry["sup"].score(camera, image))
+			scores = entry["sup"].head_scores(camera, image)
+			value = float(entry["sup"].fuse(scores))
+			heads = {name: float(score) for name, score in scores.items() if math.isfinite(score)}
 		else:
 			value = float(score(entry["model"], image[None], entry["input_size"], device, 1)[0])
 	except (RuntimeError, ValueError, TypeError, IndexError) as exc:  # a scoring failure must not kill the server
 		return {"id": request_id, "error": f"scoring failed: {exc}"}
 	threshold = entry["threshold"]
-	return {"id": request_id, "score": value, "threshold": threshold, "anomalous": bool(value >= threshold)}
+	result = {"id": request_id, "score": value, "threshold": threshold, "anomalous": bool(value >= threshold)}
+	if heads:
+		result["head_scores"] = heads
+	return result
 
 
 def main() -> int:

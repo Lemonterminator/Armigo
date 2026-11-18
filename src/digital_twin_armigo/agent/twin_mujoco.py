@@ -6,6 +6,7 @@ import copy
 import hashlib
 import json
 import math
+import time
 from collections import deque
 from contextlib import contextmanager
 from dataclasses import dataclass
@@ -272,13 +273,34 @@ class TwinMujoco:
 			if camera == "top" and self.bottom_threshold is not None
 			else self.scorer.threshold(camera)
 		)
-		score = (
-			float(self.scorer.score(camera, image))
-			if image is not None and geometry.brick_px >= MIN_BRICK_PX and faces
-			else None
-		)
-		if score is not None and not math.isfinite(score):
-			score = None
+		score = elapsed_ms = None
+		heads = {}
+		error = None
+		reason = None
+		if image is None:
+			reason = "NO_CROP"
+		elif geometry.brick_px < MIN_BRICK_PX:
+			reason = "TOO_FEW_BRICK_PIXELS"
+		elif not faces:
+			reason = "NO_READABLE_FACE"
+		else:
+			from ..inspection_scorer import ScoreServerError
+
+			self.event("detector_started", camera=camera)
+			started = time.perf_counter()
+			try:
+				score_details = getattr(self.scorer, "score_with_details", None)
+				if score_details is None:
+					score = float(self.scorer.score(camera, image))
+				else:
+					score, heads = score_details(camera, image)
+				if not math.isfinite(score):
+					score = None
+					reason = "NONFINITE_SCORE"
+			except ScoreServerError as exc:
+				reason = "DETECTOR_UNAVAILABLE"
+				error = exc
+			elapsed_ms = round((time.perf_counter() - started) * 1000, 2)
 		view = {
 			"id": f"{self.branch}:{self.ep.n_frames}:{camera}",
 			"branch": self.branch,
@@ -291,7 +313,14 @@ class TwinMujoco:
 			"crop_bbox": bbox,
 		}
 		self.record.view(view, rgb, image)
-		self.event("view", observation=view)
+		# Keep diagnostics in the trace, separate from the decision evidence supplied to the agent.
+		self.event(
+			"view" if error is None else "detector_error",
+			observation=view,
+			detector={"head_scores": heads, "elapsed_ms": elapsed_ms, "reason": reason},
+		)
+		if error is not None:
+			raise error
 		return view
 
 	def _straight_clear(self, first, last, *, held=False):
