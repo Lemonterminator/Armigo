@@ -221,6 +221,9 @@ def main() -> None:
 	ap.add_argument("--val-quantile", type=float, default=0.99)
 	ap.add_argument("--real-top-crop", action="store_true")
 	ap.add_argument("--seed", type=int, default=0)
+	ap.add_argument(
+		"--init", type=Path, default=None, help="warm start: a head-*.pt of an earlier run (same --mode / --rank), e.g. the curriculum stage on floating bricks"
+	)
 	ap.add_argument("--tag", required=True)
 	ap.add_argument("--report-dir", type=Path, required=True)
 	a = ap.parse_args()
@@ -249,6 +252,11 @@ def main() -> None:
 		flush=True,
 	)
 	net = CrossNet(a.mode, a.rank, a.alpha).to(device).to(memory_format=torch.channels_last)
+	if a.init is not None:
+		from infer_sup import load_net
+
+		net.load_state_dict(load_net(a.init, a.mode, a.rank, a.alpha, device).state_dict())
+		print(f"warm start from {a.init}", flush=True)
 	params = [p for p in net.parameters() if p.requires_grad]
 	print(f"mode {a.mode}: {sum(p.numel() for p in params) / 1e6:.2f} M trainable, {net.n_lora} LoRA convs", flush=True)
 	opt = torch.optim.AdamW(params, lr=a.lr, weight_decay=1e-4)

@@ -141,3 +141,29 @@ Exported model: `patchcore/pooled` -> `models/best.pt` (see `score.py`).
 - Virtual poses dominate (~88 % of crops); they are rigid kinematic copies of the held brick and do not include the
   motion of a real show move.
 
+
+
+## Supervised v6 brick-level fusion and physics planner
+
+The v6 / v6def comparison uses independent MuJoCo layouts, with 212 normal training bricks for score calibration
+and 304 defective plus 84 normal test bricks. The detector uses its classification and segmentation heads.
+The historical pipeline views cover at least 25 visible defect pixels on at least one frame of 304/304 defective
+bricks. Max fusion detected all 304, giving a Wilson lower bound of 0.9875 and a one-sided exact 95% miss upper
+bound of 0.98%. False alarms range from about 2% to 8% across the operating points. A rate of 7/84 remains
+imprecise. k2 and top2 also detected 304/304 at the tested thresholds. k3 reduced observed recall to about
+0.96–0.97. The offline set covers defect faces 0–4. See [fusion rows](sup-v6/fuse-pipeline-both.json).
+
+On Isaac v4-isaac2 the brick AUROC was 0.994–0.998. Transferring the MuJoCo threshold increased false alarms to
+43–62%. Recalibration on 136 Isaac normal bricks yielded 64/64 detection and about 8–10% false alarms on the 60
+normal test bricks. The calibration set included 116 layouts whose MuJoCo render had been used for training.
+With only 64 positive bricks, the one-sided 95% miss upper bound is about 4.6%.
+See [Isaac fusion rows](sup-v6/fuse-isaac-both.json).
+
+In the n=24 seed 23 MuJoCo planner experiment, supervised heuristic / heuristic_fast achieved 24/24 label
+correctness and 23/24 audited physical successes, matching both oracle variants. PatchCore on the same strategies
+reached 15/24 correct labels and 14/24 audited successes. Supervised show reached 13/24 physical successes.
+Its recorded final confusion has 19 known decisions, all correct, and five normal bricks marked unknown.
+See [episode summary](../heuristic-inspection/sup-n24/summary.json).
+
+A separate six-face project measures the bottom view and online six-face coverage under its own camera profile.
+The experiments above do not validate the new bottom view.

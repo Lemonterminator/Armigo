@@ -11,8 +11,10 @@ same detector, so they differ only in WHERE they look):
 * ``heuristic_x2``  -- ``heuristic`` with every face cleared only by TWO non-detecting views (pre-scan plans double
   coverage, up to 8 views), for a detector that misses often.
 
-Detectors: ``oracle`` (score = visible defect pixels, threshold 25: the strategy's upper bound) or ``anomalib`` (the
-per-camera PatchCore models through ``scripts/anomaly/score_server.py`` in the anomaly env). Episodes are scored by the
+Detectors: ``oracle`` (score = visible defect pixels, threshold 25: the strategy's upper bound), ``anomalib`` (the
+per-camera PatchCore models through ``scripts/anomaly/score_server.py`` in the anomaly env) or ``sup`` (the supervised
+LoRA two-head detector of ``--sup-spec``, written by ``scripts/anomaly/export_sup.py``; crops are 256 px as in its
+training set, scores are standardised so the default threshold is 0). Episodes are scored by the
 unchanged evaluator against the ground-truth bowl. Writes ``episodes.jsonl`` and ``summary.json`` into ``--out``.
 """
 
@@ -57,15 +59,16 @@ class _Capture:
 	"""Training-identical crops (``render_dataset.capture``, clamped square crop, full top frame); remembers the last
 	view so the oracle detector can read its defect pixels."""
 
-	def __init__(self) -> None:
+	def __init__(self, image_size: int = IMAGE_SIZE) -> None:
 		import anomaly.render_dataset as rd
 
 		self.rd = rd
+		self.image_size = int(image_size)
 		self.last = None
 
 	def __call__(self, cell, camera: str, data):
 		kw = {"clamp": True} if "clamp" in self.rd.capture.__code__.co_varnames else {}
-		view, image, _ = self.rd.capture(cell, camera, None, data, IMAGE_SIZE, **kw)
+		view, image, _ = self.rd.capture(cell, camera, None, data, self.image_size, **kw)
 		if image is not None and view.brick_px < self.rd.MIN_BRICK_PX:
 			image = None  # the training set drops such crops too
 		self.last = view
@@ -209,7 +212,11 @@ def main() -> None:
 	ap.add_argument("--n", type=int, default=20)
 	ap.add_argument("--seed", type=int, default=11)
 	ap.add_argument("--strategies", default=",".join(STRATEGIES))
-	ap.add_argument("--detector", choices=("oracle", "anomalib"), default="oracle")
+	ap.add_argument("--detector", choices=("oracle", "anomalib", "sup"), default="oracle")
+	ap.add_argument(
+		"--sup-spec", type=Path, default=ROOT / "results" / "anomaly" / "models-sup" / "sup.json", help="supervised detector spec (--detector sup)"
+	)
+	ap.add_argument("--image-size", type=int, default=0, help="crop size; default 256 for sup, else 128")
 	ap.add_argument("--models-root", type=Path, default=ROOT / "results" / "anomaly" / "models-v2")
 	ap.add_argument("--thresholds", default="", help="per-camera detection thresholds, e.g. top=60,wrist_cam=58")
 	ap.add_argument("--closeup-library", type=Path, default=ROOT / "results" / "top-camera-reach" / "poses.jsonl")
@@ -230,9 +237,13 @@ def main() -> None:
 	lib = closeup_library(rows, per_layout=args.closeup_per_layout)
 	args.out.mkdir(parents=True, exist_ok=True)
 	lays = sample_layouts(args.n, args.seed)
-	cap = _Capture()
+	cap = _Capture(args.image_size or (256 if args.detector == "sup" else IMAGE_SIZE))
 	if args.detector == "oracle":
 		scorer = _OracleScorer(cap)
+	elif args.detector == "sup":
+		from digital_twin_armigo.inspection_scorer import default_sup_scorer
+
+		scorer = default_sup_scorer(args.sup_spec)
 	else:
 		from digital_twin_armigo.inspection_scorer import default_scorer
 

@@ -5,7 +5,9 @@ Usage::
     E:/venvs/armigo-anomaly/Scripts/python scripts/anomaly/score_server.py \
         --model top=models/patchcore_top --model wrist_cam=models/patchcore_wrist_cam [--cpu]
 
-Loads one exported model per camera (``best.pt`` + ``best.json`` written by ``train_eval.py``) and then speaks a
+Loads one exported model per camera (``best.pt`` + ``best.json`` written by ``train_eval.py``), and/or the supervised
+cross detector of a spec written by ``export_sup.py`` (``--sup SPEC.json``: scores of its cameras are ``u`` values with
+threshold 0, see ``sup_scorer.py``; ``--model`` for the same camera wins), and then speaks a
 line-delimited JSON protocol on stdin/stdout, flushing after every line:
 
 * server after loading: ``{"ready": true, "cameras": {"top": {"threshold": .., "model": .., "crop_size": ..}, ..}}``
@@ -35,6 +37,7 @@ import torch
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from score import load
+from sup_scorer import SupScorer
 from train_eval import score
 
 
@@ -99,7 +102,10 @@ def _handle(request: dict[str, Any], cameras: dict[str, dict[str, Any]], device:
 		# Same resize as score.py; the crop is already RGB, so no colour conversion here.
 		image = cv2.resize(image, (crop_size, crop_size), interpolation=cv2.INTER_AREA)
 	try:
-		value = float(score(entry["model"], image[None], entry["input_size"], device, 1)[0])
+		if entry.get("sup") is not None:
+			value = float(entry["sup"].score(camera, image))
+		else:
+			value = float(score(entry["model"], image[None], entry["input_size"], device, 1)[0])
 	except (RuntimeError, ValueError, TypeError, IndexError) as exc:  # a scoring failure must not kill the server
 		return {"id": request_id, "error": f"scoring failed: {exc}"}
 	threshold = entry["threshold"]
@@ -111,12 +117,15 @@ def main() -> int:
 	ap.add_argument(
 		"--model",
 		action="append",
-		required=True,
+		default=[],
 		metavar="CAMERA=MODEL_DIR",
 		help="exported model directory per camera",
 	)
+	ap.add_argument("--sup", type=Path, default=None, help="supervised detector spec (export_sup.py) for its cameras")
 	ap.add_argument("--cpu", action="store_true")
 	args = ap.parse_args()
+	if not args.model and args.sup is None:
+		ap.error("give at least one --model or a --sup spec")
 
 	protocol = _protocol_stream()
 	device = torch.device("cuda" if torch.cuda.is_available() and not args.cpu else "cpu")
@@ -141,6 +150,20 @@ def main() -> int:
 			file=sys.stderr,
 			flush=True,
 		)
+	if args.sup is not None:
+		sup = SupScorer(args.sup, device)
+		for camera in sup.cameras:
+			if camera in cameras:
+				continue
+			cameras[camera] = {
+				"model": None,
+				"sup": sup,
+				"input_size": sup.input_size,
+				"crop_size": sup.crop_size,
+				"threshold": 0.0,
+				"name": "sup_lora",
+			}
+			print(f"loaded {camera} <- {args.sup} (supervised, threshold 0)", file=sys.stderr, flush=True)
 	_send(
 		protocol,
 		{

@@ -58,6 +58,7 @@ def main() -> None:
 	ap.add_argument("--key", type=float, default=3500.0, help="rect key light intensity")
 	ap.add_argument("--shard", type=int, nargs=2, default=(0, 1), metavar=("I", "N"), help="render layouts i, i+N, ...")
 	ap.add_argument("--image-size", type=int, default=256)
+	ap.add_argument("--flush-steps", type=int, default=2, help="app.update() calls after posing, before the capture")
 	a = ap.parse_args()
 	rows = [json.loads(line) for line in (a.data / "metadata.jsonl").read_text(encoding="utf-8").splitlines() if line]
 	by_path = {r["path"]: r for r in rows}
@@ -173,6 +174,10 @@ def main() -> None:
 				vert_ap = float(2 * 20.955 * np.tan(np.deg2rad(fovy[r["camera"]]) / 2))
 				cam.CreateVerticalApertureAttr(vert_ap)
 				cam.CreateHorizontalApertureAttr(vert_ap * WIDTH / HEIGHT)
+				# The annotator returns the frame of the PREVIOUS stage update (verified: frame i showed the poses of crop
+				# i-1), so push the new poses through the renderer before the capture that is kept.
+				for _ in range(a.flush_steps):
+					app.update()
 				rep.orchestrator.step(rt_subframes=max(1, a.spp // 32), delta_time=0.0)
 				frame = np.asarray(rgb.get_data())[:, :, :3]
 				crop = square_crop(frame, r["bbox"], PAD, a.image_size, clamp=r["task"] == "cross_var")

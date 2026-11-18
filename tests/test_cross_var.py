@@ -124,6 +124,21 @@ def test_cross_var_geometry_fits_every_face_with_enough_area(size):
 	warnings.warn(f"cross_var fallback rate for {size}: {fallbacks}/{total} = {fallbacks / total:.4f}", stacklevel=2)
 
 
+@pytest.mark.parametrize("size", [DUPLO_2X2, DUPLO_2X4], ids=["2x2", "2x4"])
+def test_cross_var_never_has_a_zero_length_stroke(size):
+	"""A stroke shrunk to length 0 is a ``size 0`` MuJoCo geom (the model fails to compile): seed 4049 layout 314 did."""
+	from digital_twin_armigo.mujoco_cell import scene
+
+	def shortest():
+		return min(
+			min(stroke[2] for stroke in scene.cross_var_strokes(_layout(face=face, seed=seed, size=size)))
+			for face in range(6)
+			for seed in range(1500)
+		)
+
+	assert shortest() >= scene._MIN_STROKE_HALF_LENGTH_M
+
+
 def test_cross_var_fallback_is_deterministic_and_fits():
 	from digital_twin_armigo.mujoco_cell.scene import _cross_var_strokes
 

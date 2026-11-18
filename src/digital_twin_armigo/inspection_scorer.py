@@ -88,7 +88,7 @@ class SubprocessAnomalyScorer:
 			reader.start()
 			ready = self._read_message(self._timeout, context="waiting for the ready line")
 			if not isinstance(ready, dict) or not ready.get("ready"):
-				raise RuntimeError(f"anomaly score server did not send a ready line: {ready!r}")
+				raise ScoreServerError(f"anomaly score server did not send a ready line: {ready!r}")
 			self._cameras = dict(ready.get("cameras") or {})
 		except Exception:
 			self.close()
@@ -122,7 +122,7 @@ class SubprocessAnomalyScorer:
 		try:
 			item = self._lines.get(timeout=timeout)
 		except queue.Empty:
-			raise RuntimeError(
+			raise ScoreServerError(
 				f"anomaly score server timed out after {timeout:.1f}s{where}{self._stderr_tail()}"
 			) from None
 		if item is None:
@@ -132,13 +132,13 @@ class SubprocessAnomalyScorer:
 					code = self._proc.wait(timeout=1.0)
 				except subprocess.TimeoutExpired:
 					code = self._proc.poll()
-			raise RuntimeError(f"anomaly score server exited (code {code}){where}{self._stderr_tail()}")
+			raise ScoreServerError(f"anomaly score server exited (code {code}){where}{self._stderr_tail()}")
 		if isinstance(item, Exception):
 			raise ScoreServerError(f"anomaly score server read failed: {item}{where}{self._stderr_tail()}") from None
 		try:
 			return json.loads(item)
 		except json.JSONDecodeError as exc:
-			raise RuntimeError(f"anomaly score server sent invalid JSON {item!r}: {exc}{where}") from None
+			raise ScoreServerError(f"anomaly score server sent invalid JSON {item!r}: {exc}{where}") from None
 
 	def _send(self, obj: dict) -> None:
 		assert self._proc is not None and self._proc.stdin is not None
@@ -146,7 +146,7 @@ class SubprocessAnomalyScorer:
 			self._proc.stdin.write(json.dumps(obj) + "\n")
 			self._proc.stdin.flush()
 		except (OSError, ValueError) as exc:
-			raise RuntimeError(f"anomaly score server is not accepting requests: {exc}{self._stderr_tail()}") from None
+			raise ScoreServerError(f"anomaly score server is not accepting requests: {exc}{self._stderr_tail()}") from None
 
 	def _camera(self, camera: str) -> dict:
 		try:
@@ -171,7 +171,7 @@ class SubprocessAnomalyScorer:
 		img = np.ascontiguousarray(img)
 		with self._lock:
 			if self._closed or self._proc is None:
-				raise RuntimeError("anomaly score server is closed")
+				raise ScoreServerError("anomaly score server is closed")
 			self._next_id += 1
 			request_id = self._next_id
 			self._send(
@@ -186,11 +186,11 @@ class SubprocessAnomalyScorer:
 		if not isinstance(response, dict):
 			raise ScoreServerError(f"anomaly score server sent {response!r}, expected a JSON object")
 		if response.get("id") != request_id:
-			raise RuntimeError(f"anomaly score server answered request {response.get('id')!r}, expected {request_id!r}")
+			raise ScoreServerError(f"anomaly score server answered request {response.get('id')!r}, expected {request_id!r}")
 		if "error" in response:
-			raise RuntimeError(f"anomaly score server error: {response['error']}")
+			raise ScoreServerError(f"anomaly score server error: {response['error']}")
 		if "score" not in response:
-			raise RuntimeError(f"anomaly score server response has no score: {response!r}")
+			raise ScoreServerError(f"anomaly score server response has no score: {response!r}")
 		return float(response["score"])
 
 	def threshold(self, camera: str) -> float:
@@ -276,3 +276,13 @@ def default_scorer(models_root: str | Path) -> SubprocessAnomalyScorer:
 		DEFAULT_SERVER_SCRIPT,
 		{"top": root / "patchcore_top", "wrist_cam": root / "patchcore_wrist_cam"},
 	)
+
+
+def default_sup_scorer(spec_path: str | Path) -> SubprocessAnomalyScorer:
+	"""Scorer for the supervised cross detector written by ``scripts/anomaly/export_sup.py``.
+
+	Scores are standardised views ``u`` (see ``scripts/anomaly/sup_scorer.py``) shared by both cameras, so the detection
+	threshold of every camera is ``0.0`` unless the caller overrides it (``HeuristicPlanner(thresholds=...)``).
+	"""
+	return SubprocessAnomalyScorer(DEFAULT_ANOMALY_PYTHON, DEFAULT_SERVER_SCRIPT, {}, extra_args=("--sup", str(spec_path)))
+

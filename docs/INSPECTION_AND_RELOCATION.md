@@ -62,7 +62,7 @@ margin: min 0.04, median 0.13, max 0.30 m. `relocation_target()` computes it.
 
 - **Bowls:** moved behind the robot, out of the work area.
 - **Clutter:** cleared.
-- **Defect:** on the bottom face (5).
+- **Defect:** the probe is on face 5. The geometry experiment used a normal brick, so its RGB did not contain a bottom cross.
 - **Top camera:** at 1.2, 1.35 or 1.5 times the maximum tip reach (0.472 m), measured from the shoulder anchor. It sits
   at 45 deg elevation, looking at the zone edge.
 - **Starts:** uniform over radius 0.30 to 0.38 m, azimuth ±75 deg and yaw ±45 deg.
@@ -129,3 +129,17 @@ torch and anomalib.
 - The relocation expert does not yet call the anomaly detector. It measures geometry (face pixels), not detections.
 - Joining relocation and the heuristic inspector into one episode is the next step.
 - Transfer losses beyond 0.35 m remain. A higher lift, or a regrasp closer to the base, may help.
+
+
+## Supervised v6 and the new six-face path
+
+The v6 supervised two-head detector is now benchmarked separately from PatchCore. On the pre-scan / held / close-up
+views of the v6/v6def brick fusion benchmark, max fusion detected 304/304 defective bricks. On the n=24 seed 23
+physics suite, both supervised heuristic variants detected 12/12 defective bricks, left all 12 normal labels
+correct, and sorted 23/24 episodes successfully. These experiments sample defect faces 0–4. See the
+[detector report](../results/anomaly/REPORT.md) and [planner summary](../results/heuristic-inspection/sup-n24/summary.json)
+for the operating points and outcome counts.
+
+The six-face MuJoCo agent uses an external top camera profile for the physical bottom view. Its own documentation
+covers bottom-only calibration, the MCP / LangGraph workflow, the replay viewer, and LeRobot export.
+See [the Armigo agent guide](ARMIGO_AGENT.md).

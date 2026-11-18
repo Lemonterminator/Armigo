@@ -186,6 +186,7 @@ _DEFECT_LIFT_M = 0.0003  # defect geoms sit this far off the face, above the fac
 _PATCH_HALF_T_M = 0.0001  # half thickness of the flat patches of the non-cross kinds
 _CROSS_VAR_INKS = ((0.05, 0.05, 0.08), (0.08, 0.10, 0.30), (0.30, 0.06, 0.06))
 _CROSS_VAR_MAX_ATTEMPTS = 200
+_MIN_STROKE_HALF_LENGTH_M = 1e-6  # only rejects degenerate strokes, so every previously rendered layout is unchanged
 
 
 def _defect_rng(layout: Layout) -> np.random.Generator:
@@ -274,6 +275,8 @@ def _cross_var_strokes(
 			c, length = _shrink_stroke(point, float(along[k]), d, s, width, float(lengths[k]), bound)
 			strokes.append((tuple(float(v) for v in c), ang, length, width))
 			corners.append(_stroke_corners(c, d, s, length, width))
+		if min(float(st[2]) for st in strokes) < _MIN_STROKE_HALF_LENGTH_M:
+			continue  # a stroke squeezed to zero length is an invalid MuJoCo geom (size 0)
 		pts = np.concatenate(corners)
 		span = pts.max(axis=0) - pts.min(axis=0)
 		if np.all(np.abs(pts) <= bound + 1e-12) and float(span[0] * span[1]) >= min_area - 1e-15:

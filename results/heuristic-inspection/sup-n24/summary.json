@@ -1,0 +1,108 @@
+{
+  "strategies": {
+    "show": {
+      "n": 24,
+      "success_rate": 0.542,
+      "success_with_correct_label_rate": 0.542,
+      "known_rate": 0.792,
+      "accuracy_of_known": 1.0,
+      "confusion": {
+        "defective->defective": 12,
+        "defective->normal": 0,
+        "defective->unknown": 0,
+        "normal->normal": 7,
+        "normal->defective": 0,
+        "normal->unknown": 5
+      },
+      "top_confirmed_of_defective_labels": 8,
+      "verdicts": {
+        "SUCCESS": 13,
+        "FAILURE": 11
+      },
+      "aborted": {
+        "None": 23,
+        "brick_lost": 1
+      },
+      "mean_views": 8.33,
+      "mean_present": 0.0,
+      "mean_frames": 1782.9,
+      "truncated_rate": 0.417,
+      "mean_wall_s": 3.44
+    },
+    "heuristic": {
+      "n": 24,
+      "success_rate": 0.958,
+      "success_with_correct_label_rate": 0.958,
+      "known_rate": 1.0,
+      "accuracy_of_known": 1.0,
+      "confusion": {
+        "defective->defective": 12,
+        "defective->normal": 0,
+        "defective->unknown": 0,
+        "normal->normal": 12,
+        "normal->defective": 0,
+        "normal->unknown": 0
+      },
+      "top_confirmed_of_defective_labels": 5,
+      "verdicts": {
+        "SUCCESS": 23,
+        "FAILURE": 1
+      },
+      "aborted": {
+        "None": 24
+      },
+      "mean_views": 4.12,
+      "mean_present": 0.54,
+      "mean_frames": 1401.6,
+      "truncated_rate": 0.0,
+      "mean_wall_s": 14.55
+    },
+    "heuristic_fast": {
+      "n": 24,
+      "success_rate": 0.958,
+      "success_with_correct_label_rate": 0.958,
+      "known_rate": 1.0,
+      "accuracy_of_known": 1.0,
+      "confusion": {
+        "defective->defective": 12,
+        "defective->normal": 0,
+        "defective->unknown": 0,
+        "normal->normal": 12,
+        "normal->defective": 0,
+        "normal->unknown": 0
+      },
+      "top_confirmed_of_defective_labels": 0,
+      "verdicts": {
+        "SUCCESS": 23,
+        "FAILURE": 1
+      },
+      "aborted": {
+        "None": 24
+      },
+      "mean_views": 3.58,
+      "mean_present": 0.0,
+      "mean_frames": 1046.7,
+      "truncated_rate": 0.0,
+      "mean_wall_s": 14.0
+    }
+  },
+  "config": {
+    "n": 24,
+    "seed": 23,
+    "strategies": "show,heuristic,heuristic_fast",
+    "detector": "sup",
+    "sup_spec": "E:\\digital_twin_armigo\\.claude\\worktrees\\cross-detector-supervised-wip-63189e\\results\\anomaly\\models-sup\\sup.json",
+    "image_size": 0,
+    "models_root": "E:\\digital_twin_armigo\\.claude\\worktrees\\cross-detector-supervised-wip-63189e\\results\\anomaly\\models-v2",
+    "closeup_library": "E:\\digital_twin_armigo\\.claude\\worktrees\\cross-detector-supervised-wip-63189e\\results\\top-camera-reach\\poses.jsonl",
+    "closeup_per_layout": 15,
+    "min_face_px_wrist": 800,
+    "min_face_px_top": 250,
+    "max_presents": 4,
+    "max_frames": 2600,
+    "out": "results\\heuristic-inspection\\sup-n24",
+    "thresholds": {},
+    "closeup_library_size": 120,
+    "wall_s": 779.7
+  }
+}
