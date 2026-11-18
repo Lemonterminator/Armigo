@@ -160,6 +160,25 @@ Its action choices can depend on observations the student never received, even w
 reacquired a fresh view. The exporter accepts successful, continuous episodes only.
 Use sequence history when training the VLA so the sort action can depend on the earlier inspection frames.
 
+### Continuous carry demonstrations
+
+```powershell
+uv run --no-sync armigo-mcp run --suite <fixtures.json> --out data/catalog/carry-vla --smooth-for-vla
+```
+
+This opt-in pass first runs the baseline and retries successful, unrewound episodes with continuous joint-space
+timing on long lift, flip and placement moves whose gripper target stays constant. It uses the same line, duration
+and endpoint targets for each planned move. Internal waypoints are traversed at nonzero speed. Inspection holds
+and gripper transitions keep their original controller. The retry runs closed loop and records fresh camera,
+proprioception and action frames. Contact dynamics can change the poses measured by the controller.
+
+The retry must independently pass the sorting and physical evaluator, preserve the recorded camera and face sequence,
+and match the initial robot state and archived float32 first and last joint targets exactly. Its measured final
+position and velocity must be within 0.01 rad and 0.05 rad/s of the baseline on every joint. Use the `selected` paths in the
+`carry_smoothing` section of `report.json` as LeRobot export inputs. An unaccepted retry stays under `smoothed/`
+for inspection and the exporter rejects it. The report selects the successful baseline in that case. Use a run with
+video enabled for the export.
+
 ## Reproduce the gates
 
 ```powershell
