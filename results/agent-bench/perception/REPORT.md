@@ -93,4 +93,5 @@ Commands (run folders stay local under `runs/`):
 	  uv run armigo-mcp run --detector results/agent-bench/sup-v7bot-local.json --workers 4 \
 	  --out results/agent-bench/perception/runs/bench16-realistic --suite config/agent_bench/bench16.json --headless
 	python results/agent-bench/perception/summarize.py truth=runs/bench16-truth ideal=runs/bench16-ideal ...
-	uv run armigo-mcp run --sensing realistic --detector results/agent-bench/sup-v7bot-local.json --workers 4 	  --out results/agent-bench/perception/runs/bench16-sensor2 --suite config/agent_bench/bench16.json --headless
+	uv run armigo-mcp run --sensing realistic --detector results/agent-bench/sup-v7bot-local.json --workers 4 \
+	  --out results/agent-bench/perception/runs/bench16-sensor2 --suite config/agent_bench/bench16.json --headless
