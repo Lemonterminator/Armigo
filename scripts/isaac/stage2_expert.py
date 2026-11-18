@@ -34,6 +34,7 @@ parser.add_argument("--out-dir", type=Path, default=None)
 parser.add_argument(
 	"--catalog-capture", type=Path, default=None, help="New complete-scene recording directory; must not exist."
 )
+parser.add_argument("--checkpoint-probe", type=Path, help="Restore and verify an open-gripper checkpoint, then stop.")
 parser.add_argument("--catalog-parent", default=None, help="Optional parent catalog episode id for this NEW run.")
 add_launcher_args(parser)
 args_cli = parser.parse_args()
@@ -312,10 +313,11 @@ def main() -> None:
 	out_dir = args_cli.out_dir or DEFAULT_OUT_DIR
 	demo_dir = out_dir / "demos"
 	out_dir.mkdir(parents=True, exist_ok=True)
-	if demo_dir.exists():
-		for old in demo_dir.glob("*"):
-			old.unlink()
-	demo_dir.mkdir(parents=True, exist_ok=True)
+	if args_cli.checkpoint_probe is None:
+		if demo_dir.exists():
+			for old in demo_dir.glob("*"):
+				old.unlink()
+		demo_dir.mkdir(parents=True, exist_ok=True)
 
 	physics_spec = load_physics_spec()
 	rng = np.random.default_rng(args_cli.seed)
@@ -423,6 +425,14 @@ def main() -> None:
 			scene.write_data_to_sim()
 			sim.step()
 			scene.update(sim.get_physics_dt())
+
+		if args_cli.checkpoint_probe is not None:
+			from checkpoint_probe import probe
+
+			report = probe(sim, scene, q_init, args_cli.checkpoint_probe)
+			if report["status"] != "PASS":
+				raise SystemExit(2)
+			return
 
 		cmd_filter = ActuatorCommandFilter(non_ideal, n_joints=len(JOINTS), fps=FPS)
 		q0_ordered = np.array([float(robot.data.joint_pos.torch[0, j_idx[n]].cpu()) for n in JOINTS], dtype=np.float64)

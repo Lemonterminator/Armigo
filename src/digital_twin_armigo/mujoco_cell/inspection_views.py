@@ -80,6 +80,53 @@ def square_crop(
 	return out
 
 
+def _brick_bbox(cell, camera: str, crop, data) -> tuple[int, int, int, int] | None:
+	"""Pixel bounding box (x, y, w, h, in the crop) of the brick's main blob in ``camera``.
+
+	``Cell.face_visibility`` takes the 1st-99th percentile extent of every brick pixel, which a few stray thin streaks
+	of brick-mesh pixels far from the brick (segmentation artefacts seen in the top camera) can stretch to most of the
+	image. Here the brick mask is closed with a small kernel and only connected components with at least a fifth of the
+	largest one's area are kept."""
+	import cv2
+
+	r = cell.renderer
+	r.enable_segmentation_rendering()
+	try:
+		r.update_scene(data, camera, scene_option=mujoco.MjvOption())
+		seg = r.render()
+	finally:
+		r.disable_segmentation_rendering()
+	if crop is not None:
+		x, y, w, h = crop
+		seg = seg[y : y + h, x : x + w]
+	geom = np.where(seg[..., 1] == int(mujoco.mjtObj.mjOBJ_GEOM), seg[..., 0], -1)
+	mask = np.isin(geom, cell.brick_geoms).astype(np.uint8)
+	if not mask.any():
+		return None
+	mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
+	_, _, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
+	areas = stats[1:, cv2.CC_STAT_AREA]
+	keep = stats[1:][areas >= 0.2 * areas.max()]
+	x0 = int(keep[:, cv2.CC_STAT_LEFT].min())
+	y0 = int(keep[:, cv2.CC_STAT_TOP].min())
+	x1 = int((keep[:, cv2.CC_STAT_LEFT] + keep[:, cv2.CC_STAT_WIDTH]).max())
+	y1 = int((keep[:, cv2.CC_STAT_TOP] + keep[:, cv2.CC_STAT_HEIGHT]).max())
+	return x0, y0, x1 - x0, y1 - y0
+
+
+def detector_crop(cell, camera, crop, data, image_size, pad=0.25, clamp=False, *, rgb=None):
+	"""Crop around the main brick blob, identically for detector training and inference."""
+	bbox = _brick_bbox(cell, camera, crop, data)
+	if bbox is None:
+		return None, None
+	if rgb is None:
+		rgb = _render_rgb(cell, camera, data)
+	if crop is not None:
+		x, y, w, h = crop
+		rgb = rgb[y : y + h, x : x + w]
+	return square_crop(rgb, bbox, pad, image_size, clamp=clamp), bbox
+
+
 def capture_view(
 	cell: Cell,
 	camera: str,

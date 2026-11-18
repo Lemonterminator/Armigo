@@ -1,0 +1,94 @@
+{
+  "model": "qwen3.8-vllm",
+  "rows": [
+    {
+      "seed": 4,
+      "defective": true,
+      "qwen": "no_cross_visible",
+      "v6_score": 1.1642569879409395,
+      "latency_s": 12.926
+    },
+    {
+      "seed": 5,
+      "defective": true,
+      "qwen": "no_cross_visible",
+      "v6_score": 0.5263079584376874,
+      "latency_s": 1.39
+    },
+    {
+      "seed": 2,
+      "defective": true,
+      "qwen": "cross_visible",
+      "v6_score": 1.1284841451650562,
+      "latency_s": 1.198
+    },
+    {
+      "seed": 6,
+      "defective": false,
+      "qwen": "no_cross_visible",
+      "v6_score": -0.47788142487803364,
+      "latency_s": 1.275
+    },
+    {
+      "seed": 1,
+      "defective": false,
+      "qwen": "no_cross_visible",
+      "v6_score": -0.3300948043135166,
+      "latency_s": 1.299
+    },
+    {
+      "seed": 5,
+      "defective": false,
+      "qwen": "no_cross_visible",
+      "v6_score": -0.5143719484742106,
+      "latency_s": 1.291
+    },
+    {
+      "seed": 1,
+      "defective": true,
+      "qwen": "cross_visible",
+      "v6_score": 0.8303771220326954,
+      "latency_s": 1.207
+    },
+    {
+      "seed": 4,
+      "defective": false,
+      "qwen": "no_cross_visible",
+      "v6_score": -0.3416501367856394,
+      "latency_s": 1.35
+    },
+    {
+      "seed": 6,
+      "defective": true,
+      "qwen": "no_cross_visible",
+      "v6_score": 0.10597705582105864,
+      "latency_s": 1.292
+    },
+    {
+      "seed": 0,
+      "defective": false,
+      "qwen": "no_cross_visible",
+      "v6_score": -0.8601196595479881,
+      "latency_s": 0.886
+    },
+    {
+      "seed": 0,
+      "defective": true,
+      "qwen": "cross_visible",
+      "v6_score": 1.2358026734927061,
+      "latency_s": 1.207
+    },
+    {
+      "seed": 2,
+      "defective": false,
+      "qwen": "no_cross_visible",
+      "v6_score": -0.4663260924059109,
+      "latency_s": 1.305
+    }
+  ],
+  "positives": 6,
+  "detects": 3,
+  "negatives": 6,
+  "false_alarms": 0,
+  "non_decisions": 0
+}

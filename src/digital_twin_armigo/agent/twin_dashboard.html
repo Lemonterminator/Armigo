@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Armigo · Episode 回放</title>
+<style>
+:root { color-scheme: dark; font: 15px system-ui, sans-serif; background: #10171c; color: #e3ecee; }
+body { margin: auto; padding: 24px; max-width: 1600px; }
+header { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; align-items: center; }
+h1 { font-size: 24px; margin: .2em 0; } h2 { font-size: 16px; font-weight: 550; margin: 0; }
+label { display: inline-flex; align-items: center; gap: 8px; }
+select, button { font: inherit; color: inherit; background: #1e2d35; border: 1px solid #3a535e; border-radius: 6px; padding: 8px; }
+main { display: grid; grid-template-columns: minmax(0, 1.55fr) minmax(300px, 1fr); gap: 18px; margin-top: 16px; }
+article, aside { min-width: 0; } section { background: #172229; padding: 14px; margin-bottom: 16px; border-radius: 9px; }
+#controls { display: flex; justify-content: space-between; gap: 10px; align-items: center; margin-block: 4px 12px; }
+video, img { width: 100%; display: block; background: #11191e; border-radius: 5px; }
+[hidden] { display: none !important; }
+canvas { display: block; width: 100%; height: auto; margin: 10px 0 0; }
+#timeline { max-height: 390px; overflow: auto; margin-top: 8px; }
+#timeline button { display: block; width: 100%; border-radius: 0; border: 0; border-bottom: 1px solid #293a42;
+  text-align: left; cursor: pointer; padding: 8px 3px; background: transparent; font-size: 13px; }
+#timeline button:hover, #timeline button:focus-visible { background: #243843; }
+#timeline button[data-kind="failure"] { color: #ffc3b2; }
+#timeline button[data-kind="rewound"] { color: #8deaaf; }
+#caption, #status, #branch-info, #downloads, #evidence-view { color: #a5bbc4; font-size: 13px; }
+#downloads a, #evidence-view a { color: #8de0b8; margin-right: 12px; }
+#evidence-images { display: grid; grid-template-columns: 2fr 1fr; gap: 7px; margin-top: 8px; }
+@media(max-width:900px) { main { grid-template-columns: 1fr; } body { padding: 12px; } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Armigo 数字孪生</h1>
+  <label>Episode <select id="episodes" aria-label="Episode"></select></label>
+</header>
+<main>
+<article>
+  <section>
+    <div id="controls">
+      <label>分支 <select id="branches" aria-label="分支"></select></label>
+      <span id="status" role="status">等待 episode</span>
+    </div>
+    <video id="replay" controls preload="metadata" playsinline hidden></video>
+    <img id="live" alt="机械臂、腕部相机和外置相机实时画面" hidden>
+    <p id="branch-info"></p>
+    <div id="downloads"></div>
+  </section>
+  <section id="evidence-view" hidden>
+    <h2>判读相机帧</h2><p id="caption"></p>
+    <div id="evidence-images"><img id="raw" alt="原始相机帧"><img id="crop" alt="检测器实际输入裁图"></div>
+  </section>
+</article>
+<aside>
+  <section><h2>LangGraph 状态机</h2><canvas id="graph" width="520" height="210" aria-label="LangGraph 节点和路径"></canvas></section>
+  <section><h2>事件序列</h2><div id="timeline" aria-label="事件序列"></div></section>
+</aside>
+</main>
+<script>
+const el = id => document.getElementById(id);
+const episode = el('episodes'), branch = el('branches'), replay = el('replay'), live = el('live');
+let current = '', data, updateInProgress = false, lastReplay = '', lastEvents = '', pinnedNode = null;
+const captions = {
+  prepare:'准备', choose_view:'选择视角', scan_wrist:'腕部扫描', present_bottom:'展示底面',
+  recover:'失败恢复', place:'放置', evaluate:'验收'
+};
+const colors = { canvas:'#172229', node:'#243945', edge:'#607c88', green:'#54c68a', text:'#e2edef' };
+const positions = { prepare:[63,45], choose_view:[198,45], scan_wrist:[340,32], present_bottom:[340,104],
+  recover:[199,169], place:[462,47], evaluate:[462,168] };
+
+function draw(active) {
+  if (!data) return;
+  const canvas = el('graph'), ctx = canvas.getContext('2d');
+  ctx.fillStyle = colors.canvas; ctx.fillRect(0,0,520,210);
+  for (const [from,to] of data.graph.edges) {
+    const [x,y] = positions[from], [tx,ty] = positions[to];
+    const angle = Math.atan2(ty-y,tx-x);
+    const ux = Math.cos(angle), uy = Math.sin(angle);
+    const end = 49 * Math.abs(ux) + 19 * Math.abs(uy);
+    const sx = x+ux*end, sy = y+uy*end, ex = tx-ux*end, ey = ty-uy*end;
+    ctx.strokeStyle = to === active ? colors.green : colors.edge;
+    ctx.lineWidth = to === active ? 2 : 1;
+    ctx.beginPath(); ctx.moveTo(sx,sy); ctx.lineTo(ex,ey);
+    ctx.lineTo(ex-7*ux+3*uy,ey-7*uy-3*ux);
+    ctx.moveTo(ex,ey); ctx.lineTo(ex-7*ux-3*uy,ey-7*uy+3*ux); ctx.stroke();
+  }
+  ctx.font = '14px system-ui';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for (const node of data.graph.nodes) {
+    const [x,y] = positions[node];
+    ctx.fillStyle = node === active ? colors.green : colors.node; ctx.fillRect(x-48,y-18,96,36);
+    ctx.fillStyle = node === active ? '#102219' : colors.text; ctx.fillText(captions[node], x, y);
+  }
+}
+
+function media(name) { return '/media/' + encodeURIComponent(current) + '/' + name; }
+function activeEvents() { return (data?.events ?? []).filter(event => String(event.branch) === branch.value); }
+function selectedBranch() { return data?.episode?.branches.find(item => String(item.id) === branch.value); }
+function fillOptions(select, choices, fallback) {
+  if (JSON.stringify(choices) === select.dataset.values) return;
+  const old = select.value;
+  select.replaceChildren(...choices.map(([value, label]) => new Option(label, value)));
+  select.value = choices.some(x => x[0] === old) ? old : fallback;
+  select.dataset.values = JSON.stringify(choices);
+}
+
+function timeline() {
+  const events = activeEvents();
+  const signature = JSON.stringify([current,branch.value,events.length]);
+  if (signature === lastEvents) return;
+  lastEvents = signature;
+  el('timeline').replaceChildren(...events.map(ev => {
+    const button = document.createElement('button');
+    button.type = 'button'; button.dataset.kind = ev.kind;
+    const detail = ev.code || ev.choice || ev.checkpoint || ev.observation?.camera || ev.reason || '';
+    button.textContent = '#' + ev.seq + ' · ' + (ev.frame / 30).toFixed(2) + 's · ' + captions[ev.node] +
+      ' · ' + ev.kind + (detail ? ' · ' + detail : '');
+    button.onclick = () => {
+      pinnedNode = ev.node;
+      const selected = selectedBranch();
+      if (!replay.hidden && selected) {
+        replay.pause(); replay.currentTime = Math.min(Math.max(0, (ev.frame-selected.start_frame)/data.episode.fps),
+                                                       replay.duration || Infinity);
+      }
+      draw(ev.node);
+      if (ev.observation) {
+        const o = ev.observation, stem = 'keyframes/' + o.id.replaceAll(':','-');
+        el('raw').src = media(stem + '-frame.png'); el('crop').src = media(stem + '-crop.png');
+        el('evidence-view').hidden = false;
+        el('caption').textContent = o.camera + ' · 帧 ' + o.frame + ' · v6 ' +
+          (o.score === null ? '不可判读' : o.score.toFixed(3)) + ' · 阈值 ' + o.threshold.toFixed(3);
+      } else {
+        el('evidence-view').hidden = true;
+      }
+    };
+    return button;
+  }));
+}
+
+function show(branchChanged = false) {
+  const finished = data.episode;
+  const b = selectedBranch();
+  el('status').textContent = finished
+    ? finished.result.verdict + ' · ' + finished.result.label + ' · ' + finished.result.views + ' 视图'
+    : '实时运行';
+  el('branch-info').textContent = b
+    ? '分支 ' + b.id + ' · 起始帧 ' + b.start_frame + (b.parent_branch === undefined ? '' : ' · 回溯自分支 ' + b.parent_branch)
+    : '';
+  if (finished?.video && b?.actions) {
+    replay.hidden = false; live.hidden = true;
+    const url = media('branch-' + b.id + '/replay.mp4');
+    if (lastReplay !== url) { replay.src = url; lastReplay = url; }
+  } else {
+    replay.hidden = true;
+    if (lastReplay) { replay.pause(); replay.removeAttribute('src'); replay.load(); lastReplay = ''; }
+    live.hidden = !data.thumbnail;
+    if (!live.hidden) live.src = media('live.jpg') + '?' + Date.now();
+  }
+  el('downloads').replaceChildren(...(finished?.video && b?.actions
+    ? ['front','wrist','top_rgb','top_depth'].map(name => {
+      const a = document.createElement('a');
+      a.href = media('branch-' + b.id + '/' + name + '.mkv');
+      a.download = ''; a.textContent = name; return a;
+    }) : []));
+  if (branchChanged) { pinnedNode = null; el('evidence-view').hidden = true; }
+  timeline();
+  if (replay.hidden || branchChanged) draw(activeEvents().at(-1)?.node);
+}
+
+replay.ontimeupdate = () => {
+  const b = selectedBranch();
+  if (!b) return;
+  const frame = Math.floor(replay.currentTime * data.episode.fps + 1e-5) + b.start_frame;
+  draw(pinnedNode || activeEvents().filter(ev => ev.frame <= frame && ev.kind === 'node').at(-1)?.node);
+};
+replay.onloadedmetadata = replay.ontimeupdate;
+replay.onplay = () => { pinnedNode = null; };
+branch.onchange = () => show(true);
+episode.onchange = () => { current = ''; refresh(); };
+
+async function refresh() {
+  if (updateInProgress) return;
+  updateInProgress = true;
+  try {
+    const ids = await (await fetch('/api/episodes')).json();
+    fillOptions(episode, ids.map(id => [id, id]), ids[0] ?? '');
+    if (!episode.value) return;
+    const chosen = episode.value;
+    const changed = current !== chosen;
+    if (changed) { current = chosen; branch.replaceChildren(); branch.dataset.values = ''; }
+    const response = await fetch('/api/episode/' + encodeURIComponent(chosen), {cache:'no-store'});
+    if (!response.ok) throw Error('无法读取 episode');
+    data = await response.json();
+    const branches = data.episode?.branches.map(x => x.id)
+        ?? [...new Set(data.events.map(x => x.branch))];
+    const latest = data.episode?.result.active_branch ?? branches.at(-1) ?? 0;
+    const old = branch.value;
+    fillOptions(branch, branches.map(i => [String(i),'分支 '+i]), String(latest));
+    if (!data.episode && !branch.matches(':focus') && branches.includes(latest)) branch.value = String(latest);
+    show(changed || old !== branch.value);
+  } catch (err) {
+    el('status').textContent = err.message;
+  } finally { updateInProgress = false; }
+}
+refresh(); setInterval(refresh, 1600);
+</script>
+</body>
+</html>

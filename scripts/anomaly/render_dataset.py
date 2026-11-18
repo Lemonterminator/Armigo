@@ -104,42 +104,6 @@ def _virtual_poses(cell, k: int, rng: np.random.Generator) -> list[tuple[float, 
 	return [(float(f), float(r)) for f, r in zip(flex, roll, strict=True)]
 
 
-def _brick_bbox(cell, camera: str, crop, data) -> tuple[int, int, int, int] | None:
-	"""Pixel bounding box (x, y, w, h, in the crop) of the brick's main blob in ``camera``.
-
-	``Cell.face_visibility`` takes the 1st-99th percentile extent of every brick pixel, which a few stray thin streaks
-	of brick-mesh pixels far from the brick (segmentation artefacts seen in the top camera) can stretch to most of the
-	image. Here the brick mask is closed with a small kernel and only connected components with at least a fifth of the
-	largest one's area are kept."""
-	import cv2
-
-	from digital_twin_armigo.mujoco_cell._mj import mujoco
-
-	r = cell.renderer
-	r.enable_segmentation_rendering()
-	try:
-		r.update_scene(data, camera, scene_option=mujoco.MjvOption())
-		seg = r.render()
-	finally:
-		r.disable_segmentation_rendering()
-	if crop is not None:
-		x, y, w, h = crop
-		seg = seg[y : y + h, x : x + w]
-	geom = np.where(seg[..., 1] == int(mujoco.mjtObj.mjOBJ_GEOM), seg[..., 0], -1)
-	mask = np.isin(geom, cell.brick_geoms).astype(np.uint8)
-	if not mask.any():
-		return None
-	mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
-	_, _, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
-	areas = stats[1:, cv2.CC_STAT_AREA]
-	keep = stats[1:][areas >= 0.2 * areas.max()]
-	x0 = int(keep[:, cv2.CC_STAT_LEFT].min())
-	y0 = int(keep[:, cv2.CC_STAT_TOP].min())
-	x1 = int((keep[:, cv2.CC_STAT_LEFT] + keep[:, cv2.CC_STAT_WIDTH]).max())
-	y1 = int((keep[:, cv2.CC_STAT_TOP] + keep[:, cv2.CC_STAT_HEIGHT]).max())
-	return x0, y0, x1 - x0, y1 - y0
-
-
 def _defect_mask(cell, camera: str, crop, data) -> np.ndarray:
 	"""Boolean mask (full frame, or inside ``crop``) of the visible defect cross as the colour render shows it: arm
 	occlusion included, and the hidden probe cross of a normal brick (geom group 5) excluded, as in the RGB image."""
@@ -165,21 +129,15 @@ def capture(
 	"""Pixel counts of ``camera``'s view (:func:`capture_view`) and a square colour crop around the brick's main blob
 	(None when the brick is not in view); returns (view, image, bbox). With ``clamp`` the square crop is shifted to
 	stay inside the image (see :func:`~digital_twin_armigo.mujoco_cell.inspection_views.square_crop`)."""
-	from digital_twin_armigo.mujoco_cell.inspection_views import capture_view, square_crop
+	from digital_twin_armigo.mujoco_cell.inspection_views import capture_view, detector_crop, square_crop
 
 	d = cell.data if data is None else data
 	view = capture_view(cell, camera, crop=crop, data=d)
-	bbox = _brick_bbox(cell, camera, crop, d) if view.bbox is not None else None
+	if view.bbox is None:
+		return view, None, None
+	image, bbox = detector_crop(cell, camera, crop, d, image_size, pad, clamp)
 	if bbox is None:
 		return view, None, None
-	r = cell.renderer
-	r.disable_depth_rendering()
-	r.update_scene(d, camera)
-	rgb = r.render()
-	if crop is not None:
-		x, y, w, h = crop
-		rgb = rgb[y : y + h, x : x + w]
-	image = square_crop(rgb, bbox, pad, image_size, clamp=clamp)
 	if mask_out is not None:
 		m = _defect_mask(cell, camera, crop, d).astype(np.uint8)[..., None] * 255
 		mask_out.append(square_crop(m, bbox, pad, image_size, clamp=clamp)[..., 0])

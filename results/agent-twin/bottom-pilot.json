@@ -1,0 +1,30 @@
+{
+  "calibration": {
+    "profile": "mujoco-close-top-1.35",
+    "detector_sha256": "b6cb9186783c0173dd0c20cf0ace9210a270cc78f33eda72f08896fbc739be37",
+    "threshold": 0.0,
+    "calibration_requested": 8,
+    "calibration_readable": 8,
+    "scope": "MuJoCo bottom RGB pilot",
+    "quantile": 0.99,
+    "threshold_floor": 0.0
+  },
+  "default": {
+    "threshold": 0.0,
+    "detected": 8,
+    "defective": 8,
+    "false_alarms": 2,
+    "normal": 8,
+    "unreadable_defective": 0,
+    "unreadable_normal": 0
+  },
+  "bottom_calibrated": {
+    "threshold": 0.0,
+    "detected": 8,
+    "defective": 8,
+    "false_alarms": 2,
+    "normal": 8,
+    "unreadable_defective": 0,
+    "unreadable_normal": 0
+  }
+}

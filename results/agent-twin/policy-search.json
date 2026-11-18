@@ -1,0 +1,70 @@
+{
+  "selected": {
+    "policy": {
+      "order": "wrist_first",
+      "max_bottom_views": 2,
+      "max_wrist_views": 2,
+      "max_rewinds": 1
+    },
+    "source": "baseline",
+    "episodes": 4,
+    "successes": 2,
+    "labels_correct": 4,
+    "unknown": 0,
+    "sim_frames": 7457,
+    "views": 10,
+    "rewinds": 2,
+    "failures": [
+      {
+        "code": "PHYSICAL_HEALTH_FAILED",
+        "count": 4
+      }
+    ]
+  },
+  "candidates": [
+    {
+      "policy": {
+        "order": "wrist_first",
+        "max_bottom_views": 2,
+        "max_wrist_views": 2,
+        "max_rewinds": 1
+      },
+      "source": "baseline",
+      "episodes": 4,
+      "successes": 2,
+      "labels_correct": 4,
+      "unknown": 0,
+      "sim_frames": 7457,
+      "views": 10,
+      "rewinds": 2,
+      "failures": [
+        {
+          "code": "PHYSICAL_HEALTH_FAILED",
+          "count": 4
+        }
+      ]
+    },
+    {
+      "policy": {
+        "order": "bottom_first",
+        "max_bottom_views": 3,
+        "max_wrist_views": 1,
+        "max_rewinds": 2
+      },
+      "source": "llm",
+      "episodes": 4,
+      "successes": 1,
+      "labels_correct": 4,
+      "unknown": 0,
+      "sim_frames": 9670,
+      "views": 8,
+      "rewinds": 6,
+      "failures": [
+        {
+          "code": "PHYSICAL_HEALTH_FAILED",
+          "count": 9
+        }
+      ]
+    }
+  ]
+}

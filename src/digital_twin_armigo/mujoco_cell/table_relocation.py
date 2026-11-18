@@ -167,7 +167,14 @@ def plan_table_scan(
 
 
 def plan_bottom_view(
-	cell: Cell, q_from: np.ndarray, *, gripper: float, samples: int = 600, clearance_m: float = 0.04, seed: int = 0
+	cell: Cell,
+	q_from: np.ndarray,
+	*,
+	gripper: float,
+	samples: int = 600,
+	clearance_m: float = 0.04,
+	seed: int = 0,
+	clearance: Callable[[np.ndarray], bool] | None = None,
 ) -> ViewCandidate | None:
 	"""Arm pose (held brick carried rigidly) showing the brick's bottom face largest to the top camera, among random
 	joint vectors that keep arm and brick ``clearance_m`` above the table along the straight path from ``q_from``."""
@@ -185,6 +192,8 @@ def plan_bottom_view(
 		if v.visible_fraction < 0.5 or (best is not None and v.faces_px[5] <= best.faces_px[5]):
 			continue
 		if path_min_z(cell, q_from, q, carried=True) < clearance_m * 0.5:
+			continue
+		if clearance is not None and not clearance(q):
 			continue
 		best = ViewCandidate(q.copy(), "top", v.faces_px, v.brick_px, v.visible_fraction)
 	return best

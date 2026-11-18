@@ -1,0 +1,16 @@
+{
+  "engine": "isaac-physx",
+  "checkpoint": "open_gripper_table_supported",
+  "settle_steps": 72,
+  "movement_rad": 0.09846293181180954,
+  "joint_error_rad": 7.152557373046875e-07,
+  "brick_position_error_m": 0.0,
+  "brick_angle_error_rad": 0.0,
+  "criteria": {
+    "min_test_motion_rad": 0.01,
+    "joint_rad": 0.02,
+    "brick_m": 0.002,
+    "brick_angle_rad": 0.05
+  },
+  "status": "PASS"
+}
