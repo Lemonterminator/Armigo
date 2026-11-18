@@ -1,12 +1,13 @@
-"""Motion smoothness metric and the suite aggregate."""
+"""Motion smoothness metric, the suite aggregate, and min-jerk moves planned inside the joint range."""
 
 from __future__ import annotations
 
 import numpy as np
 
 from digital_twin_armigo.agent.twin_mcp import aggregate_smoothness
-from digital_twin_armigo.constants import PHASES
+from digital_twin_armigo.constants import FPS, PHASES
 from digital_twin_armigo.metrics import motion_smoothness
+from digital_twin_armigo.mujoco_cell.physics_expert import MIN_JERK_PEAK_RATIO, ClosedLoopExpert, ExpertParams
 
 
 def _min_jerk(n):
@@ -77,3 +78,42 @@ def test_aggregate_uses_medians_and_the_worst_peak():
 	assert out["jerk_peak_meas_max"] == 90.0 and out["jerk_peak_phase"] == "return"
 	assert out["stops_total"] == 8 and out["clipped_frames_total"] == 7
 	assert aggregate_smoothness([{"frames": 1}]) == {}
+
+
+def _bare_expert(lo, hi, last):
+	expert = ClosedLoopExpert.__new__(ClosedLoopExpert)
+	expert.p = ExpertParams()
+	expert._lo, expert._hi = np.asarray(lo, dtype=np.float64), np.asarray(hi, dtype=np.float64)
+	expert.last = np.asarray(last, dtype=np.float64)
+	return expert
+
+
+def test_move_plans_to_the_reachable_target_so_no_joint_is_clipped_midway():
+	lo, hi = np.full(6, -1.0), np.full(6, 1.0)
+	expert = _bare_expert(lo, hi, np.zeros(6))
+	goal = np.array([0.5, -1.2, 0.0, -1.3, 0.2, 0.9])  # joints 1 and 3 lie outside the range, like the rest pose
+	path = np.array([q for q, phase in expert._move(goal, 1.0, "return")])
+	assert np.all(path >= lo - 1e-12) and np.all(path <= hi + 1e-12)
+	np.testing.assert_allclose(path[-1], np.clip(goal, lo, hi))
+	# Every joint follows one min-jerk profile: no joint reaches its end value before the others.
+	progress = (path - path[0]) / np.where(path[-1] == path[0], 1.0, path[-1] - path[0])
+	moving = path[-1] != path[0]
+	assert np.allclose(progress[:, moving], progress[:, [np.flatnonzero(moving)[0]]])
+	jerk = np.abs(np.diff(path[:, :5], 3, axis=0)).max() * FPS**3
+	assert jerk < 200.0
+
+
+def test_return_duration_scales_with_distance_but_stays_one_segment():
+	p = ExpertParams()
+	lo, hi = np.full(6, -2.0), np.full(6, 2.0)
+
+	def return_frames(distance):
+		expert = _bare_expert(lo, hi, np.r_[np.full(5, distance), p.open_g])
+		expert.q_start = np.zeros(6)
+		return sum(1 for _, phase in expert._go_home() if phase == "return")
+
+	hold = round(p.final_hold_s * FPS)
+	assert return_frames(0.5) - hold == round(p.return_s * FPS)  # short returns keep the default duration
+	long = return_frames(3.0) - hold
+	assert round(p.return_s * FPS) < long <= round(p.max_move_chunk_s * FPS)
+	assert MIN_JERK_PEAK_RATIO * 3.0 / (long / FPS) <= p.return_peak_speed_rad_s + 1e-6
