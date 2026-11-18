@@ -216,13 +216,16 @@ class TwinMujoco:
 	scan_peak_speed = SCAN_PEAK_SPEED
 	recovery_variants: tuple = ()
 
-	def __init__(self, layout, scorer, record, *, llm=None, bottom_threshold=None, crop_size=256, fault=None):
+	def __init__(
+		self, layout, scorer, record, *, llm=None, bottom_threshold=None, crop_size=256, fault=None, on_frame=None
+	):
 		self.layout = layout
 		self.scorer = scorer
 		self.record = record
 		self.llm = llm
 		self.bottom_threshold = bottom_threshold
 		self.crop_size = crop_size
+		self.on_frame = on_frame  # Called once per simulated frame; may raise to cancel the episode.
 		self.fault = fault  # Internal acceptance hook. It is absent from the public MCP API.
 		self.spec = load_physics_spec()
 		base = next(c for c in SENSITIVITY_MATRIX if c.name == "baseline_2x2")
@@ -268,6 +271,8 @@ class TwinMujoco:
 		expert._gen = generator
 		expert.done = False
 		while self.total_frames < MAX_TOTAL_FRAMES:
+			if self.on_frame is not None:
+				self.on_frame(self)
 			obs = observe(self.cell, self.ep)
 			target, phase = expert.act(obs)
 			if expert.done:
@@ -699,6 +704,31 @@ class TwinMujoco:
 		self.event("failure", **{k: v for k, v in payload.items() if k not in ("frame", "branch")})
 		return payload
 
+	def restore_state(self, checkpoint, params=None, relocate=None):
+		"""Physics, command filter, a rebuilt expert and the view counters at a skill-boundary checkpoint (brick on
+		the table, gripper open). Shared by in-process ``rewind`` and cross-process ``twin_resume.restore``."""
+		m, d = self.cell.model, self.cell.data
+		mujoco.mj_setState(m, d, checkpoint.integration, STATE_SPEC)
+		mujoco.mj_forward(m, d)
+		mujoco.mj_setState(m, d, checkpoint.integration, STATE_SPEC)
+		filt = self.ep.filt
+		filt._queue = deque((np.array(q) for q in checkpoint.filter["queue"]), maxlen=filt._queue.maxlen)
+		filt._prev_out = np.array(checkpoint.filter["prev"])
+		filt._backlash_pos = np.array(checkpoint.filter["backlash"])
+		params = self.expert.p if params is None else params
+		relocate = self.expert.rp if relocate is None else relocate
+		self.expert = ex = RelocateExpert(self.cell, INITIAL_Q, self.layout.brick_xy, params, relocate)
+		ex.last = np.array(checkpoint.expert["last"])
+		ex._active_open_g = checkpoint.expert["active_open"]
+		ex._frame_idx = checkpoint.expert["frame_idx"]
+		ex.gripper_monitor._prev_meas = checkpoint.expert["monitor_position"]
+		ex.gripper_monitor._run = checkpoint.expert["monitor_count"]
+		self.held = None
+		self.actual_destination = None
+		self.execution_error = None
+		self.wrist_count = checkpoint.wrist_count
+		self.bottom_count = checkpoint.bottom_count
+
 	def rewind(self, policy: Policy, failures):
 		self.policy = policy
 		if not self.checkpoints or self.rewinds >= policy.max_rewinds or self.total_frames >= MAX_TOTAL_FRAMES:
@@ -716,35 +746,17 @@ class TwinMujoco:
 		self.rewinds += 1
 		self.branch = self.rewinds
 		self.record.fork(self.branch, checkpoint)
-		m, d = self.cell.model, self.cell.data
-		mujoco.mj_setState(m, d, checkpoint.integration, STATE_SPEC)
-		mujoco.mj_forward(m, d)
-		mujoco.mj_setState(m, d, checkpoint.integration, STATE_SPEC)
 		for rows in self.ep._logs.values():
 			del rows[checkpoint.frame :]
 		del self.ep.jaw_env_force[checkpoint.frame :]
 		del self.phases[checkpoint.frame :]
-		filt = self.ep.filt
-		filt._queue = deque((np.array(q) for q in checkpoint.filter["queue"]), maxlen=filt._queue.maxlen)
-		filt._prev_out = np.array(checkpoint.filter["prev"])
-		filt._backlash_pos = np.array(checkpoint.filter["backlash"])
 		params, relocate = self.expert.p, self.expert.rp
 		if variant:
 			# Variants transform the first attempt's defaults, so they never stack on an earlier variant.
 			self._base_params = getattr(self, "_base_params", (params, relocate))
 			params, relocate, self.scan_peak_speed = apply_variant(variant, *self._base_params)
 		self.recovery_variants = (*self.recovery_variants, variant or "none")
-		self.expert = ex = RelocateExpert(self.cell, INITIAL_Q, self.layout.brick_xy, params, relocate)
-		ex.last = np.array(checkpoint.expert["last"])
-		ex._active_open_g = checkpoint.expert["active_open"]
-		ex._frame_idx = checkpoint.expert["frame_idx"]
-		ex.gripper_monitor._prev_meas = checkpoint.expert["monitor_position"]
-		ex.gripper_monitor._run = checkpoint.expert["monitor_count"]
-		self.held = None
-		self.actual_destination = None
-		self.execution_error = None
-		self.wrist_count = checkpoint.wrist_count
-		self.bottom_count = checkpoint.bottom_count
+		self.restore_state(checkpoint, params, relocate)
 		del self.checkpoints[self.checkpoints.index(checkpoint) + 1 :]
 		self.record.restored(self.cell)
 		self.event(

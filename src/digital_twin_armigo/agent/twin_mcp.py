@@ -9,20 +9,38 @@ import logging
 import math
 import re
 import statistics
+import threading
 import time
 import uuid
-from concurrent.futures import Future, ThreadPoolExecutor
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 
-from mcp.server.fastmcp import FastMCP, Image
+import anyio
+from langgraph.checkpoint.memory import InMemorySaver
+from mcp.server.fastmcp import Context, FastMCP, Image
 
 from ..inspection_scorer import default_sup_scorer
 from .llm import DEFAULT_MODEL, OpenAICompatLLM
 from .twin_graph import Policy, build_graph, search_policies
+from .twin_jobs import (
+	ACTIVE,
+	CANCELLED,
+	COMPLETE,
+	FAILED,
+	INTERRUPTED,
+	RESUMABLE,
+	TERMINAL,
+	JobCancelled,
+	JobHooks,
+	JobStore,
+	open_saver,
+)
 from .twin_mujoco import PROFILE, ROOT, TwinMujoco, file_digest, sample_case
+from .twin_pool import EpisodePool
 from .twin_record import EpisodeTrace, export_lerobot, write_json
+from .twin_resume import live_checkpoint_ids, load_plan, restore
 from .twin_search import analyze_failures, dev_suite
 
 LOG = logging.getLogger(__name__)
@@ -30,17 +48,31 @@ LOG = logging.getLogger(__name__)
 DEV_CASES = tuple(dev_suite(8))
 # Policy-search episode cap = SEARCH_EPISODES_PER_BUDGET * (budget + 1); the 54-policy grid needs at least 54.
 SEARCH_EPISODES_PER_BUDGET = 50
+_JOB = object()  # default ``hook``: use the calling job's cancel flag, if any
 DEMO_CASES = ((187271, False, 5), (187271, True, 5), (187272, False, 5), (187272, True, 5))
 
 
 class TwinService:
-	def __init__(self, out, detector, bottom_profile=None, llm=None):
+	def __init__(
+		self,
+		out,
+		detector,
+		bottom_profile=None,
+		llm=None,
+		*,
+		workers=1,
+		scorer=None,
+		llm_spec=None,
+		owner=True,
+		max_queue=None,
+	):
 		self.out = Path(out).resolve()
 		self.detector = Path(detector).resolve()
 		spec = json.loads(self.detector.read_text(encoding="utf-8"))
 		self.model_hash = file_digest(self.detector)
 		self.crop_size = int(spec["crop_size"])
 		self.bottom_threshold = None
+		self.bottom_profile = Path(bottom_profile) if bottom_profile else None
 		if bottom_profile:
 			raw = json.loads(Path(bottom_profile).read_text(encoding="utf-8"))
 			if raw["profile"] != PROFILE or raw["detector_sha256"] != self.model_hash:
@@ -48,25 +80,82 @@ class TwinService:
 			self.bottom_threshold = float(raw["threshold"])
 			if not math.isfinite(self.bottom_threshold):
 				raise ValueError("invalid bottom threshold")
+		self.llm_spec = llm_spec
+		if llm is None and llm_spec:
+			llm = OpenAICompatLLM(**llm_spec)
 		self.llm = llm
-		self.scorer = None
-		self.worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="armigo-mujoco")
-		self.jobs: dict[str, tuple[tuple, Future, str]] = {}
+		self.scorer = scorer
+		self.workers = max(1, int(workers))
+		self.owner = owner  # Only the server process recovers stale job rows; spawned workers never do.
+		self.max_queue = max_queue or max(8, 4 * self.workers)
+		# Job threads: one in-process MuJoCo thread, or one dispatcher per worker process.
+		self.worker = ThreadPoolExecutor(max_workers=self.workers, thread_name_prefix="armigo-job")
+		self._store = None
+		self._pool = None
+		self._pool_lock = threading.Lock()
+		self._ctx = threading.local()
+
+	@property
+	def store(self):
+		if self._store is None:
+			self._store = JobStore(self.out / "jobs.sqlite")
+			if self.owner:
+				recovered = self._store.interrupt_stale()
+				if recovered:
+					LOG.warning("%d job(s) were left running by a previous server and are now interrupted", recovered)
+		return self._store
+
+	def recover(self):
+		return self.store
+
+	@property
+	def pool(self):
+		"""Process workers for ``workers > 1`` (``None`` means everything runs on this process's job thread)."""
+		if self.workers == 1:
+			return None
+		with self._pool_lock:
+			if self._pool is None:
+				config = {
+					"out": str(self.out),
+					"detector": str(self.detector),
+					"bottom_profile": str(self.bottom_profile) if self.bottom_profile else None,
+					"llm_spec": self.llm_spec,
+					"owner": False,
+				}
+				self._pool = EpisodePool(self.workers, config, lambda: default_sup_scorer(self.detector))
+			return self._pool
 
 	def close(self):
+		if self._store is not None:
+			self._store.request_interrupt()
 		self.worker.shutdown(wait=True, cancel_futures=True)
+		if self._pool is not None:
+			self._pool.close()
+		if self._store is not None:
+			self._store.interrupt_stale()
+			self._store.close()
 		if self.scorer:
 			self.scorer.close()
 		if self.llm:
 			self.llm.close()
 
-	def run(self, case, policy, path, *, video, use_llm=False, fault=None):
+	def run(self, case, policy, path, *, video, use_llm=False, fault=None, hook=_JOB, thread_id=None, resume=None):
+		"""Run one episode in this process. ``hook`` is called per frame and may raise ``JobCancelled``.
+
+		``thread_id`` persists the inner LangGraph state in ``graph.sqlite``; ``resume`` is a ``ResumePlan``.
+		"""
 		if self.scorer is None:
 			self.scorer = default_sup_scorer(self.detector)
+		if hook is _JOB:
+			hook = self._job_hook(report=False)
 		layout = sample_case(*case)
 		trace = EpisodeTrace(path, video=video)
-		backend = None
+		backend = saver = None
 		try:
+			write_json(
+				trace.path / "task.json",
+				{"case": list(case), "policy": asdict(policy), "video": video, "use_llm": use_llm},
+			)
 			backend = TwinMujoco(
 				layout,
 				self.scorer,
@@ -75,8 +164,26 @@ class TwinService:
 				bottom_threshold=self.bottom_threshold,
 				crop_size=self.crop_size,
 				fault=fault,
+				on_frame=hook,
 			)
-			result = build_graph(backend, policy).invoke({}, config={"recursion_limit": 64})["result"]
+			link = None
+			if resume is not None:
+				link = restore(backend, resume)
+				write_json(trace.path / "resume.json", link)
+			if thread_id:
+				saver = open_saver(self.out / "graph.sqlite")
+			elif resume is not None:
+				saver = InMemorySaver()
+			graph = build_graph(backend, policy, saver)
+			config = {"recursion_limit": 64}
+			if saver is not None:
+				config["configurable"] = {"thread_id": thread_id or "resume"}
+			if resume is None:
+				result = graph.invoke({}, config=config)["result"]
+			else:
+				graph.update_state(config, resume.graph_state(), as_node="prepare")
+				result = graph.invoke(None, config=config)["result"]
+				result["student_eligible"] = False
 			trace.finish(
 				result,
 				{
@@ -87,6 +194,7 @@ class TwinService:
 					"llm_enabled": use_llm,
 					"bottom_threshold": self.bottom_threshold,
 					"model": self.llm.model if use_llm else None,
+					**({"resumed_from": link} if link else {}),
 				},
 			)
 			return result
@@ -96,29 +204,171 @@ class TwinService:
 		finally:
 			if backend:
 				backend.close()
+			if saver is not None and hasattr(saver, "conn"):
+				saver.conn.close()
 
-	def _submit(self, request_id, arguments, operation, folder):
+	def _job_hook(self, report=True):
+		job_id = getattr(self._ctx, "job_id", None)
+		return JobHooks(self.store, job_id, report=report) if job_id else None
+
+	def _task(self, case, policy, path, *, video, use_llm=False, progress=False, resume=None, thread_id=None):
+		return {
+			"case": list(case),
+			"policy": asdict(policy),
+			"path": str(path),
+			"video": video,
+			"use_llm": use_llm,
+			"job_id": getattr(self._ctx, "job_id", None),
+			"progress": progress,
+			"thread_id": thread_id,
+			"resume": resume,
+		}
+
+	def execute(self, task):
+		"""Run a picklable task dict in this process (the entry point used by worker processes)."""
+		hook = None
+		if task["job_id"]:
+			hook = JobHooks(self.store, task["job_id"], report=task["progress"])
+			hook.check()  # cancelled while waiting for a free worker
+		resume = None
+		if task["resume"]:
+			saver = open_saver(self.out / "graph.sqlite")
+			try:
+				resume = load_plan(
+					task["resume"]["parent_dir"], saver=saver, parent_job_id=task["resume"]["parent_job_id"]
+				)
+			finally:
+				saver.conn.close()
+		return self.run(
+			tuple(task["case"]),
+			Policy(**task["policy"]),
+			Path(task["path"]),
+			video=task["video"],
+			use_llm=task["use_llm"],
+			hook=hook,
+			thread_id=task["thread_id"],
+			resume=resume,
+		)
+
+	def _dispatch(self, task):
+		pool = self.pool
+		return self.execute(task) if pool is None else pool.submit(task).result()
+
+	def run_batch(self, items, *, video=False, use_llm=False):
+		"""Evaluate ``(case, Policy, out_path)`` items in parallel (serially when ``workers == 1``).
+
+		Results keep the order of ``items``. The first failure (including a cancelled job) is re-raised.
+		"""
+		tasks = [self._task(case, policy, path, video=video, use_llm=use_llm) for case, policy, path in items]
+		pool = self.pool
+		if pool is None:
+			return [self.execute(task) for task in tasks]
+		futures = [pool.submit(task) for task in tasks]
+		try:
+			results = []
+			for done, future in enumerate(futures, 1):
+				results.append(future.result())
+				if tasks[0]["job_id"]:
+					self.store.progress(tasks[0]["job_id"], "batch", None, done, len(futures))
+			return results
+		finally:
+			for future in futures:
+				future.cancel()
+
+	def _submit(self, request_id, arguments, operation, folder, parent=None):
+		"""Persist a job row and run ``operation(path)`` on a job thread. Repeats of a request_id return its job."""
 		if not request_id or len(request_id) > 128:
 			raise ValueError("request_id must contain 1 to 128 characters")
-		old = self.jobs.get(request_id)
-		if old is not None:
-			if arguments != old[0]:
-				raise ValueError("request_id is already bound to different arguments")
-			return old[2]
-		if sum(not item[1].done() for item in self.jobs.values()) >= 8:
-			raise ValueError("simulation queue is full")
-		job_id = uuid.uuid4().hex
-		self.jobs[request_id] = (arguments, self.worker.submit(operation, self.out / folder / job_id), job_id)
+		kind = arguments["kind"] if isinstance(arguments, dict) else arguments[0]
+		job_id, created = self.store.create(
+			request_id, kind, arguments, root=self.out / folder, parent_job_id=parent, max_active=self.max_queue
+		)
+		if created:
+			self.worker.submit(self._run_job, job_id, operation)
 		return job_id
+
+	def _run_job(self, job_id, operation):
+		store = self.store
+		if not store.mark_running(job_id):
+			return  # cancelled while queued
+		self._ctx.job_id = job_id
+		try:
+			store.finish(job_id, COMPLETE, operation(Path(store.get(job_id)["path"])))
+		except JobCancelled as exc:
+			store.finish(job_id, INTERRUPTED if exc.interrupted else CANCELLED)
+		except Exception:
+			LOG.exception("Twin job %s failed", job_id)
+			store.finish(job_id, FAILED, error_code="JOB_EXECUTION_FAILED")
+		finally:
+			self._ctx.job_id = None
 
 	def start(self, request_id, case, policy, record, use_llm):
 		if use_llm and self.llm is None:
 			raise ValueError("start armigo-mcp with --llm-url to enable LLM skill selection")
+		arguments = {
+			"kind": "episode",
+			"case": list(case),
+			"policy": asdict(policy),
+			"record": record,
+			"use_llm": use_llm,
+		}
+		return self._submit(request_id, arguments, self._episode_operation(case, policy, record, use_llm), "episodes")
 
+	def _episode_operation(self, case, policy, record, use_llm, resume=None):
 		def job(path):
-			return self.run(case, policy, path, video=record, use_llm=use_llm)
+			task = self._task(
+				case,
+				policy,
+				path,
+				video=record,
+				use_llm=use_llm,
+				progress=True,
+				resume=resume,
+				thread_id=self._ctx.job_id,
+			)
+			return self._dispatch(task)
 
-		return self._submit(request_id, ("episode", case, policy, record, use_llm), job, "episodes")
+		return job
+
+	def resume(self, job_id):
+		"""Restart an interrupted/failed/cancelled episode from its latest persisted skill-boundary checkpoint."""
+		row = self.store.get(job_id)
+		if row is None:
+			raise ValueError("unknown job")
+		if row["kind"] not in ("episode", "resume"):
+			raise ValueError("only episode jobs can be resumed")
+		if row["status"] not in RESUMABLE:
+			raise ValueError(f"job is {row['status']}; only interrupted, failed or cancelled jobs can be resumed")
+		children = self.store.children(job_id)
+		for child in children:
+			if child["status"] in (*ACTIVE, COMPLETE):
+				return child["job_id"]
+		args = row["arguments"]["origin"] if row["kind"] == "resume" else row["arguments"]
+		case, policy = tuple(args["case"]), Policy(**args["policy"])
+		source, plan_dir = row, None
+		while source is not None:
+			path = Path(source["path"])
+			if (path / "events.jsonl").is_file() and live_checkpoint_ids(path / "events.jsonl"):
+				plan_dir = path
+				break
+			parent = source["arguments"].get("resume_of") if source["kind"] == "resume" else None
+			source = self.store.get(parent) if parent else None
+		resume = {"parent_dir": str(plan_dir), "parent_job_id": source["job_id"]} if plan_dir else None
+		arguments = {
+			"kind": "resume",
+			"resume_of": job_id,
+			"attempt": len(children),
+			"origin": {k: args[k] for k in ("case", "policy", "record", "use_llm")},
+			"from_checkpoint": bool(resume),
+		}
+		operation = self._episode_operation(case, policy, args["record"], args["use_llm"], resume)
+		return self._submit(f"resume:{job_id}:{len(children)}", arguments, operation, "episodes", parent=job_id)
+
+	def cancel(self, job_id):
+		if self.store.get(job_id) is None:
+			raise ValueError("unknown job")
+		self.store.cancel(job_id)
+		return self.status(job_id)
 
 	def optimize(self, request_id, budget):
 		if not 1 <= budget <= 8:
@@ -130,9 +380,7 @@ class TwinService:
 
 			def evaluate_batch(items):
 				jobs = [(case, policy, path / "episodes" / f"{next(counter):04d}") for policy, case in items]
-				if hasattr(self, "run_batch"):
-					return self.run_batch(jobs)
-				return [self.run(case, policy, out, video=False) for case, policy, out in jobs]
+				return self.run_batch(jobs)  # fans out over the worker pool when --workers > 1
 
 			report = search_policies(evaluate_batch, cap)
 			report["llm_analysis"] = (
@@ -145,33 +393,46 @@ class TwinService:
 		return self._submit(request_id, ("optimize", budget), job, "search")
 
 	def status(self, job_id):
-		item = next((item for item in self.jobs.values() if item[2] == job_id), None)
-		if item is None:
+		row = self.store.get(job_id)
+		if row is None:
 			raise ValueError("unknown job")
-		arguments, future, _ = item
-		if not future.done():
-			return {"job_id": job_id, "status": "running" if future.running() else "queued"}
-		try:
-			result = future.result()
-		except Exception:
-			LOG.exception("Twin job %s failed", job_id)
-			return {"job_id": job_id, "status": "failed", "code": "JOB_EXECUTION_FAILED"}
-		if arguments[0] == "optimize":
-			return {"job_id": job_id, "status": "complete", "search": result}
-		keys = (
-			"label",
-			"destination",
-			"active_branch",
-			"rewinds",
-			"failures",
-			"active_views",
-			"views",
-			"sim_frames",
-			"evidence",
-			"cleared_faces",
-			"placement_evidence",
-		)
-		return {"job_id": job_id, "status": "complete", "episode": {key: result[key] for key in keys}}
+		state = row["status"]
+		out = {
+			"job_id": job_id,
+			"status": state,
+			"kind": row["kind"],
+			"progress": row["progress"],
+			"created_at": row["created_at"],
+			"updated_at": row["updated_at"],
+		}
+		if row["arguments"].get("resume_of") if isinstance(row["arguments"], dict) else None:
+			out["resume_of"] = row["arguments"]["resume_of"]
+		if state in ACTIVE:
+			out["cancel_requested"] = bool(row["stop"])
+		elif state in RESUMABLE:
+			out["resumable"] = row["kind"] in ("episode", "resume")
+			if state == FAILED:
+				out["code"] = row["error_code"]
+		elif row["kind"] == "optimize":
+			out["search"] = row["result"]
+		else:
+			keys = (
+				"label",
+				"destination",
+				"active_branch",
+				"rewinds",
+				"failures",
+				"active_views",
+				"views",
+				"sim_frames",
+				"evidence",
+				"cleared_faces",
+				"placement_evidence",
+			)
+			out["episode"] = {key: row["result"][key] for key in keys if key in row["result"]}
+		if row["kind"] in ("episode", "resume") and (resumed := [c["job_id"] for c in self.store.children(job_id)]):
+			out["resumed_by"] = resumed
+		return out
 
 
 def aggregate(results):
@@ -205,8 +466,8 @@ def aggregate(results):
 	}
 
 
-def create_mcp(service: TwinService, cases):
-	mcp = FastMCP("Armigo Six-Face Twin")
+def create_mcp(service: TwinService, cases, host="127.0.0.1", port=8765):
+	mcp = FastMCP("Armigo Six-Face Twin", host=host, port=port)
 	opaque_cases = {uuid.uuid4().hex: case for case in cases}
 
 	@mcp.tool()
@@ -233,7 +494,10 @@ def create_mcp(service: TwinService, cases):
 
 	@mcp.tool()
 	def start_policy_search(request_id: str, budget: int = 3) -> dict[str, Any]:
-		"""Search generic policies using only aggregates on the fixed development suite."""
+		"""Successive-halving search over all 54 generic policies on a generated development suite.
+
+		``budget`` 1-8 caps the search at 50 * (budget + 1) episodes (default 3 = 200). The default policy is
+		replaced only after a significant paired confirmation on fresh fixtures. Qwen's failure analysis is advisory."""
 		return {"job_id": service.optimize(request_id, budget)}
 
 	@mcp.tool()
@@ -260,8 +524,43 @@ def create_mcp(service: TwinService, cases):
 
 	@mcp.tool()
 	def job_status(job_id: str) -> dict[str, Any]:
-		"""Read job progress or evidence-based outcome. Simulator truth is private."""
+		"""Read job status, progress (node, branch, frame, views) or evidence-based outcome. Simulator truth is private."""
 		return service.status(job_id)
+
+	@mcp.tool()
+	async def wait_job(job_id: str, ctx: Context, timeout_s: float = 30.0) -> dict[str, Any]:
+		"""Block up to timeout_s (max 600) for a job to finish, sending progress notifications; returns its status."""
+		deadline = time.monotonic() + min(max(timeout_s, 0.0), 600.0)
+		last, tick = None, 0
+		while True:
+			status = service.status(job_id)
+			progress = status["progress"]
+			key = (status["status"], progress["node"], progress["branch"], progress["frame"], progress["views"])
+			if key != last:
+				last, tick = key, tick + 1
+				await ctx.report_progress(
+					tick,
+					None,
+					f"{status['status']} node={progress['node']} branch={progress['branch']} "
+					f"frame={progress['frame']} views={progress['views']}",
+				)
+			if status["status"] in TERMINAL or time.monotonic() >= deadline:
+				return status
+			await anyio.sleep(0.5)
+
+	@mcp.tool()
+	def cancel_job(job_id: str) -> dict[str, Any]:
+		"""Cancel a queued job at once, or ask a running job to stop at its next frame (status then ends cancelled)."""
+		return service.cancel(job_id)
+
+	@mcp.tool()
+	def resume_job(job_id: str) -> dict[str, Any]:
+		"""Restart an interrupted, failed or cancelled episode from its last persisted skill-boundary checkpoint.
+
+		Returns a new job_id; the resumed episode is a linked episode directory. Repeating the call returns the
+		same job while it is active or complete.
+		"""
+		return {"job_id": service.resume(job_id), "resume_of": job_id}
 
 	return mcp
 
@@ -271,15 +570,16 @@ def options(parser):
 	parser.add_argument("--bottom-profile", type=Path)
 	parser.add_argument("--llm-url")
 	parser.add_argument("--model", default=DEFAULT_MODEL)
+	parser.add_argument("--workers", type=int, default=1, help="Simulation worker processes (1 = in-process thread).")
 
 
 def _service(a):
-	llm = (
-		OpenAICompatLLM(a.llm_url, a.model, max_tokens=96, timeout_s=30, retries=0, json_mode=True)
+	llm_spec = (
+		{"base_url": a.llm_url, "model": a.model, "max_tokens": 96, "timeout_s": 30, "retries": 0, "json_mode": True}
 		if a.llm_url
 		else None
 	)
-	return TwinService(a.out, a.detector, a.bottom_profile, llm)
+	return TwinService(a.out, a.detector, a.bottom_profile, workers=a.workers, llm_spec=llm_spec)
 
 
 def main():
@@ -289,12 +589,16 @@ def main():
 	options(server)
 	server.add_argument("--out", type=Path, default=ROOT / "data/catalog/agent")
 	server.add_argument("--suite", type=Path, help="Operator-controlled JSON array of [seed, defective, face].")
+	server.add_argument("--transport", choices=("stdio", "streamable-http"), default="stdio")
+	server.add_argument("--host", default="127.0.0.1")
+	server.add_argument("--port", type=int, default=8765)
 	run = sub.add_parser("run")
 	options(run)
 	run.add_argument("--out", type=Path, required=True)
 	run.add_argument("--suite", type=Path)
 	run.add_argument("--policy", type=Path)
 	run.add_argument("--headless", action="store_true")
+	run.add_argument("--resume", type=Path, help="Interrupted episode directory to restart from its last checkpoint.")
 	run.add_argument("--use-llm", action="store_true")
 	dashboard = sub.add_parser("dashboard")
 	dashboard.add_argument("--out", type=Path, default=ROOT / "data/catalog/agent")
@@ -320,16 +624,33 @@ def main():
 	service = _service(a)
 	try:
 		if a.command == "serve":
-			create_mcp(service, cases).run(transport="stdio")
+			service.recover()  # jobs a previous server left running become interrupted before any request
+			create_mcp(service, cases, a.host, a.port).run(transport=a.transport)
 		else:
 			if a.use_llm and service.llm is None:
 				p.error("--use-llm requires --llm-url")
 			policy = Policy(**json.loads(a.policy.read_text(encoding="utf-8"))) if a.policy else Policy()
+			if a.resume:
+				task = json.loads((a.resume / "task.json").read_text(encoding="utf-8"))
+				plan = load_plan(a.resume)
+				if plan is None:
+					p.error("episode has no persisted checkpoint to resume from")
+				result = service.run(
+					tuple(task["case"]),
+					Policy(**task["policy"]),
+					a.out,
+					video=task["video"],
+					use_llm=task["use_llm"],
+					resume=plan,
+				)
+				print(json.dumps(result, indent=2))
+				return
 			started = time.perf_counter()
-			reports = [
-				service.run(case, policy, a.out / f"case-{i:04d}", video=not a.headless, use_llm=a.use_llm)
-				for i, case in enumerate(cases)
-			]
+			reports = service.run_batch(
+				[(case, policy, a.out / f"case-{i:04d}") for i, case in enumerate(cases)],
+				video=not a.headless,
+				use_llm=a.use_llm,
+			)
 			report = {
 				**aggregate(reports),
 				"median_sim_frames": statistics.median(r["sim_frames"] for r in reports),
