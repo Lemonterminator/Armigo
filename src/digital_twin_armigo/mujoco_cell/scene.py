@@ -516,9 +516,11 @@ def scene_xml(
 	mass_scale: float = 1.0,
 	friction_scale: float = 1.0,
 	face_probes: bool = False,
+	extra_xml: tuple[str, str] = ("", ""),
 ) -> str:
 	"""MJCF for one episode; include it next to Menagerie's ``so101.xml``. ``face_probes`` adds the hidden per-face
-	patches :meth:`~.cell.Cell.face_visibility` counts (no effect on physics or colour images)."""
+	patches :meth:`~.cell.Cell.face_visibility` counts (no effect on physics or colour images). ``extra_xml`` is
+	(assets, worldbody elements) appended verbatim, e.g. the hand-eye calibration card."""
 	table = " ".join(f"{c:.3f}" for c in layout.table_rgb)
 	tile2 = " ".join(f"{0.97 * c:.3f}" for c in layout.table_rgb)
 	grout = " ".join(f"{0.72 * c:.3f}" for c in layout.table_rgb)
@@ -573,6 +575,7 @@ def scene_xml(
     <material name="table" texture="table" texuniform="true" texrepeat="{1 / (2 * layout.tile_m):.3f} {1 / (2 * layout.tile_m):.3f}" reflectance="0"/>
     {mesh_assets}
     {marker_assets}
+    {extra_xml[0]}
   </asset>
   <worldbody>
     <light pos="0.2 0 1.2" dir="{ld}" directional="true" diffuse="{0.6 * lv:.2f} {0.6 * lv:.2f} {0.6 * lv:.2f}" castshadow="true"/>
@@ -584,6 +587,7 @@ def scene_xml(
     {clutter}
     {marker_geoms}
     {cams}
+    {extra_xml[1]}
   </worldbody>
 </mujoco>
 """

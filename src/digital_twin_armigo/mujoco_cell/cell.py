@@ -70,6 +70,7 @@ class Cell:
 		render_enabled: bool = True,
 		sensor_noise: D415NoiseCfg | None = None,
 		face_probes: bool = False,
+		extra_xml: tuple[str, str] = ("", ""),
 	) -> None:
 		write_marker_textures(menagerie, {m[0] for m in layout.markers})
 		# The scene includes so101.xml by relative path, so it is compiled from a file next to it.
@@ -82,6 +83,7 @@ class Cell:
 				mass_scale=mass_scale,
 				friction_scale=friction_scale,
 				face_probes=face_probes,
+				extra_xml=extra_xml,
 			),
 			encoding="utf-8",
 		)
