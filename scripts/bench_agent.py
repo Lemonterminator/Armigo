@@ -104,6 +104,7 @@ def cmd_episodes(a, passthrough: list[str]) -> dict:
 		"sim_frames": report["sim_frames"],
 		"failures": report["failures"],
 		**summarise_decisions(out),
+		"smoothness": report.get("smoothness"),
 		"report_extra": {k: v for k, v in report.items() if k.startswith("llm") or k == "fallback_reasons"},
 	}
 

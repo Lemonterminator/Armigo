@@ -21,7 +21,7 @@ from ..camera import CameraPose, look_from
 from ..constants import BOWL_R, FPS, PHASES, REST_U, SO101_MJCF_DIR
 from ..inspection import assert_no_defect_leakage
 from ..joints import normalized_to_rad
-from ..metrics import evaluate_episode_health
+from ..metrics import evaluate_episode_health, motion_smoothness
 from ..mujoco_cell import Cell
 from ..mujoco_cell._mj import mujoco
 from ..mujoco_cell.episode import PhysicsEpisode, observe
@@ -244,6 +244,8 @@ class TwinMujoco:
 		)
 		self.node = ""
 		self.phases: list[int] = []
+		self.targets: list[np.ndarray] = []  # policy target per frame (before the command filter)
+		self._clipped_frames = 0  # target clips of experts replaced by rewinds
 		self.checkpoints: list[Checkpoint] = []
 		self.branch = 0
 		self.rewinds = 0
@@ -282,6 +284,7 @@ class TwinMujoco:
 			self.ep.step(target)
 			self.total_frames += 1
 			self.phases.append(PHASES.index(phase))
+			self.targets.append(np.asarray(target, dtype=np.float64).copy())
 			self.record.step(self.cell, self.node)
 			if self.fault and self.fault(self.node, self.branch, self.ep.n_frames):
 				expert._gen.close()
@@ -717,6 +720,7 @@ class TwinMujoco:
 		filt._backlash_pos = np.array(checkpoint.filter["backlash"])
 		params = self.expert.p if params is None else params
 		relocate = self.expert.rp if relocate is None else relocate
+		self._clipped_frames += getattr(self.expert, "clipped_frames", 0)
 		self.expert = ex = RelocateExpert(self.cell, INITIAL_Q, self.layout.brick_xy, params, relocate)
 		ex.last = np.array(checkpoint.expert["last"])
 		ex._active_open_g = checkpoint.expert["active_open"]
@@ -750,6 +754,7 @@ class TwinMujoco:
 			del rows[checkpoint.frame :]
 		del self.ep.jaw_env_force[checkpoint.frame :]
 		del self.phases[checkpoint.frame :]
+		del self.targets[checkpoint.frame :]
 		params, relocate = self.expert.p, self.expert.rp
 		if variant:
 			# Variants transform the first attempt's defaults, so they never stack on an earlier variant.
@@ -842,6 +847,7 @@ class TwinMujoco:
 			"cleared_faces": sorted(decision(views)[1]),
 			"health": health,
 			"llm": self._llm_summary(),
+			"smoothness": self._smoothness(),
 			"student_eligible": bool(ok and health.get("verdict") == "SUCCESS" and not self.rewinds),
 			"placement_evidence": next(
 				(v["id"] for v in views if v["score"] is not None and v["score"] >= v["threshold"]), None
@@ -851,6 +857,15 @@ class TwinMujoco:
 			{"true_label": expected, "true_face": self.layout.defect_face if self.layout.defective else None}
 		)
 		return result
+
+	def _smoothness(self):
+		n = min(len(self.targets), self.ep.n_frames)
+		if n < 4:
+			return {"frames": n}
+		qpos = self.ep.telemetry()["qpos"][:n]
+		out = motion_smoothness(np.asarray(self.targets[:n]), qpos, np.asarray(self.phases[:n]))
+		out["clipped_frames"] = int(self._clipped_frames + getattr(self.expert, "clipped_frames", 0))
+		return out
 
 	def _health(self, target):
 		tel = self.ep.telemetry()

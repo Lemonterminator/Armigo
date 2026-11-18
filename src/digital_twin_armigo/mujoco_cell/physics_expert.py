@@ -270,6 +270,7 @@ class ClosedLoopExpert:
 		self._prev_q = self.q_start.copy()
 		self._no_dual = 0
 		self._lo, self._hi = cell.jnt_range[:, 0].copy(), cell.jnt_range[:, 1].copy()
+		self.clipped_frames = 0  # frames whose scripted target fell outside the joint range and was clipped
 		self._gen = self._script()
 
 	# -- plumbing --------------------------------------------------------------------------------------------------
@@ -294,7 +295,9 @@ class ClosedLoopExpert:
 			self.done = True
 			return self.last.copy(), "return"
 		self._frame_idx += 1
-		target = np.clip(target, self._lo, self._hi)
+		clipped = np.clip(target, self._lo, self._hi)
+		self.clipped_frames += bool(np.any(clipped != target))
+		target = clipped
 		self.last = target.copy()
 		return target, phase
 
