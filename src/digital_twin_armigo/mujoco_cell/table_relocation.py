@@ -77,7 +77,8 @@ def relocation_target(
 	return a + r_new * u, r - r_new
 
 
-def _site_err_down(cell, d, q, target) -> tuple[float, float]:
+def site_err_down(cell, d, q, target) -> tuple[float, float]:
+	"""Gripper-frame position error to ``target`` and cosine of the approach axis with straight down."""
 	d.qpos[cell.qadr] = q
 	mujoco.mj_kinematics(cell.model, d)
 	return float(np.linalg.norm(d.site_xpos[cell.site] - target)), float(-d.site_xmat[cell.site].reshape(3, 3)[2, 0])
@@ -122,7 +123,7 @@ def plan_table_scan(
 				q0 = np.asarray(s, dtype=np.float64).copy()
 				q0[4] = 0.0
 				q = ik(kin, target, q0, 0.0, iters=600)
-				err, down = _site_err_down(cell, d, q, target)
+				err, down = site_err_down(cell, d, q, target)
 				if err <= ik_tol and down >= cos_tol:
 					q_prev = q
 					break
@@ -138,7 +139,7 @@ def plan_table_scan(
 				if vertical
 				else ik_reach(kin, target, q0, float(roll), ik_tol)
 			)
-			err, down = _site_err_down(cell, d, q, target)
+			err, down = site_err_down(cell, d, q, target)
 			if err > ik_tol or (vertical and down < cos_tol):
 				continue
 			q_prev = q

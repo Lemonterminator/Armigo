@@ -16,8 +16,8 @@ from pxr import Gf, Sdf, Usd, UsdGeom, UsdPhysics, UsdShade
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "src"))
-from digital_twin_armigo.physics import load_physics_spec  # noqa: E402
-from digital_twin_armigo.presentation import defect_strokes  # noqa: E402
+from digital_twin_armigo.physics import load_physics_spec
+from digital_twin_armigo.presentation import defect_strokes
 
 SIM_ASSETS = ROOT / "assets" / "meshes"
 USD_OUT = ROOT / "assets"

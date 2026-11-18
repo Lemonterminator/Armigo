@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import argparse
 import colorsys
+import contextlib
 import math
 import random
 import sys
@@ -366,12 +367,10 @@ def configure_render_and_viewports() -> None:
 	scene.render.resolution_y = 1000
 	scene.render.resolution_percentage = 100
 
-	# Use AgX color management when supported
-	try:
+	# Use AgX color management when supported (older Blender rejects the enum value with TypeError)
+	with contextlib.suppress(TypeError):
 		scene.view_settings.view_transform = "AgX"
 		scene.view_settings.look = "AgX - Medium High Contrast"
-	except Exception:
-		pass
 
 	for window in bpy.context.window_manager.windows:
 		for area in window.screen.areas:

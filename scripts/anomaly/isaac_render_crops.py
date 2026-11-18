@@ -21,29 +21,14 @@ from pathlib import Path
 
 import numpy as np
 
+ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(ROOT / "src"))
+
+# NumPy only, so it imports in the Isaac Python without MuJoCo.
+from digital_twin_armigo.crop import square_crop
+
 WIDTH, HEIGHT = 640, 480
 PAD = 0.25
-
-
-def square_crop(img: np.ndarray, bbox, pad: float, size: int, clamp: bool) -> np.ndarray:
-	"""Identical to ``mujoco_cell.inspection_views.square_crop`` (copied: that module imports MuJoCo)."""
-	x, y, w, h = bbox
-	side = max(w, h) * (1.0 + 2.0 * pad)
-	cx, cy = x + w / 2.0, y + h / 2.0
-	xs = np.round(cx - side / 2.0 + (np.arange(size) + 0.5) * side / size).astype(int)
-	ys = np.round(cy - side / 2.0 + (np.arange(size) + 0.5) * side / size).astype(int)
-	if clamp:
-		if side <= img.shape[1]:
-			xs = xs + max(0, -int(xs.min())) - max(0, int(xs.max()) - (img.shape[1] - 1))
-		if side <= img.shape[0]:
-			ys = ys + max(0, -int(ys.min())) - max(0, int(ys.max()) - (img.shape[0] - 1))
-	xs = np.clip(xs, -1, img.shape[1])
-	ys = np.clip(ys, -1, img.shape[0])
-	out = np.zeros((size, size, img.shape[2]), dtype=img.dtype)
-	vx = (xs >= 0) & (xs < img.shape[1])
-	vy = (ys >= 0) & (ys < img.shape[0])
-	out[np.ix_(vy, vx)] = img[np.ix_(ys[vy], xs[vx])]
-	return out
 
 
 def main() -> None:
@@ -189,7 +174,9 @@ def main() -> None:
 					cv2.rectangle(dbg, (bx, by), (bx + bw, by + bh), (0, 0, 255), 2)
 					cv2.imwrite(str(a.out / f"debug_{Path(paths[i]).stem}.png"), dbg)
 				n_done += 1
-			print(f"layout {f.stem}: {len(todo)} crops ({n_done} total, {time.perf_counter() - t_start:.0f}s)", flush=True)
+			print(
+				f"layout {f.stem}: {len(todo)} crops ({n_done} total, {time.perf_counter() - t_start:.0f}s)", flush=True
+			)
 		for name in ("metadata.jsonl", "layouts.jsonl", "summary.json"):
 			if (a.data / name).exists():
 				shutil.copyfile(a.data / name, a.out / name)

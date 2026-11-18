@@ -144,17 +144,23 @@ class Recorder:
 			self._free_view(cell, brick, 0.30, CHASE_AZIMUTH, -25.0),
 			np.ascontiguousarray(cell.rgb("wrist_cam")),
 		]
-		for tile, label in zip(tiles, ("top (dataset camera)", "overview", "chase (follows brick)", "wrist"), strict=True):
+		for tile, label in zip(
+			tiles, ("top (dataset camera)", "overview", "chase (follows brick)", "wrist"), strict=True
+		):
 			cv2.putText(tile, label, (8, tile.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 0, 0), 3, cv2.LINE_AA)
-			cv2.putText(tile, label, (8, tile.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1, cv2.LINE_AA)
+			cv2.putText(
+				tile, label, (8, tile.shape[0] - 10), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 1, cv2.LINE_AA
+			)
 		img = np.concatenate([np.concatenate(tiles[:2], axis=1), np.concatenate(tiles[2:], axis=1)], axis=0)
 		speed = float(np.linalg.norm(episode.last("brick_vel")))
 		fn = episode.last("pinch_normal")
 		lines = [
 			self.header,
 			f"frame {self.n:4d}  t={self.n / 30.0:5.2f}s  phase={self.phase}",
-			f"brick speed {speed:5.2f} m/s  z={brick[2] * 1000:6.1f} mm  jaw normal {fn[0]:5.1f} / {fn[1]:5.1f} N  "
-			f"jaw-env {episode.jaw_env_force[-1]:5.1f} N",
+			(
+				f"brick speed {speed:5.2f} m/s  z={brick[2] * 1000:6.1f} mm  jaw normal {fn[0]:5.1f} / {fn[1]:5.1f} N  "
+				f"jaw-env {episode.jaw_env_force[-1]:5.1f} N"
+			),
 		]
 		cv2.rectangle(img, (0, 0), (img.shape[1], 12 + 22 * len(lines)), (0, 0, 0), -1)
 		for k, text in enumerate(lines):
@@ -171,8 +177,22 @@ class Recorder:
 
 def transcode(src: Path, dst: Path) -> bool:
 	"""H.264 / yuv420p copy that plays everywhere; the raw mp4v file is removed on success."""
-	cmd = [FFMPEG, "-y", "-loglevel", "error", "-i", str(src), "-c:v", "libx264", "-pix_fmt", "yuv420p", "-crf", "20", str(dst)]
-	if subprocess.run(cmd).returncode == 0:
+	cmd = [
+		FFMPEG,
+		"-y",
+		"-loglevel",
+		"error",
+		"-i",
+		str(src),
+		"-c:v",
+		"libx264",
+		"-pix_fmt",
+		"yuv420p",
+		"-crf",
+		"20",
+		str(dst),
+	]
+	if subprocess.run(cmd, check=False).returncode == 0:
 		src.unlink()
 		return True
 	src.replace(dst)

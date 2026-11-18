@@ -12,6 +12,7 @@ Dimensions match the SO-101 sorting cell bowls in ``scripts/sim/so101_sort_sim.p
 from __future__ import annotations
 
 import argparse
+import itertools
 import math
 import random
 import sys
@@ -33,7 +34,7 @@ if not _LEGO_SCRIPT_DIR.is_dir():
 if str(_LEGO_SCRIPT_DIR) not in sys.path:
 	sys.path.insert(0, str(_LEGO_SCRIPT_DIR))
 
-import lego_random_color as lrc  # noqa: E402
+import lego_random_color as lrc
 
 # ---------------------------------------------------------------------------
 # User-tweakable settings when running directly inside Blender's Text Editor
@@ -89,7 +90,7 @@ def create_plate_mesh(name: str = "Plate_200mm_Mesh", steps: int = 96) -> bpy.ty
 	"""Revolve ``PLATE_PROFILE_RZ`` 360 degrees around Z into a clean closed manifold mesh."""
 	bm = bmesh.new()
 	profile_verts = [bm.verts.new((r, 0.0, z)) for r, z in PLATE_PROFILE_RZ]
-	for a, b in zip(profile_verts, profile_verts[1:]):
+	for a, b in itertools.pairwise(profile_verts):
 		bm.edges.new((a, b))
 
 	center_top = profile_verts[0]
@@ -268,7 +269,7 @@ def build_plate_showcase(
 	rng = random.Random(seed)
 
 	base_mesh = create_plate_mesh("Plate_200mm_BaseMesh", steps=96)
-	cols = 3 if plate_count >= 3 else plate_count
+	cols = min(3, plate_count)
 	rows = math.ceil(plate_count / max(cols, 1))
 	spacing = 0.245
 

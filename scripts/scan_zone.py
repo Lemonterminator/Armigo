@@ -66,26 +66,17 @@ def pan_axis_xy(cell) -> np.ndarray:
 	return cell.data.xanchor[jid, :2].copy()
 
 
-def _site_err_down(cell, d, q, target) -> tuple[float, float]:
-	"""Gripper-frame position error to ``target`` and cosine of the approach axis with straight down."""
-	from digital_twin_armigo.mujoco_cell._mj import mujoco
-
-	d.qpos[cell.qadr] = q
-	mujoco.mj_kinematics(cell.model, d)
-	err = float(np.linalg.norm(d.site_xpos[cell.site] - target))
-	return err, float(-d.site_xmat[cell.site].reshape(3, 3)[2, 0])
-
-
 def _vertical_seed(cell, target, q_seed, seeds, tol, cos_tol) -> np.ndarray | None:
 	"""A jaws-down IK solution at ``target`` (roll 0) from the ready pose or from random restarts, or None."""
 	from digital_twin_armigo.mujoco_cell.ik import ik
+	from digital_twin_armigo.mujoco_cell.table_relocation import site_err_down
 
 	d = copy.copy(cell.data)
 	for s in [q_seed, *seeds]:
 		q0 = np.asarray(s, dtype=np.float64).copy()
 		q0[4] = 0.0
 		q = ik(cell, target, q0, 0.0, iters=600)
-		err, down = _site_err_down(cell, d, q, target)
+		err, down = site_err_down(cell, d, q, target)
 		if err <= tol and down >= cos_tol:
 			return q
 	return None
@@ -97,6 +88,7 @@ def check_position(job: tuple) -> dict:
 	from digital_twin_armigo.mujoco_cell.ik import ik
 	from digital_twin_armigo.mujoco_cell.inspection_views import capture_view
 	from digital_twin_armigo.mujoco_cell.physics_expert import ClosedLoopExpert, ExpertParams
+	from digital_twin_armigo.mujoco_cell.table_relocation import site_err_down
 
 	radius, az_deg, yaw_deg, a = job
 	cell = _W["cell"]
@@ -157,7 +149,7 @@ def check_position(job: tuple) -> dict:
 				q0 = q_prev.copy()
 				q0[4] = roll
 				q = ik(cell, target, q0, float(roll), iters=400)
-				err, down = _site_err_down(cell, d, q, target)
+				err, down = site_err_down(cell, d, q, target)
 				if err > a.ik_tol or down < cos_tol:
 					continue
 				n_reach += 1
@@ -198,7 +190,7 @@ def check_position(job: tuple) -> dict:
 				q0 = q_prev.copy()
 				q0[4] = roll
 				q = ik_reach(cell, target, q0, float(roll), tol=a.ik_tol)
-				err, _ = _site_err_down(cell, d, q, target)
+				err, _ = site_err_down(cell, d, q, target)
 				if err > a.ik_tol:
 					continue
 				n_reach += 1

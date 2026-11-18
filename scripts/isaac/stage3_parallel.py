@@ -20,13 +20,12 @@ args_cli.enable_cameras = True
 args_cli.visualizer = []
 
 import cv2
-import isaaclab.envs.mdp as mdp
 import isaaclab.sim as sim_utils
 import numpy as np
 import torch
 from isaaclab.actuators import ImplicitActuatorCfg
 from isaaclab.assets import ArticulationCfg, AssetBaseCfg, RigidObjectCfg
-from isaaclab.envs import ManagerBasedEnvCfg
+from isaaclab.envs import ManagerBasedEnvCfg, mdp
 from isaaclab.managers import EventTermCfg as EventTerm
 from isaaclab.managers import ObservationGroupCfg as ObsGroup
 from isaaclab.managers import ObservationTermCfg as ObsTerm
