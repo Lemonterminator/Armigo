@@ -65,6 +65,15 @@ class Rig:
 		self.k = he.intrinsics(self.layout.top, TOP_FULL)
 		mujoco.mj_forward(m, self.cell.data)
 		self.truth = he.camera_truth(m, self.cell.data, "top")
+		pan = m.joint("shoulder_pan").id
+		self.pan_anchor = self.cell.data.xanchor[pan].copy()
+		self.pan_axis = self.cell.data.xaxis[pan].copy()
+
+	def robot_from_world(self, pan_bias: float) -> np.ndarray:
+		"""The frame the robot believes in when its pan reading is ``pan_bias`` too high: the world turned about the
+		pan axis. A camera found in this frame is what the robot needs, since it also moves in it."""
+		rot, _ = cv2.Rodrigues(self.pan_axis * pan_bias)
+		return he.transform(rot, self.pan_anchor - rot @ self.pan_anchor)
 
 	def grip(self, q: np.ndarray, data=None) -> np.ndarray:
 		"""World-from-gripper-frame for arm joints ``q`` (5 values)."""
@@ -89,14 +98,16 @@ class Rig:
 		return self.cell.rgb("top")
 
 
-def collect(rig: Rig, n: int, rng: np.random.Generator, pixel_noise: float, max_tries: int = 400):
+def collect(
+	rig: Rig, n: int, rng: np.random.Generator, pixel_noise: float, spread: float = 1.0, max_tries: int = 800
+):
 	"""Random reachable arm poses where the top camera sees at least MIN_CARD_MARKERS card markers."""
 	poses = []
 	lo, hi = rig.cell.jnt_range[:5, 0], rig.cell.jnt_range[:5, 1]
 	tries = 0
 	while len(poses) < n and tries < max_tries:
 		tries += 1
-		q = np.clip(np.array(HANDOFF_Q) + rng.uniform(-1, 1, 5) * POSE_SPREAD, lo, hi)
+		q = np.clip(np.array(HANDOFF_Q) + rng.uniform(-1, 1, 5) * POSE_SPREAD * spread, lo, hi)
 		card = rig.grip(q) @ rig.grip_from_card
 		if rig.grip(q)[2, 3] < 0.08 or card[2, 3] < 0.06:
 			continue
@@ -124,10 +135,8 @@ def workspace_error_mm(k: np.ndarray, truth: np.ndarray, est: np.ndarray, z: flo
 	}
 
 
-def measure_markers(rig: Rig, est: np.ndarray) -> list[dict]:
-	"""Locate the printed cell markers with the estimated camera (arm at rest, card put away)."""
-	rgb = rig.render(np.array(normalized_to_rad(np.array(REST_U)))[:5], card=False)
-	found = he.detect_markers(rgb)
+def measure_markers(rig: Rig, est: np.ndarray, frame: np.ndarray, found: dict) -> list[dict]:
+	"""Locate the printed cell markers with the estimated camera; truth is expressed in ``frame``."""
 	out = []
 	for mid, x, y, z, _ in rig.layout.markers:
 		uv = he.project(rig.k, he.inverse(rig.truth), np.array([[x, y, z + MARKER_Z]]))[0]
@@ -138,7 +147,7 @@ def measure_markers(rig: Rig, est: np.ndarray) -> list[dict]:
 		cam_from_marker = he.marker_pose(rig.k, found[mid], CELL_MARKERS[mid])
 		centre = (est @ cam_from_marker)[:3, 3]
 		ray = he.table_points(rig.k, est, found[mid].mean(axis=0, keepdims=True), z + MARKER_Z)[0]
-		truth = np.array([x, y, z + MARKER_Z])
+		truth = (frame @ [x, y, z + MARKER_Z, 1.0])[:3]
 		out.append(
 			{
 				"id": mid,
@@ -151,32 +160,48 @@ def measure_markers(rig: Rig, est: np.ndarray) -> list[dict]:
 	return out
 
 
+def score(rig: Rig, cal: he.Calibration, frame: np.ndarray, bias: np.ndarray, found: dict) -> dict:
+	est, truth = cal.world_from_cam, frame @ rig.truth
+	out = {
+		"rms_px": cal.rms_px,
+		"iterations": cal.iterations,
+		"cam_pos_err_mm": float(np.linalg.norm(est[:3, 3] - truth[:3, 3]) * 1000),
+		"cam_rot_err_deg": he.rotation_error_deg(est, truth),
+		"workspace_mm": workspace_error_mm(rig.k, truth, est),
+		"markers": measure_markers(rig, est, frame, found),
+	}
+	if len(cal.joint_offsets):
+		# the solver's offsets are added to the readings, so the right answer is minus the bias
+		joints = list(he.OFFSET_JOINTS)
+		out["offset_err_deg"] = np.degrees(cal.joint_offsets[joints] + bias[joints]).round(4).tolist()
+	return out
+
+
 def run_seed(seed: int, args, joint_noise_deg: float, joint_bias_deg: float, keep_images: Path | None):
 	rng = np.random.default_rng(seed + 20_000)
 	rig = Rig(seed, card_jitter=True)
 	try:
-		poses, tries = collect(rig, args.poses, rng, args.pixel_noise)
+		poses, tries = collect(rig, args.poses, rng, args.pixel_noise, args.spread)
 		if len(poses) < 3:
 			return {"seed": seed, "ok": False, "poses": len(poses), "tries": tries}
 		bias = np.radians(rng.normal(0, joint_bias_deg, 5)) if joint_bias_deg else np.zeros(5)
 		obs = []
 		for q, obj, img, _ in poses:
 			q_meas = q + bias + np.radians(rng.normal(0, joint_noise_deg, 5))
-			obs.append(he.Observation(rig.grip(q_meas), obj, img))
-		cal = he.calibrate(rig.k, obs)
-		est, truth = cal.world_from_cam, rig.truth
+			obs.append(he.Observation(rig.grip(q_meas), obj, img, q=q_meas))
+		frame = rig.robot_from_world(bias[0])
+		found = he.detect_markers(rig.render(np.array(normalized_to_rad(np.array(REST_U)))[:5], card=False))
 		result = {
 			"seed": seed,
 			"ok": True,
 			"poses": len(poses),
 			"tries": tries,
 			"corners": int(sum(len(o.obj) for o in obs)),
-			"rms_px": cal.rms_px,
-			"iterations": cal.iterations,
-			"cam_pos_err_mm": float(np.linalg.norm(est[:3, 3] - truth[:3, 3]) * 1000),
-			"cam_rot_err_deg": he.rotation_error_deg(est, truth),
-			"workspace_mm": workspace_error_mm(rig.k, truth, est),
-			"markers": measure_markers(rig, est),
+			"bias_deg": np.degrees(bias).round(4).tolist(),
+			"fixed": score(rig, he.calibrate(rig.k, obs), frame, bias, found),
+			"offsets": score(
+				rig, he.calibrate(rig.k, obs, fk=rig.grip, offset_joints=he.OFFSET_JOINTS), frame, bias, found
+			),
 		}
 		if keep_images is not None:
 			keep_images.mkdir(parents=True, exist_ok=True)
@@ -202,21 +227,24 @@ def summarise(rows: list[dict]) -> dict:
 		v = np.array(values, dtype=float)
 		return {"median": float(np.median(v)), "p90": float(np.percentile(v, 90)), "max": float(v.max())}
 
-	markers = [m for r in ok for m in r["markers"] if m["detected"]]
-	return {
-		"seeds": len(rows),
-		"solved": len(ok),
-		"poses": stats([r["poses"] for r in ok]),
-		"rms_px": stats([r["rms_px"] for r in ok]),
-		"cam_pos_err_mm": stats([r["cam_pos_err_mm"] for r in ok]),
-		"cam_rot_err_deg": stats([r["cam_rot_err_deg"] for r in ok]),
-		"workspace_mean_mm": stats([r["workspace_mm"]["mean"] for r in ok]),
-		"workspace_max_mm": stats([r["workspace_mm"]["max"] for r in ok]),
-		"marker_pnp_err_mm": stats([m["pnp_error_mm"] for m in markers]) if markers else None,
-		"marker_plane_err_mm": stats([m["plane_error_mm"] for m in markers]) if markers else None,
-		"markers_detected": f"{len(markers)}/{sum(len(r['markers']) for r in ok)}",
-		"markers_in_view": sum(m["in_view"] for r in ok for m in r["markers"]),
-	}
+	out = {"seeds": len(rows), "solved": len(ok), "poses": stats([r["poses"] for r in ok])}
+	for solver in ("fixed", "offsets"):
+		res = [r[solver] for r in ok]
+		markers = [m for r in res for m in r["markers"] if m["detected"]]
+		out[solver] = {
+			"rms_px": stats([r["rms_px"] for r in res]),
+			"cam_pos_err_mm": stats([r["cam_pos_err_mm"] for r in res]),
+			"cam_rot_err_deg": stats([r["cam_rot_err_deg"] for r in res]),
+			"workspace_mean_mm": stats([r["workspace_mm"]["mean"] for r in res]),
+			"workspace_max_mm": stats([r["workspace_mm"]["max"] for r in res]),
+			"marker_pnp_err_mm": stats([m["pnp_error_mm"] for m in markers]) if markers else None,
+			"marker_plane_err_mm": stats([m["plane_error_mm"] for m in markers]) if markers else None,
+			"markers_detected": f"{len(markers)}/{sum(len(r['markers']) for r in res)}",
+			"markers_in_view": sum(m["in_view"] for r in res for m in r["markers"]),
+		}
+		if solver == "offsets":
+			out[solver]["offset_abs_err_deg"] = stats([abs(e) for r in res for e in r["offset_err_deg"]])
+	return out
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -224,6 +252,7 @@ def main(argv: list[str] | None = None) -> int:
 	parser.add_argument("--seeds", type=int, default=20)
 	parser.add_argument("--first-seed", type=int, default=900001)
 	parser.add_argument("--poses", type=int, default=15)
+	parser.add_argument("--spread", type=float, default=1.0, help="scale of the random arm pose offsets")
 	parser.add_argument("--pixel-noise", type=float, default=2.0, help="Gaussian RGB noise, grey levels")
 	parser.add_argument(
 		"--conditions",
@@ -243,10 +272,11 @@ def main(argv: list[str] | None = None) -> int:
 			row = run_seed(seed, args, noise, bias, images)
 			rows.append(row)
 			if row["ok"]:
+				fx, of = row["fixed"], row["offsets"]
 				print(
-					f"noise={noise} bias={bias} seed={seed} poses={row['poses']} rms={row['rms_px']:.3f}px "
-					f"cam={row['cam_pos_err_mm']:.2f}mm/{row['cam_rot_err_deg']:.3f}deg "
-					f"ws_max={row['workspace_mm']['max']:.2f}mm",
+					f"noise={noise} bias={bias} seed={seed} poses={row['poses']} "
+					f"ws_max fixed={fx['workspace_mm']['max']:.2f}mm offsets={of['workspace_mm']['max']:.2f}mm "
+					f"offset_err={of['offset_err_deg']}",
 					flush=True,
 				)
 			else:

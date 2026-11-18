@@ -177,11 +177,19 @@ def marker_pose(k: np.ndarray, corners: np.ndarray, side: float) -> np.ndarray:
 # --- solver ------------------------------------------------------------------------------------------------------
 
 
+# Arm joints whose zero offsets the solver can estimate. shoulder_pan (0) is excluded: a pan offset turns the whole arm
+# about the vertical pan axis, which a camera turned about the same axis matches exactly, so the robot keeps working in
+# its own (turned) frame. wrist_roll (4) is excluded: its offset is absorbed by the card pose on the gripper.
+OFFSET_JOINTS = (1, 2, 3)
+OFFSET_PRIOR_RAD = np.radians(10.0)  # very weak prior (1 px per 10 degrees), only against a joint that never moves
+
+
 @dataclass
 class Observation:
 	world_from_grip: np.ndarray  # from the measured joints through forward kinematics
 	obj: np.ndarray  # (n, 3) card-frame corners
 	img: np.ndarray  # (n, 2) detected pixels
+	q: np.ndarray | None = None  # measured arm joints, needed when joint offsets are estimated
 
 
 @dataclass
@@ -191,6 +199,7 @@ class Calibration:
 	rms_px: float
 	per_pose_rms_px: list[float]
 	iterations: int
+	joint_offsets: np.ndarray  # radians, added to the measured joints (zeros unless estimated)
 
 
 def solve_ax_xb(a: list[np.ndarray], b: list[np.ndarray]) -> np.ndarray:
@@ -238,32 +247,56 @@ def _unpack(p: np.ndarray) -> tuple[np.ndarray, np.ndarray]:
 	return from_rvec(p[0:3], p[3:6]), from_rvec(p[6:9], p[9:12])
 
 
-def _residuals(p: np.ndarray, k: np.ndarray, obs: list[Observation]) -> np.ndarray:
-	cam_from_world, grip_from_card = _unpack(p)
-	out = [project(k, cam_from_world @ o.world_from_grip @ grip_from_card, o.obj) - o.img for o in obs]
-	return np.concatenate(out).ravel()
+def _offsets(p: np.ndarray, joints: tuple[int, ...], n_joints: int) -> np.ndarray:
+	out = np.zeros(n_joints)
+	out[list(joints)] = p[12:]
+	return out
 
 
-def calibrate(k: np.ndarray, obs: list[Observation], iterations: int = 100) -> Calibration:
+def calibrate(
+	k: np.ndarray,
+	obs: list[Observation],
+	iterations: int = 100,
+	fk=None,
+	offset_joints: tuple[int, ...] = (),
+) -> Calibration:
 	"""Camera pose in the world and card pose on the gripper, by Levenberg-Marquardt on the reprojection error of
-	every detected card corner, started from :func:`_initial`. Needs at least three poses with distinct rotations."""
+	every detected card corner, started from :func:`_initial`. Needs at least three poses with distinct rotations.
+
+	With ``offset_joints`` (see :data:`OFFSET_JOINTS`) the zero offsets of those joints are estimated too: every
+	observation must carry ``q``, and ``fk(q)`` gives world-from-gripper for corrected joints."""
 	if len(obs) < 3:
 		raise ValueError("hand-eye calibration needs at least three card poses")
+	if offset_joints and (fk is None or any(o.q is None for o in obs)):
+		raise ValueError("estimating joint offsets needs fk and the measured joints of every observation")
+	n_joints = len(obs[0].q) if offset_joints else 0
+	n_px = sum(2 * len(o.obj) for o in obs)
+
+	def residuals(p: np.ndarray) -> np.ndarray:
+		cam_from_world, grip_from_card = _unpack(p)
+		if offset_joints:
+			delta = _offsets(p, offset_joints, n_joints)
+			grips = [fk(o.q + delta) for o in obs]
+		else:
+			grips = [o.world_from_grip for o in obs]
+		out = [project(k, cam_from_world @ g @ grip_from_card, o.obj) - o.img for g, o in zip(grips, obs, strict=True)]
+		return np.concatenate([np.concatenate(out).ravel(), p[12:] / OFFSET_PRIOR_RAD])
+
 	world_from_cam, grip_from_card = _initial(k, obs)
-	p = np.concatenate([*to_rvec(inverse(world_from_cam)), *to_rvec(grip_from_card)])
-	r = _residuals(p, k, obs)
+	p = np.concatenate([*to_rvec(inverse(world_from_cam)), *to_rvec(grip_from_card), np.zeros(len(offset_joints))])
+	r = residuals(p)
 	cost, lam, it = r @ r, 1e-3, 0
 	for it in range(1, iterations + 1):
 		jac = np.empty((len(r), len(p)))
 		for j in range(len(p)):
 			dp = np.zeros_like(p)
 			dp[j] = 1e-7
-			jac[:, j] = (_residuals(p + dp, k, obs) - r) / 1e-7
+			jac[:, j] = (residuals(p + dp) - r) / 1e-7
 		jtj, jtr = jac.T @ jac, jac.T @ r
 		improved = False
 		while lam < 1e8:
 			step = np.linalg.solve(jtj + lam * np.diag(np.diag(jtj) + 1e-12), -jtr)
-			r_new = _residuals(p + step, k, obs)
+			r_new = residuals(p + step)
 			if r_new @ r_new < cost:
 				p, r, improved = p + step, r_new, True
 				lam = max(lam / 10, 1e-9)
@@ -275,10 +308,12 @@ def calibrate(k: np.ndarray, obs: list[Observation], iterations: int = 100) -> C
 			break
 		cost = new_cost
 	cam_from_world, grip_from_card = _unpack(p)
+	px = r[:n_px]
 	per_pose, start = [], 0
 	for o in obs:
 		n = 2 * len(o.obj)
-		per_pose.append(float(np.sqrt(np.mean(r[start : start + n] ** 2) * 2)))
+		per_pose.append(float(np.sqrt(np.mean(px[start : start + n] ** 2) * 2)))
 		start += n
-	rms = float(np.sqrt(cost / (len(r) / 2)))
-	return Calibration(inverse(cam_from_world), grip_from_card, rms, per_pose, it)
+	rms = float(np.sqrt(px @ px / (n_px / 2)))
+	offsets = _offsets(p, offset_joints, n_joints) if offset_joints else np.zeros(0)
+	return Calibration(inverse(cam_from_world), grip_from_card, rms, per_pose, it, offsets)

@@ -62,3 +62,44 @@ def test_table_points_inverts_projection():
 	pts = np.array([[0.2, -0.1, 0.01], [0.35, 0.12, 0.01]])
 	uv = he.project(k, he.inverse(world_from_cam), pts)
 	assert np.allclose(he.table_points(k, world_from_cam, uv, 0.01), pts)
+
+
+def _toy_fk(q):
+	"""A five-joint arm with the SO-101's axis layout: pan about z, three pitches about y, roll about x."""
+
+	def rz(a):
+		return he.transform(np.array([[np.cos(a), -np.sin(a), 0], [np.sin(a), np.cos(a), 0], [0, 0, 1]]), np.zeros(3))
+
+	def ry(a):
+		return he.transform(np.array([[np.cos(a), 0, np.sin(a)], [0, 1, 0], [-np.sin(a), 0, np.cos(a)]]), np.zeros(3))
+
+	def rx(a):
+		return he.transform(np.array([[1, 0, 0], [0, np.cos(a), -np.sin(a)], [0, np.sin(a), np.cos(a)]]), np.zeros(3))
+
+	def tr(x, z):
+		return he.transform(np.eye(3), np.array([x, 0.0, z]))
+
+	return rz(q[0]) @ tr(0, 0.1) @ ry(q[1]) @ tr(0.11, 0) @ ry(q[2]) @ tr(0.13, 0) @ ry(q[3]) @ tr(0.06, 0) @ rx(q[4])
+
+
+def test_calibrate_recovers_pitch_joint_offsets():
+	rng = np.random.default_rng(5)
+	k, world_from_cam, _, _ = _scene()
+	grip_from_card = he.transform(np.eye(3), np.array([0.05, 0.0, 0.004]))
+	obj = np.array([[a, b, 0.0] for a in (-0.03, 0.0, 0.03) for b in (-0.03, 0.0, 0.03)])
+	bias = np.radians([0.7, -0.8, 0.6, 1.1, -0.5])
+	obs = []
+	while len(obs) < 25:
+		q = rng.uniform([-0.6, -0.4, 0.3, -0.6, -1.0], [0.6, 0.6, 1.4, 0.8, 1.0])
+		card = _toy_fk(q) @ grip_from_card
+		cam_from_card = he.inverse(world_from_cam) @ card
+		if cam_from_card[2, 3] < 0.2 or cam_from_card[2, 2] > -0.3:  # in front of the camera, facing it
+			continue
+		img = he.project(k, he.inverse(world_from_cam), (card @ np.c_[obj, np.ones(len(obj))].T).T[:, :3])
+		obs.append(he.Observation(_toy_fk(q + bias), obj, img, q=q + bias))
+	cal = he.calibrate(k, obs, fk=_toy_fk, offset_joints=he.OFFSET_JOINTS)
+	assert cal.rms_px < 1e-3, cal.rms_px
+	assert np.allclose(cal.joint_offsets[list(he.OFFSET_JOINTS)], -bias[list(he.OFFSET_JOINTS)], atol=np.radians(0.01))
+	# the pan offset stays in the solution as a turn of the camera about the pan axis; the roll offset in the card
+	fixed = he.calibrate(k, obs)
+	assert fixed.rms_px > 0.1  # the bias leaves only a small residual, which is why it goes unnoticed
