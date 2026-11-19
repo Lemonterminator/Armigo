@@ -199,6 +199,10 @@ class Checkpoint:
 	wrist_count: int
 	bottom_count: int
 	views: list[dict]
+	# Added after the first persisted checkpoints; the defaults load older checkpoint files.
+	retries: int = 0  # in-place recoveries before this checkpoint (they share the recovery budget with rewinds)
+	held: dict | None = None  # carried brick: lift pose and grasp roll (the grasp itself is in ``integration``)
+	agent: dict | None = None  # agent-side state: believed grip-from-brick, contact filter, depth-noise RNG, park spot
 
 
 # Bounded recovery variants. Each is a fixed, named, deterministic transform of the default expert parameters. The
@@ -466,7 +470,8 @@ class TwinMujoco:
 		self._clipped_frames = 0  # target clips of experts replaced by rewinds
 		self.checkpoints: list[Checkpoint] = []
 		self.branch = 0
-		self.rewinds = 0
+		self.rewinds = 0  # physics restores to a checkpoint (each starts a new branch)
+		self.retries = 0  # in-place recoveries from the current state (the branch continues)
 		self.total_frames = 0
 		self.wrist_count = 0
 		self.bottom_count = 0
@@ -499,6 +504,12 @@ class TwinMujoco:
 		if self.realistic:
 			self._contact = GripperContact()
 			self._sense_bowls()
+
+	@property
+	def recoveries(self) -> int:
+		"""Recoveries used so far: physics rewinds plus in-place retries. ``Policy.max_rewinds`` bounds this sum (one
+		shared recovery budget; ``truth`` only rewinds and ``realistic`` only retries)."""
+		return self.rewinds + self.retries
 
 	def _sense_bowls(self):
 		"""Locate both bowls in the top images and keep the depth image as the empty-bowl reference."""
@@ -664,8 +675,8 @@ class TwinMujoco:
 		return "ACTION_BUDGET_EXHAUSTED"
 
 	def _save(self, views):
-		if self.held is not None:
-			return
+		"""Checkpoint the skill boundary, also while the brick is held: the grasp is physical (no weld), so the
+		integration state carries it; the lift pose, grasp roll and the agent's carried-brick belief come along."""
 		integration = np.empty(mujoco.mj_stateSize(self.cell.model, STATE_SPEC))
 		mujoco.mj_getState(self.cell.model, self.cell.data, integration, STATE_SPEC)
 		ex, filt = self.expert, self.ep.filt
@@ -675,12 +686,29 @@ class TwinMujoco:
 			"frame_idx": ex._frame_idx,
 			"monitor_position": ex.gripper_monitor._prev_meas,
 			"monitor_count": ex.gripper_monitor._run,
+			# The previous observed joints (show-pose stillness) and the lost-brick and blocked-gripper counters.
+			"prev_q": ex.obs["q"].tolist() if ex.obs else None,
+			"no_dual": ex._no_dual,
+			"last_block_dir": ex._last_block_dir,
 		}
 		filter_state = {
 			"queue": [q.tolist() for q in filt._queue],
 			"prev": filt._prev_out.tolist(),
 			"backlash": filt._backlash_pos.tolist(),
 		}
+		held = None
+		if self.held is not None:
+			q_lift, roll = self.held
+			held = {"q_lift": np.asarray(q_lift).tolist(), "roll": float(roll)}
+		grip = self._grip_from_brick
+		agent = {
+			"grip_from_brick": None if grip is None else grip.tolist(),
+			"contact_prev": self._contact.prev if self.realistic else None,
+			"park_xy": self._park_xy.tolist(),
+			"expected_yaw": self._expected_yaw,
+		}
+		if self.perception is not None:
+			agent["depth_rng"] = self._depth_rng.bit_generator.state
 		checkpoint = Checkpoint(
 			f"checkpoint-{len(self.checkpoints)}",
 			self.branch,
@@ -691,6 +719,9 @@ class TwinMujoco:
 			self.wrist_count,
 			self.bottom_count,
 			copy.deepcopy(views),
+			retries=self.retries,
+			held=held,
+			agent=agent,
 		)
 		self.record.checkpoint(checkpoint)
 		self.checkpoints.append(checkpoint)
@@ -777,13 +808,13 @@ class TwinMujoco:
 		budget = {
 			"wrist_views_used": self.wrist_count,
 			"bottom_views_used": self.bottom_count,
-			"rewinds_used": self.rewinds,
+			"recoveries_used": self.recoveries,
 			"frames_left": MAX_TOTAL_FRAMES - self.total_frames,
 		}
 		if policy is not None:
 			budget["wrist_views_left"] = policy.max_wrist_views - self.wrist_count
 			budget["bottom_views_left"] = policy.max_bottom_views - self.bottom_count
-			budget["rewinds_left"] = policy.max_rewinds - self.rewinds
+			budget["recoveries_left"] = policy.max_rewinds - self.recoveries
 		context = {
 			"covered_faces": sorted(covered),
 			"missing_faces": [f for f in range(6) if f not in covered],
@@ -1006,7 +1037,7 @@ class TwinMujoco:
 		ex, cell = self.expert, self.cell
 		with self._belief():
 			ex.kin.data.qpos[:] = cell.data.qpos
-		attempt = min(self.wrist_count - 1 + self.rewinds, 2)
+		attempt = min(self.wrist_count - 1 + self.recoveries, 2)
 		steps, mode, extra = self._scan_plan(previous, attempt)
 		self.event("scan_plan", mode=mode, candidates=len(steps), **extra)
 		pending: list[np.ndarray] = []  # ring poses of skipped views, still swept through to stay on the ring
@@ -1103,7 +1134,7 @@ class TwinMujoco:
 				cell,
 				ex.last,
 				gripper=ex.p.hold_g,
-				seed=self.rewinds * 71 + self.bottom_count - 1,
+				seed=self.recoveries * 71 + self.bottom_count - 1,
 				clearance=lambda q: self._straight_clear(ex.last, q, held=True),
 				border_px=BOTTOM_BORDER_PX if self.realistic else 0,
 			)
@@ -1159,8 +1190,9 @@ class TwinMujoco:
 		return payload
 
 	def restore_state(self, checkpoint, params=None, relocate=None):
-		"""Physics, command filter, a rebuilt expert and the view counters at a skill-boundary checkpoint (brick on
-		the table, gripper open). Shared by in-process ``rewind`` and cross-process ``twin_resume.restore``."""
+		"""Physics, command filter, a rebuilt expert, the held-brick and sensing state and the view counters at a
+		skill-boundary checkpoint (brick on the table or in the gripper). Shared by in-process ``restore_checkpoint``
+		and cross-process ``twin_resume.restore``. The caller truncates the telemetry the next observation reads."""
 		m, d = self.cell.model, self.cell.data
 		mujoco.mj_setState(m, d, checkpoint.integration, STATE_SPEC)
 		mujoco.mj_forward(m, d)
@@ -1178,10 +1210,23 @@ class TwinMujoco:
 		ex._frame_idx = checkpoint.expert["frame_idx"]
 		ex.gripper_monitor._prev_meas = checkpoint.expert["monitor_position"]
 		ex.gripper_monitor._run = checkpoint.expert["monitor_count"]
-		self.held = None
-		self._grip_from_brick = None
+		if checkpoint.expert.get("prev_q") is not None:
+			ex.obs = {"q": np.array(checkpoint.expert["prev_q"])}  # read by act() as the previous joints only
+		ex._no_dual = checkpoint.expert.get("no_dual", 0)
+		ex._last_block_dir = checkpoint.expert.get("last_block_dir", 0)
+		held = checkpoint.held
+		self.held = None if held is None else (np.array(held["q_lift"]), float(held["roll"]))
+		agent = checkpoint.agent or {}
+		grip = agent.get("grip_from_brick")
+		self._grip_from_brick = None if grip is None else np.array(grip)
+		self._expected_yaw = agent.get("expected_yaw")
+		if agent.get("park_xy") is not None:
+			self._park_xy = np.array(agent["park_xy"])
+		if agent.get("depth_rng") is not None and self.perception is not None:
+			self._depth_rng.bit_generator.state = copy.deepcopy(agent["depth_rng"])
 		if self.realistic:
 			self._contact.reset()
+			self._contact.prev = agent.get("contact_prev")
 			self.brick_est = copy.deepcopy(self._checkpoint_belief.get(checkpoint.id))
 		self.actual_destination = None
 		self.execution_error = None
@@ -1193,7 +1238,7 @@ class TwinMujoco:
 		last; empty when the budget leaves no recovery. ``truth`` rewinds the physics to a skill-boundary checkpoint;
 		``realistic`` recovers from the current state (see :meth:`_retry`)."""
 		stop = ("stop", "give up and report the failure")
-		if self.rewinds >= policy.max_rewinds or self.total_frames >= MAX_TOTAL_FRAMES:
+		if self.recoveries >= policy.max_rewinds or self.total_frames >= MAX_TOTAL_FRAMES:
 			return []
 		failure = failures[-1]
 		if self.realistic:
@@ -1222,6 +1267,11 @@ class TwinMujoco:
 			return None
 		checkpoint_id, _, variant = choice.partition("+")
 		checkpoint = next(c for c in self.checkpoints if c.id == checkpoint_id)
+		return self.restore_checkpoint(checkpoint, variant, reason=failures[-1]["code"])
+
+	def restore_checkpoint(self, checkpoint, variant="", *, reason=None):
+		"""Physics rewind to ``checkpoint`` on a new branch (counts as a rewind): drop the later telemetry, rebuild the
+		expert (with ``variant`` if given) and restore the checkpoint's state, also mid-carry. Returns its views."""
 		self.rewinds += 1
 		self.branch = self.rewinds
 		self.record.fork(self.branch, checkpoint)
@@ -1243,7 +1293,7 @@ class TwinMujoco:
 			"rewound",
 			parent_branch=checkpoint.branch,
 			checkpoint=checkpoint.id,
-			reason=failures[-1]["code"],
+			reason=reason,
 			variant=variant or None,
 		)
 		return copy.deepcopy(checkpoint.views)
@@ -1263,7 +1313,7 @@ class TwinMujoco:
 		if choice == "stop":
 			return None
 		_, _, variant = choice.partition("+")
-		self.rewinds += 1
+		self.retries += 1  # not a rewind: the physical history stays one continuous branch
 		params, relocate = self.expert.p, self.expert.rp
 		if variant:
 			self._base_params = getattr(self, "_base_params", (params, relocate))
@@ -1389,6 +1439,7 @@ class TwinMujoco:
 			"destination": self.actual_destination,
 			"active_branch": self.branch,
 			"rewinds": self.rewinds,
+			"retries": self.retries,
 			"recovery_variants": list(self.recovery_variants),
 			"failures": failures,
 			"active_views": len(views),
@@ -1400,6 +1451,7 @@ class TwinMujoco:
 			"health": health,
 			"llm": self._llm_summary(),
 			"smoothness": self._smoothness(),
+			# In-place retries keep one continuous physical branch (a recovery demonstration); rewinds do not.
 			"student_eligible": bool(ok and health.get("verdict") == "SUCCESS" and not self.rewinds),
 			"placement_evidence": next(
 				(v["id"] for v in views if v["score"] is not None and v["score"] >= v["threshold"]), None
