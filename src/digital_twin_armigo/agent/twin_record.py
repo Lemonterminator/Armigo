@@ -75,8 +75,22 @@ class EpisodeTrace:
 		# excludes the jaws; ``contact_jaw_env_n`` is the jaws against the table, bowls and clutter.
 		self.contacts = []
 		self._jaw_env_peak = 0.0
-		cell.substep_observer = lambda: self._substep_contact(cell)
-		cell.frame_observer = self._frame_contact
+		# Chain any observers already installed on the cell (e.g. a catalog recorder) instead of replacing them.
+		prior_substep = getattr(cell, "substep_observer", None)
+		prior_frame = getattr(cell, "frame_observer", None)
+
+		def substep():
+			if prior_substep is not None:
+				prior_substep()
+			self._substep_contact(cell)
+
+		def frame(episode):
+			if prior_frame is not None:
+				prior_frame(episode)
+			self._frame_contact(episode)
+
+		cell.substep_observer = substep
+		cell.frame_observer = frame
 
 	def _substep_contact(self, cell):
 		from ..mujoco_cell.episode import jaw_env_contact_force
