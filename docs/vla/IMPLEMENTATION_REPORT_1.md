@@ -32,7 +32,7 @@ comparison (S12), and the S0 replay gate before any data collection.
 
 | Step | Status | Commit(s) |
 |---|---|---|
-| S0 student interface replay gate | **in progress** (not merged) | - |
+| S0 student interface replay gate | merged (bench16 part); perturbation part needs S5 | `ea64833`, `685ccc8`, merge (see B.4) |
 | S1 student inputs / teacher signals | merged (code part); D1 awaits the owner | `c269569`, merge (see B.4) |
 | S2 expert fixes | merged | `597cb87`, merge `2bdb6ea` |
 | S3 case generator and splits | merged | `2ac77da` |
@@ -152,6 +152,50 @@ Reviewer notes: a p95 threshold rejects the expert's own top 5 % by construction
 tail lands on one or two layouts; the 0.8x per-class gate is only meaningful on the 300-episode pilot. Each
 `_capture` now renders one extra segmentation view for `true_cross_px` (cost not yet measured).
 
+### B.0 S0: student interface replay gate
+
+Files: new `agent/student_rollout.py`, `scripts/vla/replay_gate.py`, `tests/test_student_rollout.py`; hooks in
+`agent/twin_mujoco.py`; additive columns in `agent/twin_record.py`.
+
+- **Segments.** `Segment(kind, params, instruction)`; the instruction is the VLA task string. 12 kinds: `prepare`,
+  `scan_view` (orbit / hover view k of n, planned faces, target pose), `return_ready`, `grasp`, `lift`,
+  `present_bottom`, `return_to_lift`, `lower_on_table`, `release_on_table`, `carry_to_bowl` (with the bowl),
+  `release_in_bowl`, `let_go` (recovery). Five are carried-brick segments with a lost-brick monitor.
+- **`StudentTwin(TwinMujoco)`** overrides only `_execute(generator)`: each expert motion generator is mapped to its
+  segment by function name and arguments, closed unrun, and replaced by `run_segment` (observe -> `policy.act` ->
+  joint-range clip -> `_apply_target`, i.e. record, command filter, `Episode.step`), until `segment_done`, a frame
+  budget, or a lost brick. All graph-side skill code runs unchanged (scan planning and skipping, clearance checks,
+  `_capture`, early stop, perception, placement checks, `_retry`), so S1 / S2 changes reach the student
+  automatically. Three generators contain decision points (grasp-and-lift, park, release); the controller reproduces
+  that logic between segments (clamp check, carried-brick belief at the grasp, lost-brick count, put-down yaw).
+- **Hooks in `twin_mujoco.py`:** `_execute` now calls `_observe()` and `_apply_target()`, a pure extract-method of
+  the existing loop.
+- **`ExpertTracer(TwinMujoco)`** labels the unchanged expert with the same mapping (composite generators split by
+  phase changes and carry-watch frames), so expert and student instructions match by construction.
+- **`ReplayPolicy`** replays a trace's float64 actions and segment ends and checks every joint reading bitwise.
+- **Recording:** `segment` / `segment_end` events; `actions.npz` gains `segment`, `state_f64`, `action_f64`. The
+  `segment_done` label is attached to the first observation of the next segment.
+
+Gate **[reported on the S0 branch]**: bench16 realistic 16/16 PASS (8 normal -> green, 8 defective -> pink, 897-1856
+frames, 7-10 segments each). Exact: physics telemetry digest and every joint reading, capture frames, detector
+decisions, early stops, segment kinds / params / starts / ends, destination, the `evaluate` dict, the whole event
+stream. One case also passes with video on. Re-run on the fully merged tree: 16/16 PASS **[verified]**, see B.6.
+
+Documented exceptions the reviewer should judge:
+- **Renderer non-determinism.** The MuJoCo renderer is not bitwise repeatable for one state (shadows +
+  multisampling): 12 renders of one state gave 8 distinct wrist images, off by 1 grey level on up to 46 of 307,200
+  pixels; physics stays bitwise identical, and two plain expert runs show the same effect. Captured images are
+  therefore compared within <= 1 level on <= 0.1 % of pixels; detector scores are compared exactly only when the crop
+  is bitwise equal, otherwise the score delta is reported and the **decision** is still checked exactly. 9/16 cases
+  had one or two such views; max score delta 0.0032; no decision flipped. A view scoring near the threshold could
+  flip; removing the noise means changing render settings, which also changes the detector's input distribution.
+- `smoothness.clipped_frames` is excluded from the `evaluate` comparison (expert 1, replay 0): it counts raw generator
+  targets the expert clipped, which a replay of already-clipped targets cannot see.
+- Not yet covered: the perturbation / in-place-recovery half of the gate (needs S5; `ReplayPolicy` rejects
+  multi-branch traces); the `let_go` path and the lost-brick / clamp-failure monitors are untested in MuJoCo because
+  bench16 has no recoveries; a learned student emits no phase label, so each segment kind's default phase is used,
+  which shifts the health-scoring windows (to be handled in S6 / S10).
+
 ### B.3a S1: student inputs and teacher signals
 
 Files: new `agent/bowl_clearance.py`; `agent/twin_mujoco.py` (clearance-related lines only); `tests/test_twin_leakage.py`
@@ -184,7 +228,8 @@ Files: new `agent/bowl_clearance.py`; `agent/twin_mujoco.py` (clearance-related 
 
 ### B.4 Integration by the coordinator
 
-- Merge order S3 -> S2 -> S6 -> S1; no textual conflicts.
+- Merge order S3 -> S2 -> S6 -> S1 -> S0. One textual conflict: `EpisodeTrace._finish_branch`, where S6 (contact
+  columns) and S0 (`segment`, `state_f64`, `action_f64`) both add `actions.npz` columns; resolved by keeping both.
 - **Fix:** `EpisodeTrace.start` replaced any `substep_observer` / `frame_observer` already installed on the cell
   (`scripts/catalog_record_mujoco.py` installs its own on a separate cell, so nothing broke today). It now chains
   existing observers.
@@ -193,11 +238,9 @@ Files: new `agent/bowl_clearance.py`; `agent/twin_mujoco.py` (clearance-related 
 - End-to-end acceptance on the merged tree (bench16 realistic, then the grader): 16/16 sorted, 15/16 graded pass;
   see B.6.
 
-### B.5 Still in progress
+### B.5 Not started
 
-- **S0** (`agent/student_rollout.py`, segment executor, controller, `ReplayPolicy`, `scripts/vla/replay_gate.py`).
-  The gate is: every bench16 realistic episode replayed through the student interface reproduces capture frames
-  exactly, detector decisions, early stops, segment ends, destination and the final `evaluate`.
+S4 (rollouts), S5 (perturbation branches), S7 (segment-masked export), S8 (CUDA env), S9-S13.
 
 ### B.6 End-to-end acceptance on the merged tree
 
@@ -210,7 +253,15 @@ Files: new `agent/bowl_clearance.py`; `agent/twin_mujoco.py` (clearance-related 
   normal brick: the same expert smoothness tail the S6 agent reported on its own branch).
 - Face alignment: 37 views, 12 raw mismatches, 0 after symmetry alignment (all 37 aligned by orientation).
 
-So merging S2 did not change bench16 outcomes or grades relative to the S6 branch run.
+So merging S2 did not change bench16 outcomes or grades relative to the S6 branch run. **[verified]** After also
+merging S1 (perceived-bowl clearance) the same run gives identical results: 16/16 SUCCESS, 15/16 graded pass, the
+same single smoothness failure, 12 -> 0 face mismatches; 124 tests passed.
+
+**[verified]** S0 replay gate on the fully merged tree (S0 + S1 + S2 + S3 + S6, commit `10f1933`):
+`scripts/vla/replay_gate.py` on all 16 bench16 realistic cases (two processes of 8): **16/16 PASS**, 887-1856
+frames, 7-10 segments per episode. Six cases had render noise on 1-3 views (max 1 grey level, at most 0.026 % of
+pixels); max detector score delta 0.0017 (case 8); no decision changed. 130 tests passed on the merged tree
+(`test_student_rollout` included).
 
 ## C. Questions for the reviewer
 
@@ -227,14 +278,19 @@ So merging S2 did not change bench16 outcomes or grades relative to the S6 branc
    also gate?
 6. S1: is a fixed 5 mm margin around the perceived bowls justified by 16 episodes of localisation error, or should
    the margin scale with the localisation uncertainty per episode? Is the hybrid D1 recommendation sound?
-7. Anything in revision 2's ordering (S0/S1/S2 before a 300-episode pilot) that the implemented pieces change?
+7. S0: is the renderer tolerance (<= 1 grey level on <= 0.1 % of pixels, decisions exact, scores exact only for
+   bitwise-equal crops) acceptable for a gate, or should rendering be made deterministic (shadows / multisampling
+   off) at the cost of changing the detector's input images? Is matching the expert's generators by function name a
+   sound basis for segment labels, or too brittle as skills evolve?
+8. Anything in revision 2's ordering (S0/S1/S2 before a 300-episode pilot) that the implemented pieces change?
 
 ## D. Reproduce
 
-	.venv/Scripts/python -m pytest -q tests/test_vla_grader.py tests/test_expert_fixes.py tests/test_vla_suites.py \
+	.venv/Scripts/python -m pytest -q tests/test_student_rollout.py tests/test_vla_grader.py tests/test_expert_fixes.py tests/test_vla_suites.py \
 	  tests/test_twin_agent.py tests/test_step_mcp.py tests/test_mujoco_session_resume.py tests/test_twin_leakage.py
 	.venv/Scripts/python scripts/vla/make_suites.py --out <dir>      # regenerate suites and report
 	.venv/Scripts/python -m digital_twin_armigo.agent.twin_mcp run --sensing realistic \
 	  --suite config/agent_bench/bench16.json --detector results/agent-bench/sup-v7bot-local.json \
 	  --headless --workers 2 --out <dir>/runs
 	.venv/Scripts/python scripts/vla/grade.py <dir>/runs
+	.venv/Scripts/python scripts/vla/replay_gate.py --out <dir>/gate --cases 0 1 2 3 4 5 6 7   # and 8-15
