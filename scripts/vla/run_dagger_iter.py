@@ -120,9 +120,8 @@ def _default_rollout(
 	video: bool,
 	server_url: str | None = None,
 ) -> list[dict[str, Any]]:
-	from digital_twin_armigo.vla.client_policy import ChunkClientPolicy, RemoteChunkPredictor
-
 	from digital_twin_armigo.inspection_scorer import default_sup_scorer
+	from digital_twin_armigo.vla.client_policy import ChunkClientPolicy, RemoteChunkPredictor
 
 	del iter_idx
 	env = {**os.environ, "PYTHONPATH": str(ROOT / "src")}

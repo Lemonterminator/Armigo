@@ -175,8 +175,12 @@ def _episode_record_from_dir(ep_dir: Path, case: tuple) -> dict[str, Any]:
 		if events_path.exists()
 		else []
 	)
+	from digital_twin_armigo.agent.perturbations import find_perturbation_detection
+
 	has_perturb = any(e.get("kind") == "perturbation" for e in events)
-	has_detect = any(e.get("kind") in ("retry", "failure") for e in events)
+	# S5's matcher: per-type detection events at/after the perturbation frame (covers the nudge's
+	# brick_perceived(moved) path, which emits no failure/retry).
+	has_detect = has_perturb and find_perturbation_detection(events) is not None
 	return {
 		"seed": int(case[0]),
 		"case": list(case),

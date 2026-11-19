@@ -732,3 +732,29 @@ def test_mujoco_student_twin_smoke_with_http_chunk_client_policy(tmp_path):
 	assert s["pilot_gate"]["pilot_gate_pass"] is True
 	assert (eval_dir / "eval_summary.json").exists()
 	assert len(scripted_model.seen_states) > 0
+
+
+def _write_episode(ep_dir: Path, events: list[dict]) -> None:
+	ep_dir.mkdir(parents=True)
+	(ep_dir / "episode.json").write_text(json.dumps({"result": {"verdict": "SUCCESS"}}), encoding="utf-8")
+	(ep_dir / "events.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events), encoding="utf-8")
+
+
+def test_episode_record_detects_s5_perturbations_incl_nudge(tmp_path: Path) -> None:
+	nudge = {"kind": "perturbation", "frame": 100, "perturbation": "post_putdown_nudge", "before_pos_m": [0, 0, 0]}
+	seen = {"kind": "brick_perceived", "frame": 140, "moved": True, "position_m": [0.05, 0, 0]}
+	_write_episode(tmp_path / "a", [nudge, seen])
+	rec = eval_closed_loop._episode_record_from_dir(tmp_path / "a", (1, False, 0))
+	assert rec["has_perturbation"] and rec["perturbation_detected"]
+
+	drop = {"kind": "perturbation", "frame": 50, "perturbation": "mid_carry_drop", "before_pos_m": [0, 0, 0]}
+	_write_episode(tmp_path / "b", [drop, {"kind": "failure", "frame": 80}])
+	assert eval_closed_loop._episode_record_from_dir(tmp_path / "b", (2, True, 1))["perturbation_detected"]
+
+	# A failure BEFORE the perturbation must not count as detecting it.
+	_write_episode(tmp_path / "c", [{"kind": "failure", "frame": 10}, drop])
+	assert not eval_closed_loop._episode_record_from_dir(tmp_path / "c", (3, True, 1))["perturbation_detected"]
+
+	_write_episode(tmp_path / "d", [{"kind": "failure", "frame": 10}])
+	rec = eval_closed_loop._episode_record_from_dir(tmp_path / "d", (4, True, 1))
+	assert not rec["has_perturbation"] and not rec["perturbation_detected"]
