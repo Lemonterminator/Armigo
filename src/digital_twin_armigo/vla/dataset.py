@@ -786,7 +786,7 @@ def vla_collate_fn(batch: list[dict[str, Any]]) -> dict[str, Any]:
 		if torch is not None and isinstance(vals[0], torch.Tensor):
 			out[key] = torch.stack(vals, dim=0)
 		else:
-			out[key] = np.stack(vals, dim=0) if hasattr(np, "stack") else np.array(vals)
+			out[key] = np.stack(vals, axis=0)
 	for key in ("task", "segment_kind", "is_synthesized_zero_frame"):
 		out[key] = [item[key] for item in batch]
 	return out

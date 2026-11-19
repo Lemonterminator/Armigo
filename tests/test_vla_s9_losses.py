@@ -312,6 +312,14 @@ def test_dataset_q_prev_boundary_masking_and_last_valid_fill():
 	s5 = ds[5]
 	assert int(s5["end_step_target"]) == 5
 
+	# Verify numpy vla_collate_fn path works cleanly with return_torch=False (including .venv without torch)
+	np_batch = vla_collate_fn([s0, s2, s3])
+	assert isinstance(np_batch["observation.state"], np.ndarray)
+	assert np_batch["observation.state"].shape == (3, STATE_DIM)
+	assert np_batch["action"].shape == (3, 5, ACTION_DIM)
+	assert np_batch["action_mask"].shape == (3, 5)
+	assert np_batch["end_step_target"].tolist() == [3, 1, 6]
+
 
 def test_zero_frame_let_go_synthesis_and_segment_done_convention():
 	# Includes mid-episode zero-frame let_go AND end-of-episode zero-frame let_go
