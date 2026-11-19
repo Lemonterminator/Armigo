@@ -70,6 +70,23 @@ class EpisodeTrace:
 
 	def start(self, cell):
 		write_json(self.path / "graph.json", {"nodes": NODES, "edges": EDGES})
+		# Scoring only (S6 grader): per-frame contact peaks over the frame's physics substeps, stored next to the
+		# actions of every branch, so collisions can be counted over all attempts. The evaluator's own measure
+		# excludes the jaws; ``contact_jaw_env_n`` is the jaws against the table, bowls and clutter.
+		self.contacts = []
+		self._jaw_env_peak = 0.0
+		cell.substep_observer = lambda: self._substep_contact(cell)
+		cell.frame_observer = self._frame_contact
+
+	def _substep_contact(self, cell):
+		from ..mujoco_cell.episode import jaw_env_contact_force
+
+		self._jaw_env_peak = max(self._jaw_env_peak, jaw_env_contact_force(cell))
+
+	def _frame_contact(self, episode):
+		robot = float(np.max(episode.last("substep_unintended")))
+		self.contacts.append((robot, self._jaw_env_peak))
+		self._jaw_env_peak = 0.0
 
 	def event(self, kind, node, branch, frame, **payload):
 		row = {
@@ -211,17 +228,25 @@ class EpisodeTrace:
 			path = self.path / f"branch-{self.branch}"
 			path.mkdir(exist_ok=True)
 			state, action, phase = zip(*self.rows, strict=True)
+			extra = {}
+			contacts = getattr(self, "contacts", None)
+			if contacts is not None and len(contacts) == len(self.rows):
+				pairs = np.array(contacts, dtype="float32").reshape(-1, 2)
+				extra = {"contact_robot_n": pairs[:, 0], "contact_jaw_env_n": pairs[:, 1]}
 			np.savez_compressed(
 				path / "actions.npz",
 				state=np.array(state, dtype="float32"),
 				action=np.array(action, dtype="float32"),
 				phase=phase,
+				**extra,
 			)
 		self.branches[-1]["actions"] = len(self.rows)
 		for stream in self.streams.values():
 			stream.close()
 		self.streams = {}
 		self.rows = []
+		if getattr(self, "contacts", None) is not None:
+			self.contacts = []
 
 	def finish(self, result, provenance):
 		self._finish_branch()

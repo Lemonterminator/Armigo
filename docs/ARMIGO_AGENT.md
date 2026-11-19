@@ -126,6 +126,20 @@ and fused scores, the effective threshold, and the score margin. These scores ar
 a probability scale. Previously recorded runs show the fused score when the per-head outputs were not collected.
 Any RTX replay is a separate set of images.
 
+Some records are for scoring only, and no skill reads them. Each scored view has a `view_truth` event:
+- the true visible face pixels and cross pixels (`true_cross_px`);
+- the true and believed brick orientation, so the believed face numbering can be aligned to the true one;
+- in `realistic`, the belief error in mm.
+
+Each branch's `actions.npz` also stores two per-frame contact peaks over the frame's physics substeps:
+- `contact_robot_n`: non-jaw links against anything outside the robot (the evaluator's unintended-contact
+  measure);
+- `contact_jaw_env_n`: the jaws against the table, bowls or clutter. The evaluator excludes this contact.
+
+The VLA grader (`agent/vla_grader.py`, `scripts/vla/grade.py RUNS_DIR`) reads these records. Its thresholds
+and expert reference are in `config/vla/grader_reference.json`. Traces recorded before these fields existed
+grade the affected checks as unavailable, never as passed.
+
 ## Motion smoothness
 
 Each episode result carries a `smoothness` block, and the suite report aggregates it. Jerk is the third finite
