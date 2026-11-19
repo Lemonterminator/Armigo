@@ -1,0 +1,58 @@
+"""Armigo VLA student distillation package (plan S9, Data Contract v1)."""
+
+from __future__ import annotations
+
+from .contract import (
+	ACTION_DIM,
+	BOWL_TO_INDEX,
+	BOWL_VOCAB,
+	CONTRACT_VERSION,
+	DEFAULT_HORIZON,
+	FORBIDDEN_DIAGNOSTIC_KEYS,
+	IGNORE_INDEX,
+	INITIAL_Q,
+	POLICY_FIELDS,
+	SEGMENT_FRAME_NORM_MAX,
+	SEGMENT_FRAME_NORM_SCALE,
+	SEGMENT_KIND_TO_INDEX,
+	SEGMENT_KINDS_ORDER,
+	STATE_DIM,
+	STUDENT_CAMERA_NAMES,
+	STUDENT_CAMERAS,
+	ActionNormalizer,
+	assert_no_planner_diagnostics,
+	encode_state,
+	encode_state_from_task,
+	end_step_target_from_segment,
+	policy_inputs_from_segment_dict,
+)
+from .metrics import EvalAccumulator, compute_action_metrics, compute_end_step_metrics, compute_vla_metrics
+
+__all__ = [
+	"ACTION_DIM",
+	"BOWL_TO_INDEX",
+	"BOWL_VOCAB",
+	"CONTRACT_VERSION",
+	"DEFAULT_HORIZON",
+	"FORBIDDEN_DIAGNOSTIC_KEYS",
+	"IGNORE_INDEX",
+	"INITIAL_Q",
+	"POLICY_FIELDS",
+	"SEGMENT_FRAME_NORM_MAX",
+	"SEGMENT_FRAME_NORM_SCALE",
+	"SEGMENT_KINDS_ORDER",
+	"SEGMENT_KIND_TO_INDEX",
+	"STATE_DIM",
+	"STUDENT_CAMERAS",
+	"STUDENT_CAMERA_NAMES",
+	"ActionNormalizer",
+	"EvalAccumulator",
+	"assert_no_planner_diagnostics",
+	"compute_action_metrics",
+	"compute_end_step_metrics",
+	"compute_vla_metrics",
+	"encode_state",
+	"encode_state_from_task",
+	"end_step_target_from_segment",
+	"policy_inputs_from_segment_dict",
+]
