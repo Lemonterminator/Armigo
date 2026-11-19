@@ -801,6 +801,7 @@ class TwinMujoco:
 			agent["camera"] = {"k": np.asarray(self._cam_k).tolist(), "world_from_cam": self._cam_est.tolist()}
 		if self.realistic and directory is not None:
 			agent["empty_bowl_depth"] = self._write_depth_reference(directory)
+		agent = json.loads(json.dumps(agent, allow_nan=False))  # in memory exactly as on disk (tuples become lists)
 		checkpoint = Checkpoint(
 			f"checkpoint-{len(self.checkpoints)}",
 			self.branch,
