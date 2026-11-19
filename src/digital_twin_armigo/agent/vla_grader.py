@@ -11,12 +11,16 @@ Checks:
    reported).
 2. ``decision_crop``: the views behind the label truly show what the label claims. Belief face ids are first mapped
    to true ids by the footprint symmetry (yaw known modulo 90 deg for a 2x2 brick, 180 deg for a 2x4) that best
-   matches the believed brick orientation (:func:`align_view`). Defective: the ``placement_evidence`` view truly shows
-   the defect face and the cross. Normal: every true face is truly visible in a clear view that claims it.
+   matches the believed brick orientation (:func:`align_view`). Defective: the ``placement_evidence`` view's detector
+   crop truly shows the defect face and the cross. Normal: every true face is truly visible in the crop of a clear
+   view that claims it. Pixels are counted in crop space (``truth_crop``: the same bbox, margin, border shift and
+   resize as the colour crop the detector got), never over the whole frame; traces without crop-space truth are
+   ``unavailable``.
 3. ``belief_error``: the believed brick centre is within a bound of the true one at every scored view.
 4. ``collisions``: no frame of any branch (all attempts, recoveries and ``unknown`` episodes included) has a robot
    link or a jaw pressing on the environment (table, bowls, clutter) above a limit. Frames come from the simulator's
-   own steps; no phase is used to open or close a window.
+   own steps; no phase is used to open or close a window. A missing branch file or a contact column that is short,
+   non-finite or negative makes the check ``unavailable``.
 5. ``smoothness``: phase-normalized jerk indices within the expert's 95th percentile (:func:`smoothness_index`).
 
 Thresholds and the expert reference live in ``config/vla/grader_reference.json`` (``scripts/vla/grade.py
@@ -39,8 +43,13 @@ REFERENCE_PATH = ROOT / "config/vla/grader_reference.json"
 CHECKS = ("eligible", "decision_crop", "belief_error", "collisions", "smoothness")
 # Used when no reference file is given or a key is missing. See config/vla/grader_reference.json for the reasons.
 DEFAULT_THRESHOLDS = {
+	# Pixel minimums of the decision crop (crop-space truth, see check_decision_crop). Camera pixels inside the
+	# square the detector crop samples from, i.e. at the camera's own resolution:
 	"min_true_face_px": {"wrist_cam": 800, "top": 400},  # the agent's own WRIST_MIN_PX / BOTTOM_MIN_PX
-	"min_true_cross_px": 25,  # PixelOracleInspector.min_defect_px
+	"min_true_cross_px": 25,  # PixelOracleInspector.min_defect_px / the detector training label's MIN_DEFECT_PX
+	# Pixels of the detector input (crop_size x crop_size, 256 for sup-v7bot): a floor for crops downsampled so far
+	# that 25 camera pixels of cross shrink below what the detector resolves.
+	"min_true_cross_px_input": 10,
 	"max_belief_error_mm": {"wrist_cam": 6.0, "top": 12.0},
 	"max_robot_contact_n": 3.0,  # metrics.evaluate_episode_health unintended_force_limit_N
 	"max_jaw_env_contact_n": 2.0,
@@ -251,7 +260,36 @@ def _alignments(views, truths, events, sensing, layout, thresholds) -> dict[str,
 	return out
 
 
+CROP_TRUTH_KEYS = ("true_face_pixels_crop_native", "true_cross_px_crop_native", "true_cross_px_crop")
+
+
+def crop_truth(view: dict, truth: dict | None) -> tuple[str, str | None]:
+	"""Whether ``truth`` holds usable crop-space truth for ``view``: ``("ok", None)``, ``("unavailable", reason)``
+	(no record, or a trace that predates crop-space truth or carries malformed counts) or ``("fail", reason)`` (the
+	truth was computed for another crop than the one the view records the detector received)."""
+	if truth is None:
+		return "unavailable", "no truth record for the view"
+	meta = truth.get("truth_crop")
+	if not isinstance(meta, dict) or any(k not in truth for k in CROP_TRUTH_KEYS):
+		return "unavailable", "trace predates crop-space truth (truth_crop)"
+	faces = truth["true_face_pixels_crop_native"]
+	counts = [truth["true_cross_px_crop_native"], truth["true_cross_px_crop"], *(faces or [])]
+	if not isinstance(faces, list) or len(faces) != len(FACES) or not all(_count(v) for v in counts):
+		return "unavailable", "malformed crop-space truth"
+	bbox = view.get("crop_bbox")
+	if bbox is None or [int(v) for v in bbox] != [int(v) for v in meta.get("bbox") or []]:
+		return "fail", f"truth was computed for crop {meta.get('bbox')}, the detector got {bbox}"
+	return "ok", None
+
+
+def _count(v) -> bool:
+	return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and v >= 0
+
+
 def check_decision_crop(result, views, truths, alignments, true_label, true_face, thresholds) -> dict:
+	"""Pixel counts come from the crop the detector received (``truth_crop``), never the whole frame: faces and the
+	cross as camera pixels inside the crop's sampling square (``*_crop_native``), the cross also at the detector's
+	input resolution (``true_cross_px_crop``)."""
 	label = result.get("label")
 	by_id = {v["observation"]["id"]: v["observation"] for v in views}
 	if label not in ("defective", "normal"):
@@ -268,49 +306,64 @@ def check_decision_crop(result, views, truths, alignments, true_label, true_face
 		view = by_id.get(evidence_id)
 		if view is None:
 			return {"status": "fail", "reason": "no view triggered the defective label", "view": evidence_id}
+		if true_face is None:
+			return {"status": "unavailable", "reason": "true defect face unknown", "view": evidence_id}
 		truth = truths.get(evidence_id)
-		if truth is None and evidence_id not in alignments:
-			return {"status": "unavailable", "reason": "no truth record for the decision view", "view": evidence_id}
-		true_px = (truth or {"true_face_pixels": view["face_pixels"]})["true_face_pixels"]
-		face_px = int(true_px[true_face])
+		status, why = crop_truth(view, truth)
+		out = {
+			"view": evidence_id,
+			"defect_face": true_face,
+			"true_cross_px_frame": None if truth is None else truth.get("true_cross_px"),
+		}
+		if status != "ok":
+			return {"status": status, "reason": why, **out}
+		face_px = int(truth["true_face_pixels_crop_native"][true_face])
+		cross_native, cross_input = int(truth["true_cross_px_crop_native"]), int(truth["true_cross_px_crop"])
+		out |= {
+			"true_face_px_crop_native": face_px,
+			"true_cross_px_crop_native": cross_native,
+			"true_cross_px_crop": cross_input,
+			"crop_size": truth["truth_crop"].get("size"),
+		}
 		min_face = thresholds["min_true_face_px"][view["camera"]]
-		cross_px = None if truth is None else truth.get("true_cross_px")
-		out = {"view": evidence_id, "defect_face": true_face, "true_face_px": face_px, "true_cross_px": cross_px}
 		if face_px < min_face:
-			return {"status": "fail", "reason": f"decision view shows {face_px} px of face {true_face}", **out}
-		if cross_px is None:
-			return {
-				"status": "unavailable",
-				"reason": "cross pixels not recorded (trace predates true_cross_px)",
-				**out,
-			}
-		if cross_px < thresholds["min_true_cross_px"]:
-			return {"status": "fail", "reason": f"decision view shows {cross_px} px of the cross", **out}
+			return {"status": "fail", "reason": f"decision crop shows {face_px} px of face {true_face}", **out}
+		if cross_native < thresholds["min_true_cross_px"]:
+			return {"status": "fail", "reason": f"decision crop shows {cross_native} camera px of the cross", **out}
+		if cross_input < thresholds["min_true_cross_px_input"]:
+			return {"status": "fail", "reason": f"decision crop shows {cross_input} input px of the cross", **out}
 		return {"status": "pass", "reason": None, **out}
 	covered: set[int] = set()
 	false_claims = []
 	missing_truth = []
+	wrong_crop = []
 	for vid in result.get("evidence", []):
 		view = by_id.get(vid)
 		if view is None or view["score"] is None or not view["faces"] or _positive(view):
 			continue
 		a = alignments.get(vid)
-		if a is None:
+		status, why = crop_truth(view, truths.get(vid))
+		if status == "fail":
+			wrong_crop.append({"view": vid, "reason": why})
+			continue
+		if a is None or status != "ok":
 			missing_truth.append(vid)
 			continue
-		true_px = (truths.get(vid) or {"true_face_pixels": view["face_pixels"]})["true_face_pixels"]
+		true_px = truths[vid]["true_face_pixels_crop_native"]
 		min_px = thresholds["min_true_face_px"][view["camera"]]
 		for f in a["aligned_faces"]:
 			if true_px[f] >= min_px:
 				covered.add(f)
 			else:
-				false_claims.append({"view": vid, "true_face": f, "true_px": int(true_px[f])})
+				false_claims.append({"view": vid, "true_face": f, "true_px_crop_native": int(true_px[f])})
 	out = {"truly_cleared": sorted(covered), "false_claims": false_claims}
+	if wrong_crop:
+		return {"status": "fail", "reason": "truth computed for another crop", "views": wrong_crop, **out}
 	if missing_truth:
-		return {"status": "unavailable", "reason": "views without truth record", "views": missing_truth, **out}
+		return {"status": "unavailable", "reason": "views without crop-space truth", "views": missing_truth, **out}
 	missing = sorted(set(range(6)) - covered)
 	if missing:
-		return {"status": "fail", "reason": f"faces {missing} never truly shown in a clear view", **out}
+		return {"status": "fail", "reason": f"faces {missing} never truly shown in a clear view's crop", **out}
 	return {"status": "pass", "reason": None, **out}
 
 
@@ -318,10 +371,14 @@ def _positive(view: dict) -> bool:
 	return view["score"] is not None and view["score"] >= view["threshold"]
 
 
-def check_belief_error(views, truths, sensing, thresholds) -> dict:
+def check_belief_error(views, truths, sensing, thresholds, *, sensing_inferred: bool = False) -> dict:
 	scored = [v["observation"] for v in views if v["observation"]["score"] is not None]
 	if sensing != "realistic":
+		if sensing_inferred:
+			return {"status": "unavailable", "reason": "sensing mode not recorded (inferred truth)"}
 		return {"status": "pass", "reason": "faces and crops computed on the simulator brick", "views": len(scored)}
+	if not scored:
+		return {"status": "unavailable", "reason": "no scored view", "views": 0}
 	errors = []
 	for view in scored:
 		truth = truths.get(view["id"])
@@ -329,27 +386,62 @@ def check_belief_error(views, truths, sensing, thresholds) -> dict:
 			return {"status": "unavailable", "reason": f"no truth record for view {view['id']}"}
 		errors.append((view["id"], view["camera"], truth.get("belief_error_mm")))
 	over = [
-		{"view": i, "error_mm": e} for i, cam, e in errors if e is None or e > thresholds["max_belief_error_mm"][cam]
+		{"view": i, "error_mm": e}
+		for i, cam, e in errors
+		if not _finite(e) or e > thresholds["max_belief_error_mm"][cam]  # no belief, or NaN: not within the bound
 	]
-	values = [e for _, _, e in errors if e is not None]
+	values = [e for _, _, e in errors if _finite(e)]
 	out = {"views": len(errors), "max_error_mm": max(values) if values else None, "over": over}
 	return {"status": _status(not over), "reason": f"{len(over)} views over the bound" if over else None, **out}
 
 
-def _branches(path: Path, manifest: dict):
+def _finite(v) -> bool:
+	return isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v)
+
+
+def load_branches(path: Path, manifest: dict) -> tuple[list[tuple[dict, dict]], list[str]]:
+	"""``(branches, problems)``: the arrays of every manifest branch that recorded actions, and why the record is
+	incomplete. Every branch with a non-zero action count must have an ``actions.npz`` whose ``action``, ``state``
+	and ``phase`` have that many rows, ``action`` and ``state`` finite; a problem makes the checks that read the
+	frames ``unavailable``."""
+	loaded, problems = [], []
 	for branch in manifest.get("branches", []):
+		n = branch.get("actions")
+		if n == 0:
+			continue
 		file = path / f"branch-{branch['id']}" / "actions.npz"
-		if branch.get("actions", 1) and file.exists():
-			with np.load(file, allow_pickle=False) as z:
-				yield branch, {k: z[k] for k in z.files}
+		if n is None:
+			problems.append(f"branch {branch['id']}: manifest has no action count")
+			continue
+		if not file.exists():
+			problems.append(f"branch {branch['id']}: actions.npz missing for {n} actions")
+			continue
+		with np.load(file, allow_pickle=False) as z:
+			arrays = {k: z[k] for k in z.files}
+		for key in ("action", "state", "phase"):
+			if key not in arrays:
+				problems.append(f"branch {branch['id']}: no {key}")
+			elif len(arrays[key]) != n:
+				problems.append(f"branch {branch['id']}: {len(arrays[key])} {key} rows for {n} actions")
+			elif key != "phase" and not np.isfinite(arrays[key]).all():
+				problems.append(f"branch {branch['id']}: non-finite {key}")
+		loaded.append((branch, arrays))
+	if not manifest.get("branches"):
+		problems.append("manifest lists no branch")
+	return loaded, problems
 
 
 def check_collisions(path: Path, manifest: dict, result: dict, thresholds: dict) -> dict:
+	"""Strict over the record: every branch with actions must be present, and both contact columns must hold one
+	finite, non-negative peak per action frame; anything less is ``unavailable``."""
 	robot_limit, jaw_limit = thresholds["max_robot_contact_n"], thresholds["max_jaw_env_contact_n"]
 	frames = robot_hits = jaw_hits = 0
 	peaks = [0.0, 0.0]
 	first = []
-	for branch, z in _branches(path, manifest):
+	branches, problems = load_branches(path, manifest)
+	if problems:
+		return {"status": "unavailable", "reason": "incomplete action record", "problems": problems}
+	for branch, z in branches:
 		if "contact_robot_n" not in z or "contact_jaw_env_n" not in z:
 			health = result.get("health") or {}
 			return {
@@ -358,7 +450,16 @@ def check_collisions(path: Path, manifest: dict, result: dict, thresholds: dict)
 				"evaluator_unintended_collisions": health.get("unintended_collision_count"),
 				"evaluator_ran": bool(health),
 			}
-		robot, jaw = z["contact_robot_n"], z["contact_jaw_env_n"]
+		robot = np.asarray(z["contact_robot_n"], dtype=np.float64)
+		jaw = np.asarray(z["contact_jaw_env_n"], dtype=np.float64)
+		n = branch["actions"]
+		for name, col in (("contact_robot_n", robot), ("contact_jaw_env_n", jaw)):
+			if col.ndim != 1 or len(col) != n:
+				problems.append(f"branch {branch['id']}: {name} has shape {col.shape} for {n} actions")
+			elif not (np.isfinite(col).all() and (col >= 0).all()):
+				problems.append(f"branch {branch['id']}: {name} not finite and non-negative")
+		if problems:
+			return {"status": "unavailable", "reason": "incomplete contact record", "problems": problems}
 		frames += len(robot)
 		hit_r, hit_j = robot > robot_limit, jaw > jaw_limit
 		robot_hits += int(hit_r.sum())
@@ -380,11 +481,15 @@ def check_collisions(path: Path, manifest: dict, result: dict, thresholds: dict)
 	return {"status": _status(ok), "reason": None if ok else "contact above limit", **out}
 
 
-def phase_jerk(path: Path, manifest: dict) -> dict[str, tuple[int, float, float]]:
+def phase_jerk(path: Path, manifest: dict, branches=None) -> dict[str, tuple[int, float, float]]:
 	"""Per phase over all branches: ``(frames, commanded jerk sum of squares, measured jerk sum of squares)`` of the
 	arm joints (0-4), jerk as the third finite difference of the target and of the joint reading (rad/s^3)."""
 	acc: dict[str, list] = {}
-	for _, z in _branches(path, manifest):
+	if branches is None:
+		branches, _ = load_branches(path, manifest)
+	for _, z in branches:
+		if not {"action", "state", "phase"} <= z.keys():
+			continue
 		if len(z["action"]) < 4:
 			continue
 		jc = np.diff(z["action"][:, :5].astype(np.float64), 3, axis=0) * FPS**3
@@ -420,10 +525,17 @@ def check_smoothness(path: Path, manifest: dict, reference: dict) -> dict:
 	smooth = reference.get("smoothness")
 	if not smooth:
 		return {"status": "unavailable", "reason": "no expert smoothness reference"}
-	per_phase = phase_jerk(path, manifest)
+	branches, problems = load_branches(path, manifest)
+	if problems:
+		return {"status": "unavailable", "reason": "incomplete action record", "problems": problems}
+	per_phase = phase_jerk(path, manifest, branches)
+	if not per_phase:
+		return {"status": "unavailable", "reason": "no branch with enough frames for a jerk"}
 	index = smoothness_index(per_phase, smooth["phase_median_rms"])
 	if index is None:
 		return {"status": "unavailable", "reason": "a phase has no expert reference"}
+	if not all(math.isfinite(v) for v in index.values()):
+		return {"status": "unavailable", "reason": "non-finite jerk index"}
 	over = {k: round(v, 4) for k, v in index.items() if v > smooth["p95"][k]}
 	out = {k: round(v, 4) for k, v in index.items()} | {"p95": smooth["p95"]}
 	return {"status": _status(not over), "reason": f"above expert p95: {sorted(over)}" if over else None, **out}
@@ -444,6 +556,7 @@ def grade(episode_dir: str | Path, reference: dict | None = None, *, rebuild_lay
 	task = _read_json(path / "task.json")
 	true_label, true_face, cls = episode_class(audit, task)
 	sensing = _sensing(manifest, events)
+	sensing_inferred = not (manifest.get("provenance") or {}).get("sensing")
 	views = [e for e in events if e["kind"] == "view"]
 	truths = {e["id"]: e for e in events if e["kind"] == "view_truth"}
 	needs_layout = (
@@ -456,7 +569,7 @@ def grade(episode_dir: str | Path, reference: dict | None = None, *, rebuild_lay
 	checks = {
 		"eligible": check_eligible(result),
 		"decision_crop": check_decision_crop(result, views, truths, alignments, true_label, true_face, thresholds),
-		"belief_error": check_belief_error(views, truths, sensing, thresholds),
+		"belief_error": check_belief_error(views, truths, sensing, thresholds, sensing_inferred=sensing_inferred),
 		"collisions": check_collisions(path, manifest, result, thresholds),
 		"smoothness": check_smoothness(path, manifest, reference),
 	}
@@ -532,6 +645,17 @@ def summarize(grades: list[dict]) -> dict:
 		"raw_mismatches": sum(not a["raw_match"] for a in views),
 		"aligned_mismatches": sum(not a["aligned_match"] for a in views),
 		"methods": {m: sum(a["method"] == m for a in views) for m in sorted({a["method"] for a in views})},
+	}
+	crops = [g["checks"]["decision_crop"] for g in grades if g.get("label") == "defective"]
+	native = [c["true_cross_px_crop_native"] for c in crops if "true_cross_px_crop_native" in c]
+	out["defective_decision_crops"] = {
+		"episodes": len(crops),
+		"with_crop_truth": len(native),
+		"cross_in_crop": sum(n > 0 for n in native),
+		"check_passed": sum(c["status"] == "pass" for c in crops),
+		"cross_in_frame_only": sum(
+			1 for c in crops if c.get("true_cross_px_crop_native") == 0 and (c.get("true_cross_px_frame") or 0) > 0
+		),
 	}
 	out["unavailable"] = {c: sum(c in g["unavailable"] for g in grades) for c in CHECKS}
 	out["failed"] = {c: sum(g["checks"][c]["status"] == "fail" for g in grades) for c in CHECKS}

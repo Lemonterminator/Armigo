@@ -487,6 +487,23 @@ class Cell:
 			"bbox": bbox,
 		}
 
+	def visibility_labels(self, camera: str, data=None) -> tuple[np.ndarray, np.ndarray]:
+		"""Per-pixel ``(face, defect)`` of ``camera``'s full frame, exactly as :meth:`face_visibility` counts them:
+		the face id (-1 off the face probes) and the defect-cross mask, arm occlusion included. Summing them over
+		the frame gives ``face_visibility``'s ``faces`` and ``defect``; resampling them like an image crop gives what
+		that crop shows."""
+		if not self.has_face_probes:
+			raise RuntimeError("visibility_labels needs a Cell built with face_probes=True")
+		d = self.data if data is None else data
+		self.renderer.enable_segmentation_rendering()
+		try:
+			self.renderer.update_scene(d, camera, scene_option=self._all_groups)
+			seg = self.renderer.render()
+		finally:
+			self.renderer.disable_segmentation_rendering()
+		geom = _drop_specks(np.where(seg[..., 1] == self._obj_geom, seg[..., 0], -1), self._is_brick)
+		return self._face_of[geom], self._is_defect[geom]
+
 	def robot_min_z(self, data=None) -> float:
 		"""Lowest point of the moving links' collision geometry (oriented bounding boxes), metres above the table;
 		of ``data`` (another ``MjData`` of this model) when given."""
