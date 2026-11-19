@@ -89,7 +89,8 @@ def test_recorded_camera_observation_precedes_its_action_and_rewound_trace_is_re
 	episode = tmp_path / "episode"
 	branch = episode / "branch-0"
 	branch.mkdir(parents=True)
-	result = {"verdict": "SUCCESS", "student_eligible": True, "rewinds": 0}
+	# An in-place retry keeps one continuous branch, so it stays exportable (a recovery demonstration).
+	result = {"verdict": "SUCCESS", "student_eligible": True, "rewinds": 0, "retries": 1}
 	manifest = {
 		"schema": "armigo-agent-episode/v1",
 		"video": True,
@@ -99,7 +100,9 @@ def test_recorded_camera_observation_precedes_its_action_and_rewound_trace_is_re
 		"fps": 30,
 	}
 	(episode / "episode.json").write_text(json.dumps(manifest))
-	np.savez(branch / "actions.npz", state=np.zeros((2, 6)), action=np.ones((2, 6)))
+	# wrist_roll 2.8 rad lies outside the Studio [-100, 100] range; radians are exported unchanged.
+	action = np.array([[0.1, -0.2, 0.3, -0.4, 2.8, 1.0]] * 2, dtype=np.float32)
+	np.savez(branch / "actions.npz", state=np.zeros((2, 6)), action=action)
 	for name in CAMERAS:
 		shape = (TOP_FULL[1], TOP_FULL[0], 3) if name == "top_rgb" else (2, 2, 3)
 		video = Video(branch / f"{name}.mkv", shape, lossless=True)
@@ -108,6 +111,8 @@ def test_recorded_camera_observation_precedes_its_action_and_rewound_trace_is_re
 		video.close()
 	rows = list(student_frames(episode))
 	assert len(rows) == 2
+	assert np.array_equal(rows[0]["action"], action[0]) and rows[0]["action"].dtype == np.float32
+	assert np.array_equal(rows[1]["observation.state"], np.zeros(6))
 	assert np.all(rows[0]["observation.images.top_rgb_v2"] == 25)
 	assert np.all(rows[1]["observation.images.wrist"] == 37)
 	assert rows[0]["task"] == rows[1]["task"] == TASK

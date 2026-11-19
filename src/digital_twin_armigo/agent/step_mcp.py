@@ -181,7 +181,7 @@ class StepSession:
 			"budget": {
 				"wrist_scans_left": self.policy.max_wrist_views - b.wrist_count,
 				"bottom_views_left": self.policy.max_bottom_views - b.bottom_count,
-				"recoveries_left": self.policy.max_rewinds - b.rewinds,
+				"recoveries_left": self.policy.max_rewinds - b.recoveries,
 			},
 			"holding_brick": b.held is not None,
 			"placed": self.placed,
@@ -609,7 +609,16 @@ def main_step(a, cases):
 				"episodes_detail": [
 					{
 						k: r[k]
-						for k in ("case", "verdict", "label", "label_correct", "rewinds", "agent_steps", "sim_frames")
+						for k in (
+							"case",
+							"verdict",
+							"label",
+							"label_correct",
+							"rewinds",
+							"retries",
+							"agent_steps",
+							"sim_frames",
+						)
 					}
 					| {"failures": [f["code"] for f in r["failures"]]}
 					for r in results

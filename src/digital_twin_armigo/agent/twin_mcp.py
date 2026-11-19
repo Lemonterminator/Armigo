@@ -522,6 +522,7 @@ class TwinService:
 				"destination",
 				"active_branch",
 				"rewinds",
+				"retries",
 				"failures",
 				"active_views",
 				"views",
@@ -564,6 +565,7 @@ def aggregate(results):
 		"sim_frames": sum(x["sim_frames"] for x in results),
 		"views": sum(x["views"] for x in results),
 		"rewinds": sum(x["rewinds"] for x in results),
+		"retries": sum(x.get("retries", 0) for x in results),
 		"failures": [{"code": code, "count": count} for code, count in sorted(failures.items())],
 		"smoothness": aggregate_smoothness([x.get("smoothness") or {} for x in results]),
 	}

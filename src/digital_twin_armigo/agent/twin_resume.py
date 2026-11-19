@@ -2,13 +2,15 @@
 
 What is restored (all read from the parent episode directory, plus the LangGraph SQLite thread when present):
 
-* MuJoCo integration state, command filter (latency queue, backlash) and relocate-expert scalars, exactly as
-  ``TwinMujoco.rewind`` restores them in memory: the brick is on the table, the gripper is open, the arm is at a
-  ready pose;
+* MuJoCo integration state, command filter (latency queue, backlash), relocate-expert scalars and, for a checkpoint
+  taken while the brick is held, the lift pose, grasp roll and believed grip-from-brick transform, as
+  ``TwinMujoco.restore_checkpoint`` restores them in memory (the first resumed observation reads no telemetry row,
+  so it is exact only in-process);
 * the live checkpoint list (rewind targets), reconstructed by replaying ``checkpoint``/``rewound`` events, so the
   resumed run can still rewind to an earlier boundary;
 * the graph state ``views`` (from the checkpoint) and ``failures`` (from the saved LangGraph thread);
-* ``branch``/``rewinds`` (a branch id equals the rewind count) and the wrist/bottom view counters.
+* ``branch``/``rewinds`` (a branch id equals the rewind count), ``retries`` (in-place recoveries, which share the
+  recovery budget) and the wrist/bottom view counters.
 
 What is not restored: telemetry rows and video of the parent run (the resumed trace starts at the checkpoint, its
 physical-health verdict covers only the resumed segment, ``active_frames`` restarts at 0 and ``sim_frames`` restarts
@@ -87,10 +89,11 @@ def load_plan(parent_dir, *, saver=None, parent_job_id=None):
 
 
 def restore(backend, plan):
-	"""Put a freshly built ``TwinMujoco`` at the plan's latest checkpoint (mirrors ``TwinMujoco.rewind``)."""
+	"""Put a freshly built ``TwinMujoco`` at the plan's latest checkpoint (mirrors ``TwinMujoco.restore_checkpoint``)."""
 	ck = plan.latest
 	backend.restore_state(ck)
 	backend.branch = backend.rewinds = ck.branch
+	backend.retries = ck.retries
 	backend.total_frames = ck.frame
 	backend.checkpoints = list(plan.checkpoints)
 	backend.record.restored(backend.cell)

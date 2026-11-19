@@ -101,6 +101,7 @@ def cmd_episodes(a, passthrough: list[str]) -> dict:
 		"labels_correct": report["labels_correct"],
 		"unknown": report["unknown"],
 		"rewinds": report["rewinds"],
+		"retries": report.get("retries", 0),
 		"sim_frames": report["sim_frames"],
 		"failures": report["failures"],
 		**summarise_decisions(out),

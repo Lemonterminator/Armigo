@@ -12,7 +12,7 @@ import cv2
 import numpy as np
 
 from ..constants import FPS, STATE_NAMES, TOP_CROP
-from ..joints import rad_to_normalized
+from ..joints import joint_normalization
 from .twin_graph import EDGES, NODES, TASK
 
 CAMERAS = ("front", "wrist", "top_rgb", "top_depth")
@@ -247,7 +247,8 @@ class EpisodeTrace:
 
 
 def student_frames(episode: Path):
-	"""Yield only contiguous, successful unrewound samples for the LeRobot exporter."""
+	"""Yield only contiguous, successful unrewound samples for the LeRobot exporter. In-place retries are allowed
+	(one continuous branch: a recovery demonstration); a physics rewind is not. Joints are in radians."""
 	from contextlib import ExitStack
 
 	episode = Path(episode)
@@ -273,8 +274,8 @@ def student_frames(episode: Path):
 		}
 		for row_index, (state, action) in enumerate(zip(rows["state"], rows["action"], strict=True)):
 			frame = {
-				"observation.state": rad_to_normalized(state),
-				"action": rad_to_normalized(action),
+				"observation.state": np.asarray(state, dtype=np.float32),
+				"action": np.asarray(action, dtype=np.float32),
 				"task": TASK,
 			}
 			for name, reader in readers.items():
@@ -335,7 +336,8 @@ def export_lerobot(episodes: list[Path], out: Path, repo_id: str):
 		{
 			"schema": "armigo-student-provenance/v1",
 			"episodes": [{"episode_index": i, "source": path.name} for i, path in enumerate(episodes)],
-			"sampling": "pre-action RGB and proprioception; next policy command; Studio normalized joint units",
+			"sampling": "pre-action RGB and proprioception; next policy command; joint angles in radians",
+			"joint_units": joint_normalization(STATE_NAMES),
 			"decision_camera": "top_full or wrist at recorded frame index",
 		},
 	)
