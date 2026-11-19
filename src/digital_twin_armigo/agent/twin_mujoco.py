@@ -29,7 +29,7 @@ from ..mujoco_cell._mj import mujoco
 from ..mujoco_cell.episode import PhysicsEpisode, observe
 from ..mujoco_cell.handeye_rig import calibrate_layout
 from ..mujoco_cell.inspection_planning import path_min_z
-from ..mujoco_cell.inspection_views import capture_view, detector_crop
+from ..mujoco_cell.inspection_views import DETECTOR_PAD, capture_view, crop_counts, detector_crop
 from ..mujoco_cell.layout import sample_layout
 from ..mujoco_cell.orbit_scan import OrbitParams, plan_orbit_scan
 from ..mujoco_cell.physics_expert import MIN_JERK_PEAK_RATIO, ExpertParams, _min_jerk
@@ -452,6 +452,19 @@ class ContinuousCarryExpert(RelocateExpert):
 		yield q_to.copy(), phase
 
 
+def with_believed_brick_size(expert_type: type, size) -> type:
+	"""Subclass of the expert class ``expert_type`` whose brick extents (grasp band and axes, put-down and release
+	heights) come from ``size()``, the believed size, instead of the simulator's brick."""
+
+	class BelievedSizeExpert(expert_type):
+		@property
+		def size(self):
+			return size()
+
+	BelievedSizeExpert.__name__ = BelievedSizeExpert.__qualname__ = f"BelievedSize{expert_type.__name__}"
+	return BelievedSizeExpert
+
+
 class TwinMujoco:
 	"""The six-face skills on one simulated cell.
 
@@ -461,6 +474,9 @@ class TwinMujoco:
 	- the top camera is hand-eye calibrated before the episode, and the brick and both bowls are located in its images;
 	- a carried brick is believed to move rigidly with the gripper from the grasp on;
 	- planners and the detector crop see the believed brick (the simulated one is moved there while they run);
+	- the brick's size class (2x2 or 2x4) is read from the perceived top-face footprint, and every planner that needs
+	  the brick's extents (grasp axes and band, orbit ring, held-brick table clearance, put-down and release heights)
+	  uses it instead of the simulator's brick size;
 	- the expert's contact signals come from the gripper position and effort (.sensing), and brick speed reads zero;
 	- a placement is checked by the top camera (depth against an empty-bowl image);
 	- a failure is recovered from the current state (park or drop, relocate the brick) instead of a physics rewind;
@@ -527,6 +543,7 @@ class TwinMujoco:
 				raise ValueError("realistic sensing does not perceive clutter: use a layout without clutter")
 			self.bowl_clearance = PerceivedBowlClearance(self.cell, self.bowls)
 			self.expert_type = with_perceived_bowl_clearance(self.expert_type, self.bowl_clearance)
+			self.expert_type = with_believed_brick_size(self.expert_type, self._believed_brick_size)
 		self.expert = self.expert_type(
 			self.cell, INITIAL_Q, self._expert_xy, ExpertParams(), RelocateParams(do_bottom=False, do_scan=False)
 		)
@@ -552,6 +569,7 @@ class TwinMujoco:
 		if self.realistic and self.perception is None:
 			self.perception = PerceptionCfg.realistic()
 		self.brick_est = None
+		self._perceived_size = None  # realistic: the size class of the last brick perception (kept after a release)
 		self._belief_obs = False
 		self._grip_from_brick = None  # realistic: the carried brick in the gripper frame, believed at the grasp
 		self._expected_yaw = None  # realistic: yaw the brick should show after the agent put it down itself
@@ -611,6 +629,19 @@ class TwinMujoco:
 			return self.brick_est.pos.copy(), self.brick_est.quat_xyzw()
 		return None
 
+	def _believed_brick_size(self) -> tuple[float, float, float]:
+		"""Brick extents the realistic planners use: the size class perception read from the top-face footprint
+		(``locate_brick``), never the simulator's brick."""
+		if self.brick_est is not None:
+			return tuple(self.brick_est.size)
+		if self._perceived_size is not None:
+			return self._perceived_size
+		raise RuntimeError("realistic planning needs the brick's size: no brick perception yet")
+
+	def _plan_brick_size(self):
+		"""``brick_size`` for the planners: the believed size in ``realistic``; None (the simulator's) in ``truth``."""
+		return self._believed_brick_size() if self.realistic else None
+
 	def _table_belief_tf(self) -> np.ndarray:
 		est = self.brick_est
 		tf = np.eye(4)
@@ -645,6 +676,7 @@ class TwinMujoco:
 			est.yaw += period * round((self._expected_yaw - est.yaw) / period)
 			self._expected_yaw = None
 		self.brick_est = est
+		self._perceived_size = tuple(est.size)
 		# Truth is logged for scoring only; nothing in the agent reads it back.
 		rot = self.cell.data.xmat[self.cell.brick_body].reshape(3, 3)
 		true_yaw = math.atan2(rot[1, 0], rot[0, 0])
@@ -1034,8 +1066,6 @@ class TwinMujoco:
 		rgb = cell.rgb(camera)
 		if self.realistic:
 			# Visible faces and the crop come from the believed brick; the image is the real one.
-			with blind_geometry(cell):
-				true_faces = capture_view(cell, camera).faces_px
 			with self._belief(), blind_geometry(cell):
 				geometry = capture_view(cell, camera)
 				image, bbox = detector_crop(cell, camera, None, cell.data, self.crop_size, clamp=True, rgb=rgb)
@@ -1090,10 +1120,34 @@ class TwinMujoco:
 			"crop_bbox": bbox,
 		}
 		self.record.view(view, rgb, image)
-		# Scoring only (S6 grader): true visible faces and cross pixels, and the true and believed brick orientation
-		# so the grader can map the believed face numbering (yaw known modulo the footprint symmetry) to the true one.
+		# Scoring only (S6 grader): the true visible faces and cross, over the whole frame and inside the crop the
+		# detector actually received (same bbox, margin, border shift and nearest-neighbour resize), and the true and
+		# believed brick orientation so the grader can map the believed face numbering (yaw known modulo the
+		# footprint symmetry) to the true one. Faces are counted with the cross hidden, the cross with it shown.
 		true_quat = cell.brick_quat_xyzw()
-		true_cross = int(capture_view(cell, camera).defect_px)  # cross geoms left visible
+		with blind_geometry(cell):
+			true_face_map, _ = cell.visibility_labels(camera)
+		cross_face_map, true_cross_map = cell.visibility_labels(camera)
+		true_faces = np.bincount(true_face_map[true_face_map >= 0], minlength=len(geometry.faces_px))
+		crop_truth = {}
+		if bbox is not None:
+			faces_crop = crop_counts(true_face_map, true_cross_map, bbox, self.crop_size, DETECTOR_PAD, clamp=True)
+			cross_crop = crop_counts(cross_face_map, true_cross_map, bbox, self.crop_size, DETECTOR_PAD, clamp=True)
+			crop_truth = {
+				"true_face_pixels_crop": faces_crop["faces_input"],
+				"true_face_pixels_crop_native": faces_crop["faces_native"],
+				"true_cross_px_crop": cross_crop["cross_input"],
+				"true_cross_px_crop_native": cross_crop["cross_native"],
+				"truth_crop": {
+					"bbox": [int(v) for v in bbox],
+					"size": int(self.crop_size),
+					"pad": DETECTOR_PAD,
+					"clamp": True,
+					"frame_hw": [int(v) for v in true_face_map.shape],
+					"region": faces_crop["region"],
+					"input_px_per_native_px": faces_crop["input_px_per_native_px"],
+				},
+			}
 		if self.realistic:
 			belief = self._brick_belief()
 			belief_err = (
@@ -1101,13 +1155,14 @@ class TwinMujoco:
 			)
 			belief_quat = None if belief is None else [round(float(v), 6) for v in belief[1]]
 		else:  # faces and crop were computed on the simulator's brick
-			true_faces, belief_err, belief_quat = geometry.faces_px, None, [round(float(v), 6) for v in true_quat]
+			belief_err, belief_quat = None, [round(float(v), 6) for v in true_quat]
 		self.event(
 			"view_truth",
 			id=view["id"],
 			true_face_pixels=[int(v) for v in true_faces],
 			belief_error_mm=belief_err,
-			true_cross_px=true_cross,
+			true_cross_px=int(np.count_nonzero(true_cross_map)),
+			**crop_truth,
 			true_brick_quat_xyzw=[round(float(v), 6) for v in true_quat],
 			belief_brick_quat_xyzw=belief_quat,
 		)
@@ -1127,7 +1182,9 @@ class TwinMujoco:
 				self.expert.kin.data.qpos[:] = self.cell.data.qpos
 			# Sample the swept arm and bowl/clutter clearance in addition to table height.
 			qs = [first + a * (last - first) for a in np.linspace(0, 1, 10)]
-			return path_min_z(self.cell, first, last, carried=held) >= 0.015 and self.expert._clearance(qs) >= 0
+			size = self._plan_brick_size() if held else None
+			low = path_min_z(self.cell, first, last, carried=held, brick_size=size)
+			return low >= 0.015 and self.expert._clearance(qs) >= 0
 
 	def _park_held(self):
 		q_lift, roll = self.held
@@ -1217,6 +1274,7 @@ class TwinMujoco:
 				params=ORBIT_ATTEMPTS[attempt],
 				faces=need,
 				min_px=WRIST_MIN_PX,
+				brick_size=self._plan_brick_size(),
 			)
 		reached = {f for v in plan.views for f in need if v.faces_px[f] >= WRIST_MIN_PX}
 		if plan.views and reached == set(need):
@@ -1269,6 +1327,7 @@ class TwinMujoco:
 				seed=self.recoveries * 71 + self.bottom_count - 1,
 				clearance=lambda q: self._straight_clear(ex.last, q, held=True),
 				border_px=BOTTOM_BORDER_PX if self.realistic else 0,
+				brick_size=self._plan_brick_size(),
 			)
 		if candidate is None or candidate.faces_px[5] < BOTTOM_MIN_PX:
 			self.event("view_unavailable", camera="top", reason="NO_BOTTOM_PATH")

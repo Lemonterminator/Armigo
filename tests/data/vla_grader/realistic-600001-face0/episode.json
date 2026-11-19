@@ -40,6 +40,7 @@
     "destination": "pink",
     "active_branch": 0,
     "rewinds": 0,
+    "retries": 0,
     "recovery_variants": [],
     "failures": [],
     "active_views": 2,
