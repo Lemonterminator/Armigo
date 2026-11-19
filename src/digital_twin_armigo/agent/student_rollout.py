@@ -181,6 +181,23 @@ class _SegmentMixin:
 		self._open_segment: dict | None = None
 		self._scan_steps: list = []
 
+	def _checkpoint_extra(self):
+		"""Segment rows and lift poses so far (a resumed episode continues the segment ids)."""
+		if self._open_segment is not None:
+			raise RuntimeError("checkpoint inside a segment")
+		return {
+			"rows": [{k: v for k, v in row.items() if k != "segment"} for row in self.segments],
+			"lift_poses": [np.asarray(q, dtype=np.float64).tolist() for q in self.lift_poses],
+		}
+
+	def _restore_extra(self, extra):
+		if extra is None:
+			return
+		self.segments = [{**row, "segment": Segment(row["kind"], row["params"])} for row in extra["rows"]]
+		self.lift_poses = [np.array(q, dtype=np.float64) for q in extra["lift_poses"]]
+		self._open_segment = None
+		self.record.segment = -1
+
 	def _scan_plan(self, previous, attempt):
 		steps, mode, extra = super()._scan_plan(previous, attempt)
 		self._scan_steps, self._scan_mode = steps, mode
@@ -432,8 +449,9 @@ class StudentTwin(_SegmentMixin, TwinMujoco):
 		error = self.run_segment(segs["lift"])
 		if error:
 			return error
-		# The held lift pose (base of the show, park and place moves) is where the lift ended.
-		self.held = (ex.last.copy(), None)
+		# The held lift pose (base of the show, park and place moves) is where the lift ended. The grasp roll is the
+		# wrist-roll command the brick was grasped and lifted with (the expert's lift pose has q[4] = its grasp roll).
+		self.held = (ex.last.copy(), float(ex.last[4]))
 		self.lift_poses.append(ex.last.copy())
 		return None
 
