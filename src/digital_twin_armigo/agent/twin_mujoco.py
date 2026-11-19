@@ -717,7 +717,8 @@ class TwinMujoco:
 				np.linalg.norm(est.pos[:2] - park_xy) > RETRY_MOVED_M
 				or (park_yaw is not None and yaw_error_deg(est.yaw, park_yaw, est.size) > RETRY_MOVED_DEG)
 			)
-			parked_info = {"moved": moved, "moved_mm": moved_mm}
+			if self._s5_active():
+				parked_info = {"moved": moved, "moved_mm": moved_mm}
 		# Truth is logged for scoring only; nothing in the agent reads it back.
 		rot = self.cell.data.xmat[self.cell.brick_body].reshape(3, 3)
 		true_yaw = math.atan2(rot[1, 0], rot[0, 0])
@@ -817,6 +818,11 @@ class TwinMujoco:
 			obs["brick_pos"] = self.brick_est.pos.copy()
 			obs["brick_quat"] = self.brick_est.quat_xyzw()
 		return obs
+
+	def _s5_active(self):
+		"""True on S5 perturbation runs (hook installed or forked branch); everything S5-specific is gated on this so
+		unperturbed episodes keep their events and health verdicts exactly."""
+		return self.perturb is not None or self.perturbation_rewinds > 0
 
 	def _apply_target(self, obs, target, phase):
 		"""Record and apply one joint target through the command filter; returns a fault code or None."""
@@ -1486,9 +1492,7 @@ class TwinMujoco:
 		self._expected_yaw = agent.get("expected_yaw")
 		self._carry_epoch_start = int(agent.get("carry_epoch_start", 0))
 		parked = agent.get("parked_pose")
-		self._parked_pose = (
-			None if parked is None else (np.array(parked["xy"], dtype=np.float64), parked["yaw"])
-		)
+		self._parked_pose = None if parked is None else (np.array(parked["xy"], dtype=np.float64), parked["yaw"])
 		if agent.get("park_xy") is not None:
 			self._park_xy = np.array(agent["park_xy"])
 		if agent.get("depth_rng") is not None and self.perception is not None:
@@ -1610,8 +1614,9 @@ class TwinMujoco:
 		if count_as_rewind or variant:
 			self.recovery_variants = (*self.recovery_variants, variant or "none")
 		self.restore_state(checkpoint, params, relocate)
-		self.retries = checkpoint.retries
-		self._restore_extra((checkpoint.agent or {}).get("segments"))
+		if not count_as_rewind:  # S5 forks only; the rewind path stays exactly as before
+			self.retries = checkpoint.retries
+			self._restore_extra((checkpoint.agent or {}).get("segments"))
 		del self.checkpoints[self.checkpoints.index(checkpoint) + 1 :]
 		self.record.restored(self.cell)
 		self.event(
@@ -1765,7 +1770,7 @@ class TwinMujoco:
 			"destination": self.actual_destination,
 			"active_branch": self.branch,
 			"rewinds": self.rewinds,
-			"perturbation_rewinds": self.perturbation_rewinds,
+			**({"perturbation_rewinds": self.perturbation_rewinds} if self.perturbation_rewinds else {}),
 			"retries": self.retries,
 			"recovery_variants": list(self.recovery_variants),
 			"failures": failures,
@@ -1826,7 +1831,7 @@ class TwinMujoco:
 			timestamps=tel["t"],
 		).to_dict()
 		start = int(getattr(self, "_carry_epoch_start", 0))
-		if start <= 0 or start >= len(self.phases):
+		if not self._s5_active() or start <= 0 or start >= len(self.phases):
 			return full
 		# After an in-place retry or table park-and-rescan, evaluate grasp/slip/settle on the final pick-to-place
 		# cycle [start, N) while still enforcing collisions, stalls, and lag across the full episode [0, N).

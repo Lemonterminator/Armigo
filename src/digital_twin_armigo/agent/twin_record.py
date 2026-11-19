@@ -171,6 +171,22 @@ class EpisodeTrace:
 		self._is_takeover.append(bool(is_takeover))
 		self._supervise_action.append(bool(supervise_action))
 
+	def set_row_masks(self, *, is_blind=None, is_takeover=None, supervise_action=None):
+		"""Overwrite the per-row mask columns of the rows recorded so far (the active branch). Each argument is a bool
+		sequence of length ``len(self.rows)`` (or None to keep it); rows appended later use ``command``'s flags.
+		Hook for callers that only know a mask after the fact (S11 takeover onset, S5 detection frame)."""
+		for name, values in (
+			("_is_blind", is_blind),
+			("_is_takeover", is_takeover),
+			("_supervise_action", supervise_action),
+		):
+			if values is None:
+				continue
+			values = [bool(v) for v in values]
+			if len(values) != len(self.rows):
+				raise ValueError(f"{name[1:]} has {len(values)} entries for {len(self.rows)} rows")
+			setattr(self, name, values)
+
 	def step(self, cell, node):
 		if self.video:
 			# Video sample i is what the policy would see BEFORE applying command i.
@@ -1019,15 +1035,16 @@ def stitch_perturbation_episode(
 	branch_result_file = suffix_dir / "result.json"
 	if branch_result_file.is_file():
 		raw_result = json.loads(branch_result_file.read_text(encoding="utf-8"))
-	elif isinstance(branch_manifest.get("branch_results"), dict) and str(branch_id) in branch_manifest["branch_results"]:
+	elif (
+		isinstance(branch_manifest.get("branch_results"), dict) and str(branch_id) in branch_manifest["branch_results"]
+	):
 		raw_result = branch_manifest["branch_results"][str(branch_id)]
 	else:
 		raw_result = branch_manifest["result"]
 	result = json.loads(json.dumps(raw_result))
 	result["active_branch"] = 0
 	result["rewinds"] = 0
-	if "perturbation_rewinds" in result:
-		result["perturbation_rewinds"] = 0
+	result.pop("perturbation_rewinds", None)  # the stitched episode is one branch; replays never fork
 	result["sim_frames"] = n_total
 	result["active_frames"] = n_total
 	result["views"] = sum(1 for ev in stitched_events if ev.get("kind") == "view")

@@ -4,13 +4,14 @@ from __future__ import annotations
 
 import json
 import math
+from collections.abc import Callable
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import numpy as np
 
-from ..constants import BOWL_R, FPS
+from ..constants import BOWL_R
 from ..mujoco_cell._mj import mujoco
 from .student_rollout import (
 	ExpertTracer,
@@ -22,7 +23,7 @@ from .student_rollout import (
 )
 from .twin_graph import Policy, build_graph
 from .twin_mujoco import RETRY_MOVED_M, STATE_SPEC, sample_case
-from .twin_record import EpisodeTrace, SegmentLabelError, segment_labels, stitch_perturbation_episode
+from .twin_record import EpisodeTrace, segment_labels, stitch_perturbation_episode
 
 PERTURBATION_TYPES: tuple[str, ...] = (
 	"pre_grasp_displace",
@@ -169,7 +170,7 @@ class PhysicalPerturbation:
 			np.asarray(twin.layout.green, dtype=np.float64),
 			np.asarray(twin.layout.pink, dtype=np.float64),
 		]
-		return min(float(np.linalg.norm(pos[:2] - b)) for b in bowls) > BOWL_R + 0.04
+		return min(float(np.linalg.norm(pos[:2] - b)) for b in bowls) > BOWL_R + 0.01
 
 	def __call__(self, twin, obs: dict[str, Any], phase: str) -> dict[str, Any] | None:
 		if self.triggered:
@@ -347,12 +348,13 @@ def find_perturbation_detection(events: list[dict], perturb_event: dict | None =
 				if ev.get("moved") is True or ev.get("found") is False:
 					return ev
 				pos = ev.get("position_m")
-				if pos is not None and before_pos is not None:
-					if float(np.linalg.norm(np.asarray(pos[:2]) - np.asarray(before_pos[:2]))) > RETRY_MOVED_M:
-						return ev
-			elif kind == "retried" and ev.get("brick_moved") is True:
-				return ev
-			elif kind in ("failure", "retry"):
+				if (
+					pos is not None
+					and before_pos is not None
+					and float(np.linalg.norm(np.asarray(pos[:2]) - np.asarray(before_pos[:2]))) > RETRY_MOVED_M
+				):
+					return ev
+			elif (kind == "retried" and ev.get("brick_moved") is True) or kind in ("failure", "retry"):
 				return ev
 		else:
 			if kind in ("failure", "retry") or (kind == "brick_perceived" and ev.get("moved") is True):
@@ -547,7 +549,9 @@ def run_perturbation_branch(
 			"perturbation_rewinds": int(branch_result.get("perturbation_rewinds", 1)),
 			"retries": int(branch_result["retries"]),
 			"blind_span": list(blind_span) if blind_span is not None else None,
-			"sorted": bool(branch_result["verdict"] == "SUCCESS" and branch_result.get("student_eligible")),
+			"sorted": bool(
+				p_event is not None and branch_result["verdict"] == "SUCCESS" and branch_result.get("student_eligible")
+			),
 			"start_frame": int(ck.frame),
 			"checkpoint_held": ck.held is not None,
 			"branch_id": int(branch_id),
@@ -557,7 +561,11 @@ def run_perturbation_branch(
 	if attempt["sorted"]:
 		stitch_perturbation_episode(raw_dir, branch_id, stitched_dir, blind_span=blind_span)
 		# Preserve task.json with the exact Policy so downstream tools/S0 replay know policy.order.
-		task_payload = {"case": list(case), "policy": {"order": policy.order, "max_rewinds": policy.max_rewinds}, "video": video}
+		task_payload = {
+			"case": list(case),
+			"policy": {"order": policy.order, "max_rewinds": policy.max_rewinds},
+			"video": video,
+		}
 		(stitched_dir / "task.json").write_text(json.dumps(task_payload, indent=2), encoding="utf-8")
 		segment_labels(stitched_dir)
 	return attempt
