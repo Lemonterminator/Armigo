@@ -518,6 +518,7 @@ class TwinMujoco:
 		bottom_threshold=None,
 		crop_size=256,
 		fault=None,
+		perturb=None,
 		on_frame=None,
 		smooth_carry=False,
 		sensing="truth",
@@ -535,6 +536,7 @@ class TwinMujoco:
 		self.crop_size = crop_size
 		self.on_frame = on_frame  # Called once per simulated frame; may raise to cancel the episode.
 		self.fault = fault  # Internal acceptance hook. It is absent from the public MCP API.
+		self.perturb = perturb  # Physical MuJoCo perturbation hook (S5); called per step in _apply_target.
 		self.spec = load_physics_spec()
 		base = next(c for c in SENSITIVITY_MATRIX if c.name == "baseline_2x2")
 		cfg = NonIdealityCfg(
@@ -568,7 +570,10 @@ class TwinMujoco:
 		self.checkpoints: list[Checkpoint] = []
 		self.branch = 0
 		self.rewinds = 0  # physics restores to a checkpoint (each starts a new branch)
+		self.perturbation_rewinds = 0  # scenario-forking restores for S5 perturbations (separate from online budget)
 		self.retries = 0  # in-place recoveries from the current state (the branch continues)
+		self._carry_epoch_start = 0
+		self._parked_pose: tuple[np.ndarray, float | None] | None = None
 		self.total_frames = 0
 		self.wrist_count = 0
 		self.bottom_count = 0
@@ -703,6 +708,16 @@ class TwinMujoco:
 			self._expected_yaw = None
 		self.brick_est = est
 		self._perceived_size = tuple(est.size)
+		parked_info: dict = {}
+		if self._parked_pose is not None:
+			park_xy, park_yaw = self._parked_pose
+			self._parked_pose = None
+			moved_mm = round(float(np.linalg.norm(est.pos[:2] - park_xy) * 1000), 3)
+			moved = bool(
+				np.linalg.norm(est.pos[:2] - park_xy) > RETRY_MOVED_M
+				or (park_yaw is not None and yaw_error_deg(est.yaw, park_yaw, est.size) > RETRY_MOVED_DEG)
+			)
+			parked_info = {"moved": moved, "moved_mm": moved_mm}
 		# Truth is logged for scoring only; nothing in the agent reads it back.
 		rot = self.cell.data.xmat[self.cell.brick_body].reshape(3, 3)
 		true_yaw = math.atan2(rot[1, 0], rot[0, 0])
@@ -717,6 +732,7 @@ class TwinMujoco:
 			error_xy_mm=round(float(np.linalg.norm(est.pos[:2] - self.cell.brick_pos()[:2]) * 1000), 3),
 			error_yaw_deg=round(yaw_error_deg(est.yaw, true_yaw, self.layout.brick_size), 3),
 			size_correct=bool(np.allclose(est.size, self.layout.brick_size)),
+			**parked_info,
 		)
 		return None
 
@@ -816,6 +832,10 @@ class TwinMujoco:
 		self.total_frames += 1
 		self.phases.append(PHASES.index(phase))
 		self.targets.append(np.asarray(target, dtype=np.float64).copy())
+		if self.perturb is not None:
+			payload = self.perturb(self, obs, phase)
+			if isinstance(payload, dict):
+				self.event("perturbation", **payload)
 		self.record.step(self.cell, self.node)
 		if self.fault and self.fault(self.node, self.branch, self.ep.n_frames):
 			return "INJECTED_MOTION_FAILURE"
@@ -859,6 +879,12 @@ class TwinMujoco:
 			"contact_prev": self._contact.prev if self.realistic else None,
 			"park_xy": self._park_xy.tolist(),
 			"expected_yaw": self._expected_yaw,
+			"carry_epoch_start": int(self._carry_epoch_start),
+			"parked_pose": (
+				None
+				if self._parked_pose is None
+				else {"xy": self._parked_pose[0].tolist(), "yaw": self._parked_pose[1]}
+			),
 			"brick_est": brick_to_json(self.brick_est),
 			"perceived_size": None if self._perceived_size is None else [float(v) for v in self._perceived_size],
 			"bowls": {name: np.asarray(xy, dtype=np.float64).tolist() for name, xy in self.bowls.items()},
@@ -1258,6 +1284,8 @@ class TwinMujoco:
 		if self.realistic:  # released: where it landed is found by looking again
 			self._grip_from_brick = None
 			self.brick_est = None
+		self._parked_pose = (self._park_xy.copy(), self._expected_yaw)
+		self._carry_epoch_start = self.ep.n_frames
 		return None
 
 	def _wrist(self, previous, views):
@@ -1456,6 +1484,11 @@ class TwinMujoco:
 		grip = agent.get("grip_from_brick")
 		self._grip_from_brick = None if grip is None else np.array(grip)
 		self._expected_yaw = agent.get("expected_yaw")
+		self._carry_epoch_start = int(agent.get("carry_epoch_start", 0))
+		parked = agent.get("parked_pose")
+		self._parked_pose = (
+			None if parked is None else (np.array(parked["xy"], dtype=np.float64), parked["yaw"])
+		)
 		if agent.get("park_xy") is not None:
 			self._park_xy = np.array(agent["park_xy"])
 		if agent.get("depth_rng") is not None and self.perception is not None:
@@ -1549,11 +1582,18 @@ class TwinMujoco:
 		checkpoint = next(c for c in self.checkpoints if c.id == checkpoint_id)
 		return self.restore_checkpoint(checkpoint, variant, reason=failures[-1]["code"])
 
-	def restore_checkpoint(self, checkpoint, variant="", *, reason=None):
-		"""Physics rewind to ``checkpoint`` on a new branch (counts as a rewind): drop the later telemetry, rebuild the
-		expert (with ``variant`` if given) and restore the checkpoint's state, also mid-carry. Returns its views."""
-		self.rewinds += 1
-		self.branch = self.rewinds
+	def restore_checkpoint(self, checkpoint, variant="", *, reason=None, count_as_rewind: bool = True):
+		"""Physics restore to ``checkpoint`` on a new branch: drop the later telemetry, rebuild the expert (with
+		``variant`` if given) and restore the checkpoint's state, also mid-carry. Returns its views.
+
+		With ``count_as_rewind=True`` (default), increments ``self.rewinds`` (consumed against the recovery budget).
+		With ``count_as_rewind=False`` (S5 perturbation branch fork), increments ``self.perturbation_rewinds`` instead
+		so ``self.rewinds`` and the online recovery budget (``self.recoveries``) remain intact."""
+		if count_as_rewind:
+			self.rewinds += 1
+		else:
+			self.perturbation_rewinds += 1
+		self.branch = self.rewinds + self.perturbation_rewinds
 		self.record.fork(self.branch, checkpoint)
 		for rows in self.ep._logs.values():
 			del rows[checkpoint.frame :]
@@ -1561,16 +1601,21 @@ class TwinMujoco:
 		del self.phases[checkpoint.frame :]
 		del self.targets[checkpoint.frame :]
 		params, relocate = self.expert.p, self.expert.rp
+		if not count_as_rewind:
+			self.recovery_variants = tuple((checkpoint.agent or {}).get("recovery_variants", ()))
 		if variant:
 			# Variants transform the first attempt's defaults, so they never stack on an earlier variant.
 			self._base_params = getattr(self, "_base_params", (params, relocate))
 			params, relocate, self.scan_peak_speed = apply_variant(variant, *self._base_params)
-		self.recovery_variants = (*self.recovery_variants, variant or "none")
+		if count_as_rewind or variant:
+			self.recovery_variants = (*self.recovery_variants, variant or "none")
 		self.restore_state(checkpoint, params, relocate)
+		self.retries = checkpoint.retries
+		self._restore_extra((checkpoint.agent or {}).get("segments"))
 		del self.checkpoints[self.checkpoints.index(checkpoint) + 1 :]
 		self.record.restored(self.cell)
 		self.event(
-			"rewound",
+			"rewound" if count_as_rewind else "perturbation_branch",
 			parent_branch=checkpoint.branch,
 			checkpoint=checkpoint.id,
 			reason=reason,
@@ -1634,6 +1679,7 @@ class TwinMujoco:
 		)
 		views = [] if moved else kept
 		self.event("retried", brick_moved=moved, views_kept=len(views))
+		self._carry_epoch_start = self.ep.n_frames
 		self._save(views)
 		return views
 
@@ -1719,6 +1765,7 @@ class TwinMujoco:
 			"destination": self.actual_destination,
 			"active_branch": self.branch,
 			"rewinds": self.rewinds,
+			"perturbation_rewinds": self.perturbation_rewinds,
 			"retries": self.retries,
 			"recovery_variants": list(self.recovery_variants),
 			"failures": failures,
@@ -1753,7 +1800,8 @@ class TwinMujoco:
 
 	def _health(self, target):
 		tel = self.ep.telemetry()
-		return evaluate_episode_health(
+		limits = np.array([self.spec.arm_actuator.effort_limit] * 5 + [self.spec.gripper_actuator.effort_limit])
+		full = evaluate_episode_health(
 			q_cmd=tel["q_cmd"],
 			q_act=tel["qpos"],
 			tcp_pos=tel["tcp_pos"],
@@ -1773,12 +1821,56 @@ class TwinMujoco:
 			pinch_normal_forces=tel["pinch_normal"],
 			pinch_tangential_forces=tel["pinch_tangential"],
 			actuator_torques=tel["actuator_torques"],
-			torque_limits=np.array(
-				[self.spec.arm_actuator.effort_limit] * 5 + [self.spec.gripper_actuator.effort_limit]
-			),
+			torque_limits=limits,
 			torque_source="solver_measured",
 			timestamps=tel["t"],
 		).to_dict()
+		start = int(getattr(self, "_carry_epoch_start", 0))
+		if start <= 0 or start >= len(self.phases):
+			return full
+		# After an in-place retry or table park-and-rescan, evaluate grasp/slip/settle on the final pick-to-place
+		# cycle [start, N) while still enforcing collisions, stalls, and lag across the full episode [0, N).
+		sub = evaluate_episode_health(
+			q_cmd=tel["q_cmd"][start:],
+			q_act=tel["qpos"][start:],
+			tcp_pos=tel["tcp_pos"][start:],
+			brick_pos=tel["brick_pos"][start:],
+			brick_quat=tel["brick_quat"][start:],
+			jaw_forces=tel["jaw_forces"][start:],
+			unintended_forces=tel["unintended_forces"][start:],
+			phases=np.asarray(self.phases[start:]),
+			target_bowl_xy=target,
+			bowl_r=BOWL_R,
+			brick_vel=tel["brick_vel"][start:],
+			brick_ang_vel=tel["brick_ang_vel"][start:],
+			ee_quat=tel["ee_quat"][start:],
+			fps=FPS,
+			brick_size=self.layout.brick_size,
+			substep_unintended_forces=tel["substep_unintended"][start:],
+			pinch_normal_forces=tel["pinch_normal"][start:],
+			pinch_tangential_forces=tel["pinch_tangential"][start:],
+			actuator_torques=tel["actuator_torques"][start:],
+			torque_limits=limits,
+			torque_source="solver_measured",
+			timestamps=tel["t"][start:],
+		).to_dict()
+		global_reasons = [
+			r for r in full["reason_codes"] if r in ("unintended_collision", "torque_stall", "tracking_lag")
+		]
+		if global_reasons:
+			reasons = list(dict.fromkeys([*sub["reason_codes"], *global_reasons]))
+			sub["reason_codes"] = reasons
+			sub["process_ok"] = False
+			sub["verdict"] = "FAILURE"
+			sub["success"] = False
+			sub["failure_mode"] = reasons[0]
+		sub["unintended_collision_count"] = full["unintended_collision_count"]
+		sub["max_unintended_force_N"] = full["max_unintended_force_N"]
+		sub["unintended_collision_impulse_Ns"] = full["unintended_collision_impulse_Ns"]
+		sub["max_stall_duration_s"] = full["max_stall_duration_s"]
+		sub["max_tracking_lag_duration_s"] = full["max_tracking_lag_duration_s"]
+		sub["max_tracking_error_rad"] = full["max_tracking_error_rad"]
+		return sub
 
 
 def file_digest(path):

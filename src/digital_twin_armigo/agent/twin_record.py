@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -71,6 +72,9 @@ class EpisodeTrace:
 		self.exact = []
 		self._gripper_cmd: list[float] = []
 		self._effort_frac: list[float] = []
+		self._is_blind: list[bool] = []
+		self._is_takeover: list[bool] = []
+		self._supervise_action: list[bool] = []
 		self.top_depth_rng: np.random.Generator | None = None
 		self.images = None
 		self.started = time.perf_counter()
@@ -143,7 +147,18 @@ class EpisodeTrace:
 		if self.video:
 			self.images = self._render(cell)
 
-	def command(self, state, target, phase, *, gripper_cmd=None, effort_frac=None):
+	def command(
+		self,
+		state,
+		target,
+		phase,
+		*,
+		gripper_cmd=None,
+		effort_frac=None,
+		is_blind=False,
+		is_takeover=False,
+		supervise_action=True,
+	):
 		self.rows.append((state.copy(), target.copy(), phase))
 		self.exact.append(
 			(np.asarray(state, dtype=np.float64).copy(), np.asarray(target, dtype=np.float64).copy(), self.segment)
@@ -152,6 +167,9 @@ class EpisodeTrace:
 			self._gripper_cmd.append(float(gripper_cmd))
 		if effort_frac is not None:
 			self._effort_frac.append(float(effort_frac))
+		self._is_blind.append(bool(is_blind))
+		self._is_takeover.append(bool(is_takeover))
+		self._supervise_action.append(bool(supervise_action))
 
 	def step(self, cell, node):
 		if self.video:
@@ -284,6 +302,12 @@ class EpisodeTrace:
 				extra["gripper_cmd"] = np.array(self._gripper_cmd, dtype="float32")
 			if len(self._effort_frac) == len(self.rows):
 				extra["effort_frac"] = np.array(self._effort_frac, dtype="float32")
+			if len(self._is_blind) == len(self.rows):
+				extra["is_blind"] = np.array(self._is_blind, dtype=bool)
+			if len(self._is_takeover) == len(self.rows):
+				extra["is_takeover"] = np.array(self._is_takeover, dtype=bool)
+			if len(self._supervise_action) == len(self.rows):
+				extra["supervise_action"] = np.array(self._supervise_action, dtype=bool)
 			state64, action64, segment = zip(*self.exact, strict=True)
 			np.savez_compressed(
 				path / "actions.npz",
@@ -302,9 +326,13 @@ class EpisodeTrace:
 		self.rows = []
 		if getattr(self, "contacts", None) is not None:
 			self.contacts = []
+			self._jaw_env_peak = 0.0
 		self.exact = []
 		self._gripper_cmd = []
 		self._effort_frac = []
+		self._is_blind = []
+		self._is_takeover = []
+		self._supervise_action = []
 
 	def finish(self, result, provenance):
 		self._finish_branch()
@@ -568,8 +596,18 @@ def student_frames(episode: Path):
 	with ExitStack() as stack:
 		rows = stack.enter_context(np.load(root / "actions.npz", allow_pickle=False))
 		gripper_cmds = rows["gripper_cmd"] if "gripper_cmd" in rows.files else None
+		is_blind_col = rows["is_blind"] if "is_blind" in rows.files else None
+		is_takeover_col = rows["is_takeover"] if "is_takeover" in rows.files else None
+		supervise_col = rows["supervise_action"] if "supervise_action" in rows.files else None
 		actions = rows["action"]
 		states = rows["state"]
+		for col_name, arr in (
+			("is_blind", is_blind_col),
+			("is_takeover", is_takeover_col),
+			("supervise_action", supervise_col),
+		):
+			if arr is not None and len(arr) != len(actions):
+				raise ValueError(f"{col_name} length {len(arr)} != actions length {len(actions)}")
 		readers = {
 			name: iter(stack.enter_context(av.open(str(root / f"{name}.mkv"))).decode(video=0)) for name in CAMERAS
 		}
@@ -591,9 +629,15 @@ def student_frames(episode: Path):
 				"segment.bowl": labels["bowl"][row_index],
 				"segment.view": np.array([labels["view"][row_index]], dtype=np.int64),
 				"segment.views": np.array([labels["views"][row_index]], dtype=np.int64),
-				"mask.is_blind": np.array([False], dtype=bool),
-				"mask.is_takeover": np.array([False], dtype=bool),
-				"mask.supervise_action": np.array([True], dtype=bool),
+				"mask.is_blind": np.array(
+					[bool(is_blind_col[row_index]) if is_blind_col is not None else False], dtype=bool
+				),
+				"mask.is_takeover": np.array(
+					[bool(is_takeover_col[row_index]) if is_takeover_col is not None else False], dtype=bool
+				),
+				"mask.supervise_action": np.array(
+					[bool(supervise_col[row_index]) if supervise_col is not None else True], dtype=bool
+				),
 			}
 			for name, reader in readers.items():
 				pixels = next(reader, None)
@@ -676,6 +720,353 @@ def export_lerobot(episodes: list[Path], out: Path, repo_id: str):
 			],
 		},
 	)
+
+
+def _rewrite_view_id(view_id: str | None, src_branch: int, dst_branch: int = 0) -> str | None:
+	if not view_id or src_branch == dst_branch:
+		return view_id
+	prefix = f"{src_branch}:"
+	if view_id.startswith(prefix):
+		return f"{dst_branch}:{view_id[len(prefix) :]}"
+	return view_id
+
+
+def _extract_prefix_events(events: list[dict], start_frame: int, ck_id: str | None, parent_branch: int) -> list[dict]:
+	if ck_id is not None:
+		for i, ev in enumerate(events):
+			if (
+				ev.get("kind") == "checkpoint"
+				and ev.get("checkpoint") == ck_id
+				and ev.get("branch", 0) == parent_branch
+				and not ev.get("restored")
+			):
+				return [ev_i for ev_i in events[: i + 1] if ev_i.get("branch", 0) == parent_branch]
+	out = []
+	for ev in events:
+		if ev.get("branch", 0) == parent_branch and ev.get("kind") in ("rewound", "perturbation_branch"):
+			break
+		if ev.get("branch", 0) != parent_branch:
+			continue
+		f = ev.get("frame", 0)
+		if f < start_frame or (f == start_frame and ev.get("kind") in ("segment_end", "checkpoint")):
+			out.append(ev)
+	return out
+
+
+def _extract_suffix_events(
+	events: list[dict], branch_id: int, src_branch_id: int, *, cross_process: bool
+) -> list[dict]:
+	if cross_process:
+		resumed_idx = next((i for i, ev in enumerate(events) if ev.get("kind") == "resumed"), -1)
+		return [
+			ev
+			for ev in events[resumed_idx + 1 :]
+			if ev.get("branch", src_branch_id) == src_branch_id
+			and ev.get("kind") not in ("rewound", "perturbation_branch", "resumed")
+		]
+	fork_idx = -1
+	for i, ev in enumerate(events):
+		if ev.get("branch") == branch_id and ev.get("kind") in ("perturbation_branch", "rewound"):
+			fork_idx = i
+	return [
+		ev
+		for ev in events[fork_idx + 1 :]
+		if ev.get("branch") == branch_id and ev.get("kind") not in ("perturbation_branch", "rewound", "resumed")
+	]
+
+
+def _concat_lossless_videos(
+	prefix_dir: Path,
+	prefix_frames: int,
+	suffix_dir: Path,
+	suffix_frames: int,
+	out_branch_dir: Path,
+) -> None:
+	"""Concatenate prefix[0:prefix_frames] + suffix[0:suffix_frames] for every lossless camera stream."""
+	for name in CAMERAS:
+		prefix_mkv = prefix_dir / f"{name}.mkv"
+		suffix_mkv = suffix_dir / f"{name}.mkv"
+		if not prefix_mkv.is_file() or not suffix_mkv.is_file():
+			raise FileNotFoundError(f"missing {name}.mkv in {prefix_dir} or {suffix_dir}")
+		frames_written = 0
+		writer = None
+		try:
+			with av.open(str(prefix_mkv)) as pin:
+				for idx, frame in enumerate(pin.decode(video=0)):
+					if idx >= prefix_frames:
+						break
+					rgb = frame.to_ndarray(format="rgb24")
+					if writer is None:
+						writer = Video(out_branch_dir / f"{name}.mkv", rgb.shape, lossless=True)
+					writer.put(rgb)
+					frames_written += 1
+			if frames_written != prefix_frames:
+				raise ValueError(f"{prefix_mkv}: expected {prefix_frames} prefix frames, got {frames_written}")
+			suffix_written = 0
+			with av.open(str(suffix_mkv)) as sin:
+				for frame in sin.decode(video=0):
+					rgb = frame.to_ndarray(format="rgb24")
+					if writer is None:
+						writer = Video(out_branch_dir / f"{name}.mkv", rgb.shape, lossless=True)
+					writer.put(rgb)
+					suffix_written += 1
+			if suffix_written != suffix_frames:
+				raise ValueError(f"{suffix_mkv}: expected {suffix_frames} suffix frames, got {suffix_written}")
+		finally:
+			if writer is not None:
+				writer.close()
+
+
+def stitch_perturbation_episode(
+	parent_episode: Path,
+	branch_id: int,
+	out_dir: Path,
+	*,
+	blind_span: tuple[int, int] | None = None,
+	branch_episode: Path | None = None,
+) -> dict[str, Any]:
+	"""Combine ``parent_episode/branch-0[0:start_frame]`` with ``branch-{branch_id}`` into one contiguous
+	``branch-0`` episode directory at ``out_dir``, renumbering segments ``0..K-1`` and marking ``is_blind=True``
+	on ``[perturb_frame, detect_frame)``.
+
+	Validates with :func:`segment_labels` before returning the stitched ``episode.json`` manifest."""
+	parent_episode = Path(parent_episode)
+	branch_src = parent_episode if branch_episode is None else Path(branch_episode)
+	cross_process = branch_episode is not None
+	out_dir = Path(out_dir)
+	if out_dir.resolve() == parent_episode.resolve() or out_dir.resolve() == branch_src.resolve():
+		raise ValueError("out_dir must be distinct from source episode directories")
+	if (out_dir / "episode.json").exists():
+		raise FileExistsError(f"stitched output directory already has episode.json: {out_dir}")
+
+	parent_manifest = json.loads((parent_episode / "episode.json").read_text(encoding="utf-8"))
+	branch_manifest = (
+		parent_manifest
+		if branch_episode is None
+		else json.loads((branch_src / "episode.json").read_text(encoding="utf-8"))
+	)
+	branch_meta = next((b for b in branch_manifest.get("branches", []) if int(b["id"]) == branch_id), None)
+	if branch_meta is None and cross_process and len(branch_manifest.get("branches", [])) == 1:
+		branch_meta = branch_manifest["branches"][0]
+	if branch_meta is None:
+		raise ValueError(f"branch {branch_id} not found in {branch_src / 'episode.json'}")
+	src_branch_id = int(branch_meta["id"])
+	start_frame = int(branch_meta["start_frame"])
+	parent_branch = int(branch_meta.get("parent_branch", 0))
+	if parent_branch != 0:
+		raise ValueError(f"stitching requires parent_branch == 0, got {parent_branch}")
+	ck_id = branch_meta.get("checkpoint")
+
+	prefix_dir = parent_episode / "branch-0"
+	suffix_dir = branch_src / f"branch-{src_branch_id}"
+	with (
+		np.load(prefix_dir / "actions.npz", allow_pickle=False) as pz,
+		np.load(suffix_dir / "actions.npz", allow_pickle=False) as sz,
+	):
+		p_arrs = {k: pz[k] for k in pz.files}
+		s_arrs = {k: sz[k] for k in sz.files}
+
+	n_prefix_avail = len(p_arrs["action"])
+	if start_frame < 0 or start_frame > n_prefix_avail:
+		raise ValueError(f"invalid start_frame={start_frame} for prefix with {n_prefix_avail} actions")
+	n_suffix = len(s_arrs["action"])
+	n_total = start_frame + n_suffix
+	if n_total == 0:
+		raise ValueError("stitched episode has 0 actions")
+
+	parent_events = [
+		json.loads(line)
+		for line in (parent_episode / "events.jsonl").read_text(encoding="utf-8").splitlines()
+		if line.strip()
+	]
+	branch_events = (
+		parent_events
+		if not cross_process
+		else [
+			json.loads(line)
+			for line in (branch_src / "events.jsonl").read_text(encoding="utf-8").splitlines()
+			if line.strip()
+		]
+	)
+	prefix_raw = _extract_prefix_events(parent_events, start_frame, ck_id, parent_branch)
+	suffix_raw = _extract_suffix_events(branch_events, branch_id, src_branch_id, cross_process=cross_process)
+
+	prefix_starts = [ev for ev in prefix_raw if ev.get("kind") == "segment"]
+	prefix_ends = {int(ev["id"]): ev for ev in prefix_raw if ev.get("kind") == "segment_end"}
+	suffix_starts = [ev for ev in suffix_raw if ev.get("kind") == "segment"]
+	suffix_ends = {int(ev["id"]): ev for ev in suffix_raw if ev.get("kind") == "segment_end"}
+
+	prefix_id_map: dict[int, int] = {}
+	suffix_id_map: dict[int, int] = {}
+	next_sid = 0
+	for ev in prefix_starts:
+		old_id = int(ev["id"])
+		if old_id not in prefix_ends:
+			raise SegmentLabelError(f"prefix segment {old_id} missing segment_end")
+		prefix_id_map[old_id] = next_sid
+		next_sid += 1
+	for ev in suffix_starts:
+		old_id = int(ev["id"])
+		if old_id not in suffix_ends:
+			raise SegmentLabelError(f"suffix segment {old_id} missing segment_end")
+		suffix_id_map[old_id] = next_sid
+		next_sid += 1
+
+	p_seg_raw = p_arrs["segment"][:start_frame].astype(np.int64)
+	s_seg_raw = s_arrs["segment"].astype(np.int64)
+	if (p_seg_raw < 0).any() or (s_seg_raw < 0).any():
+		raise SegmentLabelError("cannot stitch episode with unlabelled (segment == -1) frames")
+	p_seg = np.array([prefix_id_map[int(sid)] for sid in p_seg_raw], dtype=np.int32)
+	s_seg = np.array([suffix_id_map[int(sid)] for sid in s_seg_raw], dtype=np.int32)
+
+	stitched_events: list[dict] = []
+	view_copies: list[tuple[bool, str, str]] = []
+	for is_suffix, ev in [*((False, e) for e in prefix_raw), *((True, e) for e in suffix_raw)]:
+		new_ev = json.loads(json.dumps(ev))
+		new_ev["seq"] = len(stitched_events)
+		new_ev["branch"] = 0
+		src_b = src_branch_id if is_suffix else 0
+		kind = new_ev.get("kind")
+		if kind in ("segment", "segment_end"):
+			id_map = suffix_id_map if is_suffix else prefix_id_map
+			new_ev["id"] = id_map[int(new_ev["id"])]
+		elif kind in ("view", "detector_error"):
+			obs = new_ev["observation"]
+			orig_vid = obs["id"]
+			new_vid = _rewrite_view_id(orig_vid, src_b, 0)
+			obs["id"] = new_vid
+			obs["branch"] = 0
+			if kind == "view":
+				view_copies.append((is_suffix, orig_vid, new_vid))
+		elif kind == "view_truth":
+			new_ev["id"] = _rewrite_view_id(new_ev["id"], src_b, 0)
+		elif kind == "decision" and "evidence" in new_ev:
+			new_ev["evidence"] = [_rewrite_view_id(v, src_b, 0) for v in new_ev["evidence"]]
+		elif kind == "failure" and "prior_views" in new_ev:
+			new_ev["prior_views"] = [
+				{**pv, "id": _rewrite_view_id(pv.get("id"), src_b, 0)} for pv in new_ev["prior_views"]
+			]
+		stitched_events.append(new_ev)
+
+	if blind_span is None and any(ev.get("kind") == "perturbation" for ev in stitched_events):
+		from .perturbations import infer_blind_span
+
+		blind_span = infer_blind_span(stitched_events)
+
+	mask_defaults = {"is_blind": False, "is_takeover": False, "supervise_action": True}
+	stitched_arrays: dict[str, np.ndarray] = {"segment": np.concatenate([p_seg, s_seg], axis=0)}
+	skip_keys = {"segment", *mask_defaults}
+	for key in p_arrs:
+		if key in skip_keys or key not in s_arrs:
+			continue
+		stitched_arrays[key] = np.concatenate([p_arrs[key][:start_frame], s_arrs[key]], axis=0)
+
+	for mask_key, default_val in mask_defaults.items():
+		p_mask = (
+			np.asarray(p_arrs[mask_key][:start_frame], dtype=bool)
+			if mask_key in p_arrs
+			else np.full(start_frame, default_val, dtype=bool)
+		)
+		s_mask = (
+			np.asarray(s_arrs[mask_key], dtype=bool)
+			if mask_key in s_arrs
+			else np.full(n_suffix, default_val, dtype=bool)
+		)
+		stitched_arrays[mask_key] = np.concatenate([p_mask, s_mask], axis=0)
+
+	if blind_span is not None:
+		lo = max(0, min(n_total, int(blind_span[0])))
+		hi = max(lo, min(n_total, int(blind_span[1])))
+		stitched_arrays["is_blind"][lo:hi] = True
+
+	out_dir.mkdir(parents=True, exist_ok=True)
+	out_branch = out_dir / "branch-0"
+	out_branch.mkdir(exist_ok=True)
+	(out_dir / "keyframes").mkdir(exist_ok=True)
+	(out_dir / "checkpoints").mkdir(exist_ok=True)
+
+	np.savez_compressed(out_branch / "actions.npz", **stitched_arrays)
+
+	has_video = bool(parent_manifest.get("video")) and bool(branch_manifest.get("video", True))
+	if has_video:
+		_concat_lossless_videos(prefix_dir, start_frame, suffix_dir, n_suffix, out_branch)
+
+	for is_suffix, orig_vid, new_vid in view_copies:
+		src_kf_dir = (branch_src if is_suffix else parent_episode) / "keyframes"
+		src_stem = orig_vid.replace(":", "-")
+		dst_stem = new_vid.replace(":", "-")
+		for suffix_name in ("frame", "crop"):
+			src_png = src_kf_dir / f"{src_stem}-{suffix_name}.png"
+			if src_png.is_file():
+				shutil.copy2(src_png, out_dir / "keyframes" / f"{dst_stem}-{suffix_name}.png")
+
+	graph_src = parent_episode / "graph.json"
+	if graph_src.is_file():
+		shutil.copy2(graph_src, out_dir / "graph.json")
+	else:
+		write_json(out_dir / "graph.json", {"nodes": NODES, "edges": EDGES})
+
+	for meta_name in ("audit.private.json", "task.json"):
+		src_meta = branch_src / meta_name if (branch_src / meta_name).is_file() else parent_episode / meta_name
+		if src_meta.is_file():
+			shutil.copy2(src_meta, out_dir / meta_name)
+
+	(out_dir / "events.jsonl").write_text(
+		"".join(json.dumps(ev, allow_nan=False) + "\n" for ev in stitched_events),
+		encoding="utf-8",
+	)
+
+	branch_result_file = suffix_dir / "result.json"
+	if branch_result_file.is_file():
+		raw_result = json.loads(branch_result_file.read_text(encoding="utf-8"))
+	elif isinstance(branch_manifest.get("branch_results"), dict) and str(branch_id) in branch_manifest["branch_results"]:
+		raw_result = branch_manifest["branch_results"][str(branch_id)]
+	else:
+		raw_result = branch_manifest["result"]
+	result = json.loads(json.dumps(raw_result))
+	result["active_branch"] = 0
+	result["rewinds"] = 0
+	if "perturbation_rewinds" in result:
+		result["perturbation_rewinds"] = 0
+	result["sim_frames"] = n_total
+	result["active_frames"] = n_total
+	result["views"] = sum(1 for ev in stitched_events if ev.get("kind") == "view")
+	result["evidence"] = [_rewrite_view_id(v, src_branch_id, 0) for v in result.get("evidence", [])]
+	if result.get("placement_evidence"):
+		result["placement_evidence"] = _rewrite_view_id(result["placement_evidence"], src_branch_id, 0)
+	for fail in result.get("failures", []):
+		if "branch" in fail:
+			fail["branch"] = 0
+		if "prior_views" in fail:
+			fail["prior_views"] = [
+				{**pv, "id": _rewrite_view_id(pv.get("id"), src_branch_id, 0)} for pv in fail["prior_views"]
+			]
+	result["student_eligible"] = bool(result.get("verdict") == "SUCCESS" and not result["rewinds"])
+
+	provenance = {
+		**parent_manifest.get("provenance", {}),
+		**branch_manifest.get("provenance", {}),
+		"stitched_from": {
+			"parent_episode": str(parent_episode),
+			"branch_id": int(branch_id),
+			"start_frame": start_frame,
+			"checkpoint": ck_id,
+			"blind_span": list(blind_span) if blind_span is not None else None,
+		},
+	}
+	manifest = {
+		"schema": "armigo-agent-episode/v1",
+		"fps": FPS,
+		"task": TASK,
+		"state_names": STATE_NAMES,
+		"branches": [{"id": 0, "start_frame": 0, "actions": n_total}],
+		"video": has_video,
+		"provenance": provenance,
+		"result": result,
+	}
+	write_json(out_dir / "episode.json", manifest)
+	segment_labels(out_dir)
+	return manifest
 
 
 def main():
