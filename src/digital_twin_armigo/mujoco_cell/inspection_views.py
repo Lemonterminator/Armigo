@@ -15,11 +15,13 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from ..crop import square_crop
+from ..crop import square_crop, square_crop_region
 from ..inspection import InspectionResult
 from ..presentation import FACES
 from ._mj import mujoco
 from .cell import Cell
+
+DETECTOR_PAD = 0.25  # margin of the detector crop, as a fraction of the brick blob's larger side on each side
 
 
 @dataclass(frozen=True)
@@ -89,7 +91,7 @@ def _brick_bbox(cell, camera: str, crop, data) -> tuple[int, int, int, int] | No
 	return x0, y0, x1 - x0, y1 - y0
 
 
-def detector_crop(cell, camera, crop, data, image_size, pad=0.25, clamp=False, *, rgb=None):
+def detector_crop(cell, camera, crop, data, image_size, pad=DETECTOR_PAD, clamp=False, *, rgb=None):
 	"""Crop around the main brick blob, identically for detector training and inference."""
 	bbox = _brick_bbox(cell, camera, crop, data)
 	if bbox is None:
@@ -100,6 +102,34 @@ def detector_crop(cell, camera, crop, data, image_size, pad=0.25, clamp=False, *
 		x, y, w, h = crop
 		rgb = rgb[y : y + h, x : x + w]
 	return square_crop(rgb, bbox, pad, image_size, clamp=clamp), bbox
+
+
+def crop_counts(
+	face: np.ndarray, defect: np.ndarray, bbox, image_size: int, pad: float = DETECTOR_PAD, clamp: bool = False
+) -> dict:
+	"""Face and cross pixels of the detector crop :func:`detector_crop` cuts with ``bbox`` from a full frame whose
+	per-pixel labels are ``face`` (face id, -1 elsewhere) and ``defect`` (cross mask), see
+	:meth:`~.cell.Cell.visibility_labels`.
+
+	The labels are resampled with the colour crop's own nearest-neighbour sampling, so ``faces_input`` /
+	``cross_input`` count pixels of the ``image_size`` x ``image_size`` detector input. ``faces_native`` /
+	``cross_native`` count camera pixels inside the square the crop samples from (``region``, x0 y0 x1 y1, end
+	exclusive, clipped to the frame): the same detail at the camera's own resolution, which upsampling a small crop
+	does not add to. ``input_px_per_native_px`` is the area scale between the two."""
+	labels = np.stack([face.astype(np.int16) + 1, defect.astype(np.int16)], axis=-1)
+	sampled = square_crop(labels, bbox, pad, image_size, clamp=clamp)
+	x0, y0, x1, y1 = square_crop_region(face.shape, bbox, pad, image_size, clamp=clamp)
+	region_face, region_defect = face[y0:y1, x0:x1], defect[y0:y1, x0:x1]
+	side = max(bbox[2], bbox[3]) * (1.0 + 2.0 * pad)
+	n = len(FACES)
+	return {
+		"faces_input": [int(v) for v in np.bincount(sampled[..., 0][sampled[..., 0] > 0] - 1, minlength=n)],
+		"cross_input": int(np.count_nonzero(sampled[..., 1])),
+		"faces_native": [int(v) for v in np.bincount(region_face[region_face >= 0], minlength=n)],
+		"cross_native": int(np.count_nonzero(region_defect)),
+		"region": [x0, y0, x1, y1],
+		"input_px_per_native_px": round((image_size / side) ** 2, 4) if side > 0 else None,
+	}
 
 
 def capture_view(

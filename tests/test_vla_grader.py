@@ -16,7 +16,8 @@ from digital_twin_armigo.agent.vla_grader import (
 	symmetry_from_quats,
 )
 
-REAL_TRACE = Path(__file__).parent / "data/vla_grader/realistic-600001-face0"
+REAL_TRACE = Path(__file__).parent / "data/vla_grader/realistic-600001-face0"  # recorded with crop-space truth
+LEGACY_TRACE = Path(__file__).parent / "data/vla_grader/realistic-600001-face0-legacy"  # whole-frame truth only
 NO_SMOOTHNESS = {"thresholds": DEFAULT_THRESHOLDS}
 
 
@@ -24,7 +25,28 @@ def _yaw_quat(deg):
 	return [0.0, 0.0, math.sin(math.radians(deg) / 2), math.cos(math.radians(deg) / 2)]
 
 
-def _view(seq, vid, faces, score, true_px, *, belief_yaw=0.0, cross=0, error=2.0, truth=True):
+BBOX = [286, 144, 206, 198]
+
+
+def _view(
+	seq,
+	vid,
+	faces,
+	score,
+	true_px,
+	*,
+	belief_yaw=0.0,
+	cross=0,
+	cross_input=None,
+	frame_cross=None,
+	crop_px=None,
+	bbox=BBOX,
+	truth_bbox=BBOX,
+	error=2.0,
+	truth=True,
+):
+	"""A view and its truth record. ``true_px`` / ``cross`` are the crop-space counts (camera pixels inside the
+	detector crop); ``crop_px`` / ``frame_cross`` override the full-frame counts (default: the same)."""
 	_, frame, camera = vid.split(":")
 	frame = int(frame)
 	events = []
@@ -37,9 +59,14 @@ def _view(seq, vid, faces, score, true_px, *, belief_yaw=0.0, cross=0, error=2.0
 				"branch": 0,
 				"frame": frame,
 				"id": vid,
-				"true_face_pixels": true_px,
+				"true_face_pixels": true_px if crop_px is None else crop_px,
 				"belief_error_mm": error,
-				"true_cross_px": cross,
+				"true_cross_px": cross if frame_cross is None else frame_cross,
+				"true_face_pixels_crop": true_px,
+				"true_face_pixels_crop_native": true_px,
+				"true_cross_px_crop": cross if cross_input is None else cross_input,
+				"true_cross_px_crop_native": cross,
+				"truth_crop": {"bbox": truth_bbox, "size": 256, "pad": 0.25, "clamp": True},
 				"true_brick_quat_xyzw": _yaw_quat(0.0),
 				"belief_brick_quat_xyzw": _yaw_quat(belief_yaw),
 			}
@@ -60,7 +87,7 @@ def _view(seq, vid, faces, score, true_px, *, belief_yaw=0.0, cross=0, error=2.0
 				"face_pixels": [0] * 6,
 				"score": score,
 				"threshold": 0.0,
-				"crop_bbox": [0, 0, 1, 1],
+				"crop_bbox": bbox,
 			},
 		}
 	)
@@ -72,7 +99,12 @@ def _episode(tmp_path, name, *, label, true_face, events, result=None, branches=
 	path.mkdir()
 	evidence = [e["observation"]["id"] for e in events if e["kind"] == "view"]
 	positive = next(
-		(e["observation"]["id"] for e in events if e["kind"] == "view" and e["observation"]["score"] >= 0), None
+		(
+			e["observation"]["id"]
+			for e in events
+			if e["kind"] == "view" and e["observation"]["score"] is not None and e["observation"]["score"] >= 0
+		),
+		None,
 	)
 	base = {
 		"verdict": "SUCCESS",
@@ -86,20 +118,25 @@ def _episode(tmp_path, name, *, label, true_face, events, result=None, branches=
 	branches = branches or {0: {"contact_robot_n": np.zeros(10), "contact_jaw_env_n": np.zeros(10)}}
 	manifest_branches = []
 	for bid, arrays in branches.items():
-		n = len(next(iter(arrays.values()), np.zeros(10)))
+		arrays = dict(arrays)
+		n = arrays.pop("frames", None)  # action count, when the contact columns should not set it
+		if n is None:
+			n = len(next(iter(arrays.values()), np.zeros(10)))
 		(path / f"branch-{bid}").mkdir()
 		np.savez(
 			path / f"branch-{bid}/actions.npz",
-			state=np.zeros((n, 6), "float32"),
-			action=np.zeros((n, 6), "float32"),
-			phase=np.array(["approach"] * n),
-			**arrays,
+			**{
+				"state": np.zeros((n, 6), "float32"),
+				"action": np.zeros((n, 6), "float32"),
+				"phase": np.array(["approach"] * n),
+				**arrays,
+			},
 		)
 		manifest_branches.append({"id": bid, "start_frame": 0, "actions": n})
 	manifest = {
 		"schema": "armigo-agent-episode/v1",
 		"branches": manifest_branches,
-		"provenance": {"sensing": sensing},
+		"provenance": {} if sensing is None else {"sensing": sensing},
 		"result": {**base, **(result or {})},
 	}
 	(path / "episode.json").write_text(json.dumps(manifest), encoding="utf-8")
@@ -159,12 +196,146 @@ def test_defective_decision_view_must_truly_show_the_defect_face_and_cross(tmp_p
 		*_view(0, "0:300:wrist_cam", [0, 1, 4], -1.0, [0, 3000, 0, 3000, 9000, 0]),
 		*_view(2, "0:500:wrist_cam", [0, 2, 4], 1.5, true_px, cross=cross or 0),
 	]
-	if cross is None:
-		del events[2]["true_cross_px"]
+	if cross is None:  # a trace recorded before crop-space truth: only the whole-frame counts
+		for key in ("truth_crop", "true_face_pixels_crop", "true_face_pixels_crop_native", "true_cross_px_crop"):
+			del events[2][key]
+		del events[2]["true_cross_px_crop_native"]
 	path = _episode(tmp_path, "defect", label="defective", true_face=2, events=events)
 	check = grade(path, NO_SMOOTHNESS)["checks"]["decision_crop"]
 	assert check["status"] == status
 	assert check["view"] == "0:500:wrist_cam"
+
+
+def _defect_events(**decision):
+	return [
+		*_view(0, "0:300:wrist_cam", [0, 1, 4], -1.0, [0, 3000, 0, 3000, 9000, 0]),
+		*_view(2, "0:500:wrist_cam", [0, 2, 4], 1.5, [3000, 0, 2500, 0, 9000, 0], **decision),
+	]
+
+
+def test_cross_in_the_frame_but_outside_the_detector_crop_fails(tmp_path):
+	events = _defect_events(cross=0, frame_cross=499)
+	path = _episode(tmp_path, "outside", label="defective", true_face=2, events=events)
+	g = grade(path, NO_SMOOTHNESS)
+	check = g["checks"]["decision_crop"]
+	assert check["status"] == "fail"
+	assert (check["true_cross_px_frame"], check["true_cross_px_crop_native"]) == (499, 0)
+	assert summarize([g])["defective_decision_crops"]["cross_in_frame_only"] == 1
+
+
+@pytest.mark.parametrize(("native", "input_px"), [(12, 20), (30, 5)])
+def test_cross_cut_at_the_crop_edge_with_too_few_pixels_fails(tmp_path, native, input_px):
+	# 12 camera pixels left inside the crop; or 30 camera pixels shrunk to 5 detector-input pixels.
+	events = _defect_events(cross=native, cross_input=input_px, frame_cross=499)
+	path = _episode(tmp_path, "edge", label="defective", true_face=2, events=events)
+	check = grade(path, NO_SMOOTHNESS)["checks"]["decision_crop"]
+	assert check["status"] == "fail"
+	assert "cross" in check["reason"]
+
+
+def test_truth_for_another_crop_than_the_detector_got_fails(tmp_path):
+	# The auditor's control: the recorded crop is a 1x1 box at the top-left, the truth was taken elsewhere.
+	events = _defect_events(cross=400, bbox=[0, 0, 1, 1])
+	path = _episode(tmp_path, "bbox", label="defective", true_face=2, events=events)
+	check = grade(path, NO_SMOOTHNESS)["checks"]["decision_crop"]
+	assert check["status"] == "fail"
+	assert "detector got [0, 0, 1, 1]" in check["reason"]
+
+
+def test_one_pixel_crop_of_a_visible_cross_holds_no_cross():
+	from digital_twin_armigo.mujoco_cell.inspection_views import crop_counts
+
+	face = np.full((480, 640), -1)
+	face[200:300, 300:400] = 2
+	defect = np.zeros((480, 640), bool)
+	defect[240:260, 340:360] = True  # 400 px of cross in the middle of face 2
+	real = crop_counts(face, defect, (300, 200, 100, 100), 256, clamp=True)
+	assert real["cross_native"] == 400 and real["faces_native"][2] == 10000
+	assert real["cross_input"] == pytest.approx(400 * real["input_px_per_native_px"], rel=0.1)
+	one = crop_counts(face, defect, (0, 0, 1, 1), 256, clamp=True)
+	assert (one["cross_native"], one["cross_input"], one["faces_native"][2]) == (0, 0, 0)
+	edge = crop_counts(face, defect, (350, 200, 100, 100), 256, pad=0.0)  # the crop's left edge cuts the cross
+	assert 0 < edge["cross_native"] < 400 and edge["region"][0] == 350
+
+
+def test_normal_view_must_show_the_cleared_faces_inside_its_crop(tmp_path):
+	events = _rotated_normal_views(90.0)
+	events[0]["true_face_pixels_crop_native"] = [2000, 0, 300, 0, 9000, 0]  # face 2 mostly outside the crop
+	path = _episode(tmp_path, "normal-crop", label="normal", true_face=None, events=events)
+	check = grade(path, NO_SMOOTHNESS)["checks"]["decision_crop"]
+	assert check["status"] == "fail"
+	assert {"view": "0:300:wrist_cam", "true_face": 2, "true_px_crop_native": 300} in check["false_claims"]
+
+
+def test_nan_single_element_contact_columns_are_unavailable(tmp_path):
+	# The auditor's control: a 1,035-frame branch whose contact columns hold one NaN.
+	events = _rotated_normal_views(90.0)
+	nan = {"frames": 1035, "contact_robot_n": np.array([np.nan]), "contact_jaw_env_n": np.array([np.nan])}
+	path = _episode(tmp_path, "nan", label="normal", true_face=None, events=events, branches={0: nan})
+	g = grade(path, NO_SMOOTHNESS)
+	assert g["checks"]["collisions"]["status"] == "unavailable"
+	assert not g["passed"]
+
+
+@pytest.mark.parametrize("bad", ["short", "nan", "negative"])
+def test_contact_columns_must_be_full_length_finite_and_non_negative(tmp_path, bad):
+	jaw = np.zeros(20)
+	if bad == "short":
+		jaw = jaw[:19]
+	else:
+		jaw[5] = np.nan if bad == "nan" else -1.0
+	branches = {0: {"frames": 20, "contact_robot_n": np.zeros(20), "contact_jaw_env_n": jaw}}
+	path = _episode(
+		tmp_path, bad, label="normal", true_face=None, events=_rotated_normal_views(90.0), branches=branches
+	)
+	assert grade(path, NO_SMOOTHNESS)["checks"]["collisions"]["status"] == "unavailable"
+
+
+SMOOTH_REF = {
+	"thresholds": DEFAULT_THRESHOLDS,
+	"smoothness": {
+		"phase_median_rms": {"approach": [1.0, 1.0]},
+		"p95": {"jerk_index_cmd": 2.0, "jerk_index_meas": 2.0},
+	},
+}
+
+
+def test_missing_branch_file_makes_collisions_and_smoothness_unavailable(tmp_path):
+	branches = {
+		0: {"contact_robot_n": np.zeros(20), "contact_jaw_env_n": np.zeros(20)},
+		1: {"contact_robot_n": np.zeros(30), "contact_jaw_env_n": np.zeros(30)},
+	}
+	events = _rotated_normal_views(90.0)
+	path = _episode(tmp_path, "missing", label="normal", true_face=None, events=events, branches=branches)
+	assert grade(path, SMOOTH_REF)["checks"]["smoothness"]["status"] == "pass"
+	(path / "branch-1/actions.npz").unlink()
+	g = grade(path, SMOOTH_REF)
+	assert g["checks"]["collisions"]["status"] == "unavailable"
+	assert "branch 1: actions.npz missing for 30 actions" in g["checks"]["collisions"]["problems"]
+	assert g["checks"]["smoothness"]["status"] == "unavailable"
+	assert not g["passed"]
+
+
+def test_non_finite_actions_make_smoothness_unavailable(tmp_path):
+	events = _rotated_normal_views(90.0)
+	path = _episode(tmp_path, "nan-actions", label="normal", true_face=None, events=events)
+	with np.load(path / "branch-0/actions.npz") as z:
+		arrays = {k: z[k] for k in z.files}
+	arrays["action"][4, 0] = np.nan
+	np.savez(path / "branch-0/actions.npz", **arrays)
+	assert grade(path, SMOOTH_REF)["checks"]["smoothness"]["status"] == "unavailable"
+
+
+def test_belief_error_nan_fails_and_no_scored_view_or_unrecorded_sensing_is_unavailable(tmp_path):
+	events = _view(0, "0:300:wrist_cam", [0, 2, 4], -1.0, [2000, 0, 2000, 0, 9000, 0], error=float("nan"))
+	path = _episode(tmp_path, "nan-belief", label="unknown", true_face=None, events=events)
+	assert grade(path, NO_SMOOTHNESS)["checks"]["belief_error"]["status"] == "fail"
+	events = _view(0, "0:300:wrist_cam", [0, 2, 4], None, [2000, 0, 2000, 0, 9000, 0])
+	path = _episode(tmp_path, "unscored", label="unknown", true_face=None, events=events)
+	assert grade(path, NO_SMOOTHNESS)["checks"]["belief_error"]["status"] == "unavailable"
+	events = _view(0, "0:300:wrist_cam", [0, 2, 4], -1.0, [2000, 0, 2000, 0, 9000, 0])
+	path = _episode(tmp_path, "no-sensing", label="unknown", true_face=None, events=events, sensing=None)
+	assert grade(path, NO_SMOOTHNESS)["checks"]["belief_error"]["status"] == "unavailable"
 
 
 def test_unknown_label_collisions_count_jaw_contact_over_all_branches(tmp_path):
@@ -255,7 +426,59 @@ def test_real_realistic_trace_passes_with_a_quarter_turn_alignment():
 	g = grade(REAL_TRACE, load_reference(), rebuild_layout=False)
 	assert g["class"] == "defect_face_0"
 	assert g["passed"], {k: c for k, c in g["checks"].items() if c["status"] != "pass"}
-	assert g["checks"]["decision_crop"]["true_cross_px"] >= 25
+	crop = g["checks"]["decision_crop"]
+	assert crop["true_cross_px_crop_native"] == crop["true_cross_px_frame"] >= 25  # the whole cross is in the crop
+	assert crop["crop_size"] == 256 and crop["true_cross_px_crop"] >= 10
 	assert [a["k"] for a in g["alignment"]] == [3, 3]  # believed yaw -14 deg, true yaw 76 deg
 	assert [a["raw_match"] for a in g["alignment"]] == [False, False]
 	assert all(a["aligned_match"] for a in g["alignment"])
+
+
+def _copy_trace(src, dst):
+	import shutil
+
+	shutil.copytree(src, dst)
+	return dst
+
+
+def _rewrite_events(path, change):
+	lines = (path / "events.jsonl").read_text(encoding="utf-8").splitlines()
+	events = [change(json.loads(line)) for line in lines if line]
+	(path / "events.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events), encoding="utf-8")
+
+
+def test_real_trace_with_a_one_pixel_crop_bbox_fails(tmp_path):
+	# The auditor's negative control: the recorded detector crop becomes a 1x1 box at the top-left.
+	if not REAL_TRACE.exists():
+		pytest.skip("real trace fixture missing")
+	path = _copy_trace(REAL_TRACE, tmp_path / "bbox")
+
+	def one_pixel(e):
+		if e["kind"] == "view":
+			e["observation"]["crop_bbox"] = [0, 0, 1, 1]
+		return e
+
+	_rewrite_events(path, one_pixel)
+	g = grade(path, load_reference(), rebuild_layout=False)
+	assert g["checks"]["decision_crop"]["status"] == "fail" and not g["passed"]
+
+
+def test_real_trace_with_truncated_contact_columns_is_unavailable(tmp_path):
+	if not REAL_TRACE.exists():
+		pytest.skip("real trace fixture missing")
+	path = _copy_trace(REAL_TRACE, tmp_path / "nan")
+	with np.load(path / "branch-0/actions.npz") as z:
+		arrays = {k: z[k] for k in z.files}
+	arrays["contact_robot_n"] = arrays["contact_jaw_env_n"] = np.array([np.nan], "float32")
+	np.savez(path / "branch-0/actions.npz", **arrays)
+	g = grade(path, load_reference(), rebuild_layout=False)
+	assert g["checks"]["collisions"]["status"] == "unavailable" and not g["passed"]
+
+
+def test_legacy_real_trace_without_crop_truth_is_unavailable_not_pass():
+	if not LEGACY_TRACE.exists():
+		pytest.skip("legacy trace fixture missing")
+	g = grade(LEGACY_TRACE, load_reference(), rebuild_layout=False)
+	check = g["checks"]["decision_crop"]
+	assert check["status"] == "unavailable" and "crop-space truth" in check["reason"]
+	assert not g["passed"] and g["passed_available"]

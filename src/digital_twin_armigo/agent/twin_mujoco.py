@@ -29,7 +29,7 @@ from ..mujoco_cell._mj import mujoco
 from ..mujoco_cell.episode import PhysicsEpisode, observe
 from ..mujoco_cell.handeye_rig import calibrate_layout
 from ..mujoco_cell.inspection_planning import path_min_z
-from ..mujoco_cell.inspection_views import capture_view, detector_crop
+from ..mujoco_cell.inspection_views import DETECTOR_PAD, capture_view, crop_counts, detector_crop
 from ..mujoco_cell.layout import sample_layout
 from ..mujoco_cell.orbit_scan import OrbitParams, plan_orbit_scan
 from ..mujoco_cell.physics_expert import MIN_JERK_PEAK_RATIO, ExpertParams, _min_jerk
@@ -938,8 +938,6 @@ class TwinMujoco:
 		rgb = cell.rgb(camera)
 		if self.realistic:
 			# Visible faces and the crop come from the believed brick; the image is the real one.
-			with blind_geometry(cell):
-				true_faces = capture_view(cell, camera).faces_px
 			with self._belief(), blind_geometry(cell):
 				geometry = capture_view(cell, camera)
 				image, bbox = detector_crop(cell, camera, None, cell.data, self.crop_size, clamp=True, rgb=rgb)
@@ -994,10 +992,34 @@ class TwinMujoco:
 			"crop_bbox": bbox,
 		}
 		self.record.view(view, rgb, image)
-		# Scoring only (S6 grader): true visible faces and cross pixels, and the true and believed brick orientation
-		# so the grader can map the believed face numbering (yaw known modulo the footprint symmetry) to the true one.
+		# Scoring only (S6 grader): the true visible faces and cross, over the whole frame and inside the crop the
+		# detector actually received (same bbox, margin, border shift and nearest-neighbour resize), and the true and
+		# believed brick orientation so the grader can map the believed face numbering (yaw known modulo the
+		# footprint symmetry) to the true one. Faces are counted with the cross hidden, the cross with it shown.
 		true_quat = cell.brick_quat_xyzw()
-		true_cross = int(capture_view(cell, camera).defect_px)  # cross geoms left visible
+		with blind_geometry(cell):
+			true_face_map, _ = cell.visibility_labels(camera)
+		cross_face_map, true_cross_map = cell.visibility_labels(camera)
+		true_faces = np.bincount(true_face_map[true_face_map >= 0], minlength=len(geometry.faces_px))
+		crop_truth = {}
+		if bbox is not None:
+			faces_crop = crop_counts(true_face_map, true_cross_map, bbox, self.crop_size, DETECTOR_PAD, clamp=True)
+			cross_crop = crop_counts(cross_face_map, true_cross_map, bbox, self.crop_size, DETECTOR_PAD, clamp=True)
+			crop_truth = {
+				"true_face_pixels_crop": faces_crop["faces_input"],
+				"true_face_pixels_crop_native": faces_crop["faces_native"],
+				"true_cross_px_crop": cross_crop["cross_input"],
+				"true_cross_px_crop_native": cross_crop["cross_native"],
+				"truth_crop": {
+					"bbox": [int(v) for v in bbox],
+					"size": int(self.crop_size),
+					"pad": DETECTOR_PAD,
+					"clamp": True,
+					"frame_hw": [int(v) for v in true_face_map.shape],
+					"region": faces_crop["region"],
+					"input_px_per_native_px": faces_crop["input_px_per_native_px"],
+				},
+			}
 		if self.realistic:
 			belief = self._brick_belief()
 			belief_err = (
@@ -1005,13 +1027,14 @@ class TwinMujoco:
 			)
 			belief_quat = None if belief is None else [round(float(v), 6) for v in belief[1]]
 		else:  # faces and crop were computed on the simulator's brick
-			true_faces, belief_err, belief_quat = geometry.faces_px, None, [round(float(v), 6) for v in true_quat]
+			belief_err, belief_quat = None, [round(float(v), 6) for v in true_quat]
 		self.event(
 			"view_truth",
 			id=view["id"],
 			true_face_pixels=[int(v) for v in true_faces],
 			belief_error_mm=belief_err,
-			true_cross_px=true_cross,
+			true_cross_px=int(np.count_nonzero(true_cross_map)),
+			**crop_truth,
 			true_brick_quat_xyzw=[round(float(v), 6) for v in true_quat],
 			belief_brick_quat_xyzw=belief_quat,
 		)

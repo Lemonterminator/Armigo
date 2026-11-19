@@ -78,6 +78,7 @@ def main():
 		f"\nface alignment: {al['views']} views, raw mismatches {al['raw_mismatches']}, "
 		f"after symmetry alignment {al['aligned_mismatches']}, methods {al['methods']}"
 	)
+	print(f"defective decision crops: {s['defective_decision_crops']}")
 	print(f"unavailable per check: {s['unavailable']}")
 	print(f"failed per check: {s['failed']}")
 	if a.json:

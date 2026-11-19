@@ -127,7 +127,11 @@ a probability scale. Previously recorded runs show the fused score when the per-
 Any RTX replay is a separate set of images.
 
 Some records are for scoring only, and no skill reads them. Each scored view has a `view_truth` event:
-- the true visible face pixels and cross pixels (`true_cross_px`);
+- the true visible face pixels and cross pixels over the whole frame (`true_face_pixels`, `true_cross_px`);
+- the same inside the crop the detector actually received, sampled with the crop's own bbox, margin, border
+  shift and nearest-neighbour resize (`truth_crop` records them): camera pixels inside the crop's sampling
+  square (`true_face_pixels_crop_native`, `true_cross_px_crop_native`) and pixels of the detector input
+  (`true_face_pixels_crop`, `true_cross_px_crop`). The grader's decision-crop check uses only these;
 - the true and believed brick orientation, so the believed face numbering can be aligned to the true one;
 - in `realistic`, the belief error in mm.
 
@@ -138,7 +142,8 @@ Each branch's `actions.npz` also stores two per-frame contact peaks over the fra
 
 The VLA grader (`agent/vla_grader.py`, `scripts/vla/grade.py RUNS_DIR`) reads these records. Its thresholds
 and expert reference are in `config/vla/grader_reference.json`. Traces recorded before these fields existed
-grade the affected checks as unavailable, never as passed.
+grade the affected checks as unavailable, never as passed. The same holds for an incomplete record: a branch
+with actions but no `actions.npz`, or contact columns that are shorter than the actions, non-finite or negative.
 
 ## Motion smoothness
 
