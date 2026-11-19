@@ -246,6 +246,8 @@ def test_resume_and_mkv_deletion_safety(tmp_path: Path, monkeypatch: pytest.Monk
 		# Rollout command
 		if "-m" in cmd and "digital_twin_armigo.agent.twin_mcp" in cmd:
 			raw_dir = Path(cmd[cmd.index("--out") + 1])
+			# twin_mcp / EpisodeTrace requires raw_dir/case-XXXX to not exist beforehand
+			assert not raw_dir.exists(), f"stale raw_dir was not cleaned before resume: {raw_dir}"
 			batch_suite = json.loads(Path(cmd[cmd.index("--suite") + 1]).read_text(encoding="utf-8"))
 			for i in range(len(batch_suite["cases"])):
 				_make_synthetic_episode(

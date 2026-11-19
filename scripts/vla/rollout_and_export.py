@@ -321,6 +321,8 @@ def run_pipeline(
 				print(f"[batch-{b_idx:04d}] skipped (already completed on --resume)", flush=True)
 				continue
 
+		if raw_dir.exists():
+			shutil.rmtree(raw_dir)
 		batch_dir.mkdir(parents=True, exist_ok=True)
 		suite_payload = {**suite_meta, "cases": batch_cases, "batch_index": b_idx}
 		_write_json(batch_suite, suite_payload)
