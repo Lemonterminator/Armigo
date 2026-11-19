@@ -837,14 +837,27 @@ class TwinMujoco:
 			"crop_bbox": bbox,
 		}
 		self.record.view(view, rgb, image)
-		if self.realistic:  # scoring only: how far the believed visible faces were from the true ones
+		# Scoring only (S6 grader): true visible faces and cross pixels, and the true and believed brick orientation
+		# so the grader can map the believed face numbering (yaw known modulo the footprint symmetry) to the true one.
+		true_quat = cell.brick_quat_xyzw()
+		true_cross = int(capture_view(cell, camera).defect_px)  # cross geoms left visible
+		if self.realistic:
 			belief = self._brick_belief()
 			belief_err = (
 				None if belief is None else round(float(np.linalg.norm(belief[0] - cell.brick_pos()) * 1000), 2)
 			)
-			self.event(
-				"view_truth", id=view["id"], true_face_pixels=[int(v) for v in true_faces], belief_error_mm=belief_err
-			)
+			belief_quat = None if belief is None else [round(float(v), 6) for v in belief[1]]
+		else:  # faces and crop were computed on the simulator's brick
+			true_faces, belief_err, belief_quat = geometry.faces_px, None, [round(float(v), 6) for v in true_quat]
+		self.event(
+			"view_truth",
+			id=view["id"],
+			true_face_pixels=[int(v) for v in true_faces],
+			belief_error_mm=belief_err,
+			true_cross_px=true_cross,
+			true_brick_quat_xyzw=[round(float(v), 6) for v in true_quat],
+			belief_brick_quat_xyzw=belief_quat,
+		)
 		# Keep diagnostics in the trace, separate from the decision evidence supplied to the agent.
 		self.event(
 			"view" if error is None else "detector_error",
