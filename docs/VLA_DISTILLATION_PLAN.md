@@ -256,7 +256,47 @@ Each step: goal, principle, components (**exists** / **new** / **change**), gate
 
 - **Components.** **new:** `scripts/vla/train.py`: inputs per S1, segment instruction, action chunk (1-2 s) with the
   S7 mask, `segment_done` head. Image-space augmentation (colour, noise, crops) at training time.
-- **Gate (offline).** Validation action error per segment type; `segment_done` F1 ≥ 0.9. Closed loop (S10) decides.
+- **Architecture (proposal, D2).** SmolVLA (about 450M) as the main student, ACT as the baseline (S12).
+  - SmolVLA: SmolVLM2-500M backbone (SigLIP vision encoder, SmolLM2 with the upper half of its layers skipped), 64
+    visual tokens per image; the state vector projected to one token; prefix = visual, text and state tokens. A
+    flow-matching action expert (about 100M, interleaved cross-attention to the prefix and self-attention between
+    action tokens) generates the chunk. Real-rig Studio runs used: vision encoder frozen, `train_expert_only`,
+    `train_state_proj`, images resized to 512, chunk 50, lr 1e-4.
+  - ACT: ResNet18 per camera, CVAE transformer encoder-decoder, chunk 100, L1 + KL (weight 10). About 10 ms per GPU
+    step on the rig vs 85-150 ms for SmolVLA (OpenVINO GPU), so SmolVLA needs asynchronous chunk execution (S10).
+  - **added:** an end-of-segment head, a small MLP on the pooled prefix features (both families).
+- **Inputs (proposal, D1).** Images of the current frame only: `top_rgb_v2`, `top_depth_v2` (the bridge's 3-channel
+  layered height image, treated as an image; rendered from the noisy D415 model as on the rig) and `wrist`. History
+  goes into the state vector: q_t, q_{t-1}, a_{t-1} (the policy's own previous command) and the filtered gripper
+  command, all in radians. Structured conditioning in the same vector: segment kind one-hot (12), target bowl
+  one-hot, view index, frames since the segment start. The segment instruction as text as well. The structured
+  fields are required, not optional: on the rig `place-v1-smolvla-e40` ignored the bowl named in its instruction.
+  No gripper effort (S1 option B for the pilot); no front camera (its rig mount changed between sessions).
+- **Outputs.**
+  - Action chunk A: the next H = 50 steps (1.67 s at 30 fps) of 6 absolute joint targets in radians, normalized by
+    the training set mean and standard deviation.
+  - End step: a categorical over H + 1 classes, "the segment ends at chunk step k" (k = 0 .. H-1) or "not within
+    this chunk". The executor stops the segment at that step without waiting for the next inference (with 100+ ms
+    per SmolVLA call, a per-frame "done now" head would end segments several frames late).
+- **Losses.**
+  - Actions, flow matching with the segment mask. Per sample τ ∈ (0, 1), ε ~ N(0, I), A_τ = τ ε + (1 - τ) A, target
+    velocity u = ε - A:
+    L_act = Σ_k m_k ‖v_θ(A_τ, o, c, τ)_k - u_k‖² / Σ_k m_k, with m_k = 1 iff k < `chunk_valid_len`, the frame is not
+    blind (S5) and k does not reach past a takeover (S11). Masked steps are filled with the segment's last valid
+    action, never the next segment's (as LeRobot pads at an episode end with `is_pad`). Inference integrates about
+    10 Euler steps from noise. ACT: masked L1 + 10 KL.
+  - End step, cross-entropy: L_done = CE(p_θ(end step | o, c), y), y = `chunk_valid_len` if `chunk_valid_len` ≤ H
+    and the segment ended with reason `done`, else "not within this chunk". Masked for segments ended by a monitor
+    or a fault (`brick_lost`, faults): the student did not choose those ends. Class weights for the rare in-chunk
+    classes.
+  - Total L = L_act + λ L_done, λ ≈ 0.1 to start.
+- **Label trap (S7 convention).** `segment.done` is True on row r, whose `task` is already the NEXT segment's
+  instruction (`SEGMENT_DONE_CONVENTION`). Training a per-frame "done now" head on (observation r, row r's task)
+  teaches "done at the start of a new segment". The end-step head takes its label from each row's own segment
+  (`chunk_valid_len`), so it avoids this. Only zero-frame segments (e.g. `let_go`) need an extra sample:
+  (observation r, the ended segment's conditioning) → end step 0.
+- **Gate (offline).** Validation action error per segment type; end-step F1 ≥ 0.9 (an end predicted within ±2
+  frames counts as correct). Closed loop (S10) decides.
 
 ### S10. Closed-loop simulation evaluation
 
@@ -268,11 +308,26 @@ Each step: goal, principle, components (**exists** / **new** / **change**), gate
 
 ### S11. DAgger
 
-- **Principle.** Ross et al. 2011: label student-visited states with expert actions, aggregate, retrain.
+- **Principle.** Ross et al. 2011: label student-visited states with expert actions, aggregate, retrain. The
+  `realistic` expert is a trajectory planner, not a policy that can be queried at any state, so the loop is
+  takeover-based (HG-DAgger style): the expert labels only the states it controls after taking over.
 - **Components.** Takeover: a gate (deviation from the `realistic` expert's plan from the same state, a detected
   failure, a stall) hands control to the expert, which recovers in place and finishes. A takeover action labels only
   the state where it was produced; it is never back-filled to earlier student frames, and the student's chunk is
   cut at the takeover (S7 mask). New episodes go through S6 and S7.
+- **Loop (one iteration).**
+  1. Roll out controller + current student closed loop on **training** layouts only (validation layouts gate, the
+     sealed test is never used).
+  2. Take over on any of: student joints off the expert's plan from the same state by more than a threshold;
+     gripper BLOCKED; brick lost; segment over its frame budget or stalled. All gates read the `realistic`
+     expert's plan and sensors, never ground truth.
+  3. The expert replans from the current state, recovers in place and finishes the episode. Its frames carry the
+     same segment kinds and labels as a normal recording (one labelling implementation, S7).
+  4. Labels: takeover frames and later only. Student frames before the takeover get no expert label (at most they
+     serve as observation history); their chunks are cut at the takeover frame; blind frames between the
+     deviation and the trigger are masked.
+  5. Aggregate D ← D ∪ D_takeover; fine-tune from the previous checkpoint on the union, with takeover samples
+     weighted up (start at 2x).
 - **Gate.** Stop when two iterations add < 2 points on validation layouts.
 
 ### S12. Equal-budget ablations
@@ -313,7 +368,7 @@ Each step: goal, principle, components (**exists** / **new** / **change**), gate
 | S5 | expert recovery ≥ 80 % per perturbation; detection event present |
 | S6 | per-class pass rate ≥ 0.8x mean |
 | S7 | no unmasked chunk step crosses a boundary |
-| S9 | `segment_done` F1 ≥ 0.9 |
+| S9 | end-step F1 ≥ 0.9 (±2 frames) |
 | S10 | pilot student ≥ 0.7x teacher, then ≥ 0.9x; 0 collisions over all attempts |
 | S11 | stop below 2 points per two iterations |
 | S13 | RTX ≤ 1.5x MuJoCo action error |
