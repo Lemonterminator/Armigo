@@ -170,8 +170,10 @@ class HeldBrickPoser:
 	"""Kinematic copies of the current state with the arm at other joint angles and the held brick moved rigidly
 	with the gripper, for scoring candidate show poses without stepping the physics."""
 
-	def __init__(self, cell: Cell) -> None:
+	def __init__(self, cell: Cell, brick_size=None) -> None:
 		self.cell = cell
+		# extents for brick_min_z: the simulator's brick unless a believed size is given (realistic planning)
+		self.size = np.asarray(cell.layout.brick_size if brick_size is None else brick_size, dtype=np.float64)
 		self.data = copy.copy(cell.data)
 		m, d = cell.model, cell.data
 		rot_g = d.xmat[cell.grip_body].reshape(3, 3)
@@ -199,7 +201,7 @@ class HeldBrickPoser:
 	def brick_min_z(self) -> float:
 		"""Lowest brick corner above the table in the current copy (metres)."""
 		cell, d = self.cell, self.data
-		half = np.asarray(cell.layout.brick_size) / 2.0
+		half = self.size / 2.0
 		corners = np.array([(x, y, z) for x in (-1, 1) for y in (-1, 1) for z in (-1, 1)]) * half
 		rot = d.xmat[cell.brick_body].reshape(3, 3)
 		return float((d.xpos[cell.brick_body] + corners @ rot.T)[:, 2].min())
