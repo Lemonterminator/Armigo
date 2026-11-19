@@ -10,7 +10,7 @@ import math
 import time
 from collections import deque
 from contextlib import contextmanager
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, fields, replace
 from functools import lru_cache
 from pathlib import Path
 from types import MappingProxyType
@@ -29,14 +29,22 @@ from ..mujoco_cell._mj import mujoco
 from ..mujoco_cell.episode import PhysicsEpisode, observe
 from ..mujoco_cell.handeye_rig import calibrate_layout
 from ..mujoco_cell.inspection_planning import path_min_z
-from ..mujoco_cell.inspection_views import capture_view, detector_crop
+from ..mujoco_cell.inspection_views import DETECTOR_PAD, capture_view, crop_counts, detector_crop
 from ..mujoco_cell.layout import sample_layout
 from ..mujoco_cell.orbit_scan import OrbitParams, plan_orbit_scan
 from ..mujoco_cell.physics_expert import MIN_JERK_PEAK_RATIO, ExpertParams, _min_jerk
 from ..mujoco_cell.table_relocation import RelocateExpert, RelocateParams, plan_bottom_view, plan_table_scan
 from ..physics import NonIdealityCfg, load_physics_spec
 from .bowl_clearance import PerceivedBowlClearance, with_perceived_bowl_clearance
-from .perception import PerceptionCfg, bowl_fill, bowl_filled, locate_bowls, locate_brick, yaw_error_deg
+from .perception import (
+	BrickEstimate,
+	PerceptionCfg,
+	bowl_fill,
+	bowl_filled,
+	locate_bowls,
+	locate_brick,
+	yaw_error_deg,
+)
 from .sensing import GripperContact
 from .twin_graph import Policy, decision, select_skill
 
@@ -203,7 +211,51 @@ class Checkpoint:
 	# Added after the first persisted checkpoints; the defaults load older checkpoint files.
 	retries: int = 0  # in-place recoveries before this checkpoint (they share the recovery budget with rewinds)
 	held: dict | None = None  # carried brick: lift pose and grasp roll (the grasp itself is in ``integration``)
-	agent: dict | None = None  # agent-side state: believed grip-from-brick, contact filter, depth-noise RNG, park spot
+	# Agent-side state (see TwinMujoco._save): brick belief, perceived bowls and camera, carried-brick transform,
+	# contact filter, depth-noise RNG, park spot, expert parameters and variants, recovery counters, segment rows.
+	agent: dict | None = None
+
+
+# Persisted next to ``<id>.json`` / ``<id>.npy``: the per-frame history a resumed episode continues (telemetry rows,
+# policy targets and phases), and the empty-bowl depth reference, which is fixed after ``prepare`` and stored once.
+HISTORY_SUFFIX = ".history.npz"
+HISTORY_KEYS = ("jaw_env_force", "phases", "targets")
+
+
+def brick_to_json(est: BrickEstimate | None) -> dict | None:
+	if est is None:
+		return None
+	return {
+		"pos": np.asarray(est.pos, dtype=np.float64).tolist(),
+		"yaw": float(est.yaw),
+		"size": [float(v) for v in est.size],
+		"footprint_m": [float(v) for v in est.footprint_m],
+		"top_points": int(est.top_points),
+		"extended_mm": [float(v) for v in est.extended_mm],
+	}
+
+
+def brick_from_json(raw: dict | None) -> BrickEstimate | None:
+	if raw is None:
+		return None
+	return BrickEstimate(
+		np.array(raw["pos"], dtype=np.float64),
+		raw["yaw"],
+		tuple(raw["size"]),
+		tuple(raw["footprint_m"]),
+		raw["top_points"],
+		tuple(raw["extended_mm"]),
+	)
+
+
+def _tuples(value):
+	return tuple(_tuples(v) for v in value) if isinstance(value, list) else value
+
+
+def params_from_json(cls, raw: dict):
+	"""An ``ExpertParams`` / ``RelocateParams`` from its ``asdict`` JSON (lists back to the tuples they were)."""
+	names = {f.name for f in fields(cls)}
+	return cls(**{k: _tuples(v) for k, v in raw.items() if k in names})
 
 
 # Bounded recovery variants. Each is a fixed, named, deterministic transform of the default expert parameters. The
@@ -400,6 +452,19 @@ class ContinuousCarryExpert(RelocateExpert):
 		yield q_to.copy(), phase
 
 
+def with_believed_brick_size(expert_type: type, size) -> type:
+	"""Subclass of the expert class ``expert_type`` whose brick extents (grasp band and axes, put-down and release
+	heights) come from ``size()``, the believed size, instead of the simulator's brick."""
+
+	class BelievedSizeExpert(expert_type):
+		@property
+		def size(self):
+			return size()
+
+	BelievedSizeExpert.__name__ = BelievedSizeExpert.__qualname__ = f"BelievedSize{expert_type.__name__}"
+	return BelievedSizeExpert
+
+
 class TwinMujoco:
 	"""The six-face skills on one simulated cell.
 
@@ -409,6 +474,9 @@ class TwinMujoco:
 	- the top camera is hand-eye calibrated before the episode, and the brick and both bowls are located in its images;
 	- a carried brick is believed to move rigidly with the gripper from the grasp on;
 	- planners and the detector crop see the believed brick (the simulated one is moved there while they run);
+	- the brick's size class (2x2 or 2x4) is read from the perceived top-face footprint, and every planner that needs
+	  the brick's extents (grasp axes and band, orbit ring, held-brick table clearance, put-down and release heights)
+	  uses it instead of the simulator's brick size;
 	- the expert's contact signals come from the gripper position and effort (.sensing), and brick speed reads zero;
 	- a placement is checked by the top camera (depth against an empty-bowl image);
 	- a failure is recovered from the current state (park or drop, relocate the brick) instead of a physics rewind;
@@ -475,6 +543,7 @@ class TwinMujoco:
 				raise ValueError("realistic sensing does not perceive clutter: use a layout without clutter")
 			self.bowl_clearance = PerceivedBowlClearance(self.cell, self.bowls)
 			self.expert_type = with_perceived_bowl_clearance(self.expert_type, self.bowl_clearance)
+			self.expert_type = with_believed_brick_size(self.expert_type, self._believed_brick_size)
 		self.expert = self.expert_type(
 			self.cell, INITIAL_Q, self._expert_xy, ExpertParams(), RelocateParams(do_bottom=False, do_scan=False)
 		)
@@ -500,10 +569,10 @@ class TwinMujoco:
 		if self.realistic and self.perception is None:
 			self.perception = PerceptionCfg.realistic()
 		self.brick_est = None
+		self._perceived_size = None  # realistic: the size class of the last brick perception (kept after a release)
 		self._belief_obs = False
 		self._grip_from_brick = None  # realistic: the carried brick in the gripper frame, believed at the grasp
 		self._expected_yaw = None  # realistic: yaw the brick should show after the agent put it down itself
-		self._checkpoint_belief: dict[str, object] = {}
 		self._park_xy = np.asarray(layout.brick_xy, dtype=np.float64)
 		self.scene_error = None
 		if self.perception is not None:
@@ -560,6 +629,19 @@ class TwinMujoco:
 			return self.brick_est.pos.copy(), self.brick_est.quat_xyzw()
 		return None
 
+	def _believed_brick_size(self) -> tuple[float, float, float]:
+		"""Brick extents the realistic planners use: the size class perception read from the top-face footprint
+		(``locate_brick``), never the simulator's brick."""
+		if self.brick_est is not None:
+			return tuple(self.brick_est.size)
+		if self._perceived_size is not None:
+			return self._perceived_size
+		raise RuntimeError("realistic planning needs the brick's size: no brick perception yet")
+
+	def _plan_brick_size(self):
+		"""``brick_size`` for the planners: the believed size in ``realistic``; None (the simulator's) in ``truth``."""
+		return self._believed_brick_size() if self.realistic else None
+
 	def _table_belief_tf(self) -> np.ndarray:
 		est = self.brick_est
 		tf = np.eye(4)
@@ -594,6 +676,7 @@ class TwinMujoco:
 			est.yaw += period * round((self._expected_yaw - est.yaw) / period)
 			self._expected_yaw = None
 		self.brick_est = est
+		self._perceived_size = tuple(est.size)
 		# Truth is logged for scoring only; nothing in the agent reads it back.
 		rot = self.cell.data.xmat[self.cell.brick_body].reshape(3, 3)
 		true_yaw = math.atan2(rot[1, 0], rot[0, 0])
@@ -698,7 +781,10 @@ class TwinMujoco:
 
 	def _save(self, views):
 		"""Checkpoint the skill boundary, also while the brick is held: the grasp is physical (no weld), so the
-		integration state carries it; the lift pose, grasp roll and the agent's carried-brick belief come along."""
+		integration state carries it. The checkpoint holds everything the agent's later behaviour depends on, so a new
+		``TwinMujoco`` built from the same case continues identically (``resume_state``): the lift pose and grasp roll,
+		the brick belief, perceived bowls and camera, contact filter, depth-noise RNG, expert parameters and counters.
+		With a trace directory, the per-frame history and the empty-bowl depth reference are written next to it."""
 		integration = np.empty(mujoco.mj_stateSize(self.cell.model, STATE_SPEC))
 		mujoco.mj_getState(self.cell.model, self.cell.data, integration, STATE_SPEC)
 		ex, filt = self.expert, self.ep.filt
@@ -721,16 +807,34 @@ class TwinMujoco:
 		held = None
 		if self.held is not None:
 			q_lift, roll = self.held
-			held = {"q_lift": np.asarray(q_lift).tolist(), "roll": float(roll)}
+			held = {"q_lift": np.asarray(q_lift).tolist(), "roll": None if roll is None else float(roll)}
 		grip = self._grip_from_brick
+		base = getattr(self, "_base_params", None)
+		directory = getattr(self.record, "checkpoints", None)
+		directory = directory if isinstance(directory, Path) else None
 		agent = {
 			"grip_from_brick": None if grip is None else grip.tolist(),
 			"contact_prev": self._contact.prev if self.realistic else None,
 			"park_xy": self._park_xy.tolist(),
 			"expected_yaw": self._expected_yaw,
+			"brick_est": brick_to_json(self.brick_est),
+			"perceived_size": None if self._perceived_size is None else [float(v) for v in self._perceived_size],
+			"bowls": {name: np.asarray(xy, dtype=np.float64).tolist() for name, xy in self.bowls.items()},
+			"expert_params": asdict(ex.p),
+			"relocate_params": asdict(ex.rp),
+			"base_params": None if base is None else [asdict(base[0]), asdict(base[1])],
+			"scan_peak_speed": self.scan_peak_speed,
+			"recovery_variants": list(self.recovery_variants),
+			"clipped_frames": int(self._clipped_frames + getattr(ex, "clipped_frames", 0)),
+			"llm_stats": copy.deepcopy(getattr(self, "_llm_stats", None)),
+			"segments": self._checkpoint_extra(),
 		}
 		if self.perception is not None:
 			agent["depth_rng"] = self._depth_rng.bit_generator.state
+			agent["camera"] = {"k": np.asarray(self._cam_k).tolist(), "world_from_cam": self._cam_est.tolist()}
+		if self.realistic and directory is not None:
+			agent["empty_bowl_depth"] = self._write_depth_reference(directory)
+		agent = json.loads(json.dumps(agent, allow_nan=False))  # in memory exactly as on disk (tuples become lists)
 		checkpoint = Checkpoint(
 			f"checkpoint-{len(self.checkpoints)}",
 			self.branch,
@@ -746,9 +850,34 @@ class TwinMujoco:
 			agent=agent,
 		)
 		self.record.checkpoint(checkpoint)
+		if directory is not None:
+			self._write_history(directory / f"{checkpoint.id}{HISTORY_SUFFIX}")
 		self.checkpoints.append(checkpoint)
-		self._checkpoint_belief[checkpoint.id] = copy.deepcopy(self.brick_est)
 		self.event("checkpoint", checkpoint=checkpoint.id)
+
+	def _checkpoint_extra(self):
+		"""Subclass state a resumed episode needs (the segment twins' segment rows); JSON, or None."""
+		return
+
+	def _restore_extra(self, extra):
+		del extra
+
+	def _write_depth_reference(self, directory: Path) -> str:
+		"""Store the empty-bowl depth reference once per content; returns its file name."""
+		depth = np.ascontiguousarray(self._baseline_depth, dtype=np.float64)
+		name = f"empty-bowl-depth-{hashlib.sha256(depth.tobytes()).hexdigest()[:16]}.npy"
+		if not (directory / name).is_file():
+			np.save(directory / name, depth, allow_pickle=False)
+		return name
+
+	def _write_history(self, path: Path):
+		ep = self.ep
+		arrays = {f"tel_{k}": np.asarray(v, dtype=np.float64) for k, v in ep._logs.items()}
+		arrays["jaw_env_force"] = np.asarray(ep.jaw_env_force, dtype=np.float64)
+		arrays["phases"] = np.asarray(self.phases, dtype=np.int64)
+		arrays["targets"] = np.asarray(self.targets, dtype=np.float64).reshape(-1, 6)
+		with path.open("wb") as f:
+			np.savez(f, **arrays)
 
 	def prepare(self):
 		def ready():
@@ -938,8 +1067,6 @@ class TwinMujoco:
 		rgb = cell.rgb(camera)
 		if self.realistic:
 			# Visible faces and the crop come from the believed brick; the image is the real one.
-			with blind_geometry(cell):
-				true_faces = capture_view(cell, camera).faces_px
 			with self._belief(), blind_geometry(cell):
 				geometry = capture_view(cell, camera)
 				image, bbox = detector_crop(cell, camera, None, cell.data, self.crop_size, clamp=True, rgb=rgb)
@@ -994,10 +1121,34 @@ class TwinMujoco:
 			"crop_bbox": bbox,
 		}
 		self.record.view(view, rgb, image)
-		# Scoring only (S6 grader): true visible faces and cross pixels, and the true and believed brick orientation
-		# so the grader can map the believed face numbering (yaw known modulo the footprint symmetry) to the true one.
+		# Scoring only (S6 grader): the true visible faces and cross, over the whole frame and inside the crop the
+		# detector actually received (same bbox, margin, border shift and nearest-neighbour resize), and the true and
+		# believed brick orientation so the grader can map the believed face numbering (yaw known modulo the
+		# footprint symmetry) to the true one. Faces are counted with the cross hidden, the cross with it shown.
 		true_quat = cell.brick_quat_xyzw()
-		true_cross = int(capture_view(cell, camera).defect_px)  # cross geoms left visible
+		with blind_geometry(cell):
+			true_face_map, _ = cell.visibility_labels(camera)
+		cross_face_map, true_cross_map = cell.visibility_labels(camera)
+		true_faces = np.bincount(true_face_map[true_face_map >= 0], minlength=len(geometry.faces_px))
+		crop_truth = {}
+		if bbox is not None:
+			faces_crop = crop_counts(true_face_map, true_cross_map, bbox, self.crop_size, DETECTOR_PAD, clamp=True)
+			cross_crop = crop_counts(cross_face_map, true_cross_map, bbox, self.crop_size, DETECTOR_PAD, clamp=True)
+			crop_truth = {
+				"true_face_pixels_crop": faces_crop["faces_input"],
+				"true_face_pixels_crop_native": faces_crop["faces_native"],
+				"true_cross_px_crop": cross_crop["cross_input"],
+				"true_cross_px_crop_native": cross_crop["cross_native"],
+				"truth_crop": {
+					"bbox": [int(v) for v in bbox],
+					"size": int(self.crop_size),
+					"pad": DETECTOR_PAD,
+					"clamp": True,
+					"frame_hw": [int(v) for v in true_face_map.shape],
+					"region": faces_crop["region"],
+					"input_px_per_native_px": faces_crop["input_px_per_native_px"],
+				},
+			}
 		if self.realistic:
 			belief = self._brick_belief()
 			belief_err = (
@@ -1005,13 +1156,14 @@ class TwinMujoco:
 			)
 			belief_quat = None if belief is None else [round(float(v), 6) for v in belief[1]]
 		else:  # faces and crop were computed on the simulator's brick
-			true_faces, belief_err, belief_quat = geometry.faces_px, None, [round(float(v), 6) for v in true_quat]
+			belief_err, belief_quat = None, [round(float(v), 6) for v in true_quat]
 		self.event(
 			"view_truth",
 			id=view["id"],
 			true_face_pixels=[int(v) for v in true_faces],
 			belief_error_mm=belief_err,
-			true_cross_px=true_cross,
+			true_cross_px=int(np.count_nonzero(true_cross_map)),
+			**crop_truth,
 			true_brick_quat_xyzw=[round(float(v), 6) for v in true_quat],
 			belief_brick_quat_xyzw=belief_quat,
 		)
@@ -1031,7 +1183,9 @@ class TwinMujoco:
 				self.expert.kin.data.qpos[:] = self.cell.data.qpos
 			# Sample the swept arm and bowl/clutter clearance in addition to table height.
 			qs = [first + a * (last - first) for a in np.linspace(0, 1, 10)]
-			return path_min_z(self.cell, first, last, carried=held) >= 0.015 and self.expert._clearance(qs) >= 0
+			size = self._plan_brick_size() if held else None
+			low = path_min_z(self.cell, first, last, carried=held, brick_size=size)
+			return low >= 0.015 and self.expert._clearance(qs) >= 0
 
 	def _park_held(self):
 		q_lift, roll = self.held
@@ -1121,6 +1275,7 @@ class TwinMujoco:
 				params=ORBIT_ATTEMPTS[attempt],
 				faces=need,
 				min_px=WRIST_MIN_PX,
+				brick_size=self._plan_brick_size(),
 			)
 		reached = {f for v in plan.views for f in need if v.faces_px[f] >= WRIST_MIN_PX}
 		if plan.views and reached == set(need):
@@ -1173,6 +1328,7 @@ class TwinMujoco:
 				seed=self.recoveries * 71 + self.bottom_count - 1,
 				clearance=lambda q: self._straight_clear(ex.last, q, held=True),
 				border_px=BOTTOM_BORDER_PX if self.realistic else 0,
+				brick_size=self._plan_brick_size(),
 			)
 		if candidate is None or candidate.faces_px[5] < BOTTOM_MIN_PX:
 			self.event("view_unavailable", camera="top", reason="NO_BOTTOM_PATH")
@@ -1260,14 +1416,56 @@ class TwinMujoco:
 			self._park_xy = np.array(agent["park_xy"])
 		if agent.get("depth_rng") is not None and self.perception is not None:
 			self._depth_rng.bit_generator.state = copy.deepcopy(agent["depth_rng"])
+		if agent.get("bowls") is not None:
+			for name, xy in agent["bowls"].items():
+				self.bowls[name] = np.array(xy, dtype=np.float64)  # in place: the clearance proxy reads this mapping
+		if agent.get("camera") is not None and self.perception is not None:
+			self._cam_k = np.array(agent["camera"]["k"], dtype=np.float64)
+			self._cam_est = np.array(agent["camera"]["world_from_cam"], dtype=np.float64)
 		if self.realistic:
 			self._contact.reset()
 			self._contact.prev = agent.get("contact_prev")
-			self.brick_est = copy.deepcopy(self._checkpoint_belief.get(checkpoint.id))
+		if self.perception is not None:
+			self.brick_est = brick_from_json(agent.get("brick_est"))
+			size = agent.get("perceived_size")
+			self._perceived_size = None if size is None else tuple(size)
 		self.actual_destination = None
 		self.execution_error = None
 		self.wrist_count = checkpoint.wrist_count
 		self.bottom_count = checkpoint.bottom_count
+
+	def resume_state(self, checkpoint, checkpoints, history=None, empty_bowl_depth=None):
+		"""Cross-process restore (``twin_resume.restore``): put this freshly built twin of the same case at a persisted
+		``checkpoint`` so that it continues exactly as the interrupted episode would have. Besides ``restore_state``:
+		the expert parameters and variant bookkeeping in force at the checkpoint, the per-frame history (telemetry,
+		targets, phases: the next observation reads the last row, the final health check reads them all), the
+		empty-bowl depth reference and the segment rows. ``checkpoints`` become the live rewind targets."""
+		agent = checkpoint.agent or {}
+		params = relocate = None
+		if agent.get("expert_params") is not None:
+			params = params_from_json(ExpertParams, agent["expert_params"])
+			relocate = params_from_json(RelocateParams, agent["relocate_params"])
+		self.restore_state(checkpoint, params, relocate)
+		if agent.get("base_params") is not None:
+			raw = agent["base_params"]
+			self._base_params = (params_from_json(ExpertParams, raw[0]), params_from_json(RelocateParams, raw[1]))
+		if agent.get("scan_peak_speed") is not None:
+			self.scan_peak_speed = agent["scan_peak_speed"]
+		self.recovery_variants = tuple(agent.get("recovery_variants", ()))
+		self._clipped_frames = agent.get("clipped_frames", 0)
+		if agent.get("llm_stats") is not None:
+			self._llm_stats = copy.deepcopy(agent["llm_stats"])
+		if history is not None:
+			ep = self.ep
+			for key in ep._logs:
+				ep._logs[key] = list(history[f"tel_{key}"])
+			ep.jaw_env_force = [float(v) for v in history["jaw_env_force"]]
+			self.phases = [int(v) for v in history["phases"]]
+			self.targets = [row.copy() for row in history["targets"]]
+		if empty_bowl_depth is not None:
+			self._baseline_depth = np.array(empty_bowl_depth, dtype=np.float64)
+		self._restore_extra(agent.get("segments"))
+		self.checkpoints = list(checkpoints)
 
 	def recovery_choices(self, policy: Policy, failures) -> list[tuple[str, str]]:
 		"""``(choice, note)`` pairs the recover node offers after ``failures[-1]``, the default first and ``stop``
@@ -1380,7 +1578,7 @@ class TwinMujoco:
 		self.brick_est = None
 		if error or self._execute(ex._go_ready()):
 			return None
-		believed = self._checkpoint_belief.get(last.id) if last else None
+		believed = brick_from_json((last.agent or {}).get("brick_est")) if last else None
 		if self._perceive():
 			return None
 		moved = believed is None or bool(

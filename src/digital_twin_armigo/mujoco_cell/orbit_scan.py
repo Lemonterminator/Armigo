@@ -217,13 +217,16 @@ def plan_orbit_scan(
 	faces: Sequence[int] = (0, 1, 2, 3, 4),
 	min_px: int = 800,
 	max_views: int = 5,
+	brick_size: Sequence[float] | None = None,
 ) -> OrbitPlan:
 	"""Orbit scan of the brick at its current simulated pose (see the module docstring). ``kin`` is a private
-	:class:`~.grasp_geometry.Kinematics` (IK runs there). Returns an empty plan when no ring pose is kept."""
+	:class:`~.grasp_geometry.Kinematics` (IK runs there). ``brick_size`` sets the ring around the upward face
+	(default: the simulator's brick; the realistic twin passes the perceived size class). Returns an empty plan when
+	no ring pose is kept."""
 	m = cell.model
 	pos = cell.data.xpos[cell.brick_body].copy()
 	rot = cell.data.xmat[cell.brick_body].reshape(3, 3).copy()
-	top = top_face(pos, rot, cell.layout.brick_size)
+	top = top_face(pos, rot, cell.layout.brick_size if brick_size is None else brick_size)
 	brick, robot = _brick_geoms(cell), _robot_geoms(cell)
 	distal = _body_geoms(cell, ("gripper", "camera_mount", "moving_jaw_so101_v1"))
 	proximal = _body_geoms(cell, ("base", "shoulder", "upper_arm"))

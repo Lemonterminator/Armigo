@@ -112,6 +112,29 @@ def test_face_probes_count_only_faces_in_view(bench):
 	assert w < 80 and h < 80  # a 3 cm brick, not stretched by stray (reflection) pixels
 
 
+def test_crop_truth_counts_only_what_the_detector_crop_shows(bench):
+	from digital_twin_armigo.constants import SO101_MJCF_DIR
+	from digital_twin_armigo.mujoco_cell import Cell
+	from digital_twin_armigo.mujoco_cell._mj import mujoco
+	from digital_twin_armigo.mujoco_cell.inspection_views import crop_counts, detector_crop
+	from digital_twin_armigo.physics import load_physics_spec
+
+	lay = _layout(bench, face=4, defective=True)
+	with Cell(lay, SO101_MJCF_DIR, physics=load_physics_spec(), assisted_grasp=False, face_probes=True) as cell:
+		mujoco.mj_forward(cell.model, cell.data)
+		full = cell.face_visibility("top")
+		face, defect = cell.visibility_labels("top")
+		image, bbox = detector_crop(cell, "top", None, cell.data, 64, clamp=True)
+	# The labels are exactly what face_visibility counts over the frame.
+	assert np.bincount(face[face >= 0], minlength=6).tolist() == full["faces"].tolist()
+	assert int(defect.sum()) == full["defect"] > 25
+	real = crop_counts(face, defect, bbox, 64, clamp=True)
+	assert real["cross_native"] == full["defect"]  # the whole cross lies inside the crop around the brick
+	assert real["cross_input"] > 0 and image.shape == (64, 64, 3)
+	one = crop_counts(face, defect, (0, 0, 1, 1), 64, clamp=True)  # a 1x1 box at the top-left: no cross
+	assert one["cross_native"] == one["cross_input"] == 0
+
+
 def test_face_probes_do_not_change_the_physics(bench):
 	from digital_twin_armigo.benchmarks import SENSITIVITY_MATRIX
 	from digital_twin_armigo.constants import SO101_MJCF_DIR

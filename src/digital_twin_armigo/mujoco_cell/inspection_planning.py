@@ -177,10 +177,12 @@ def best_closeup(cands: Sequence[ViewCandidate], face: int, min_share: float = 0
 	return best
 
 
-def path_min_z(cell: Cell, q_from: np.ndarray, q_to: np.ndarray, *, carried: bool, steps: int = 12) -> float:
+def path_min_z(
+	cell: Cell, q_from: np.ndarray, q_to: np.ndarray, *, carried: bool, steps: int = 12, brick_size=None
+) -> float:
 	"""Lowest robot (and, if ``carried``, held brick) point above the table along the straight joint-space path
-	(what a min-jerk move follows)."""
-	poser = HeldBrickPoser(cell) if carried else None
+	(what a min-jerk move follows). ``brick_size``: the held brick's extents (default: the simulator's brick)."""
+	poser = HeldBrickPoser(cell, brick_size) if carried else None
 	d = copy.copy(cell.data)
 	low = np.inf
 	for s in np.linspace(0.0, 1.0, steps):

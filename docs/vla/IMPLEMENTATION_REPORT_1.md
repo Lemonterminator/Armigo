@@ -80,9 +80,11 @@ Deviations and choices the reviewer should judge:
 - **Normalization range = MJCF joint limits**, not the empirical expert span. It covers every expert command by
   construction (commands are clipped to it), but measured joints can sit slightly outside the soft limits, so
   normalized values just beyond +-1 are possible.
-- **Known gap:** a held checkpoint restored across processes (`twin_resume`) is exact except on its first frame,
-  where the observation lacks the previous gripper command, effort and jaw-force reading. In-process restore is
-  exact. `ContinuousCarryExpert.smoothed_moves` still resets on a rewind (unchanged behaviour).
+- **Known gap (corrected after review 1):** the earlier claim that a cross-process restore (`twin_resume`) differs
+  only on its first frame is **withdrawn**. The reviewer showed that a restore from disk into a fresh instance loses
+  the brick belief and changes the empty-bowl reference depth (145,596 pixels), and the difference persists to the
+  placement check (green-bowl fill count 1,411 vs 1,261); `_save()` also raises for a student-held brick
+  (`held.roll=None`). Both are being fixed (see section E). In-process restore is exact. `ContinuousCarryExpert.smoothed_moves` still resets on a rewind (unchanged behaviour).
 
 ### B.2 S3: case generator and splits
 
@@ -97,7 +99,8 @@ Files: `agent/twin_mujoco.py` (`sample_case`, `case_cameras`, `load_suite`, `_la
   checks all 16 bench16 cases. `load_suite` reads the old array format and a suite object with suite-level options.
 - Default suites (no prior, fixed cameras): train 300 (seeds 1,100,001-1,100,300), val 60 (1,200,001-...), sealed
   test 100 (1,300,001-..., `sealed: true`). Disjoint; none of the 83 seeds under `config/agent_bench`.
-- Realized bottom-presentation share: 133/300, 26/60, 45/100 (expected 4/9; sizes are not multiples of 9, classes
+- Bottom presentations **expected from the class labels**: 133/300, 26/60, 45/100 (4/9; the actual count depends on
+  misses, early stops and failures and will be taken from the pilot's event logs; sizes are not multiples of 9, classes
   allocated by largest remainder).
 - Realized train layouts: brick x 0.148-0.249 m, y -0.130-0.121 m, yaw roughly uniform over +-90 deg, 59/300 bricks
   2x4, five colours about 60 each, cameras constant.
@@ -201,7 +204,8 @@ Documented exceptions the reviewer should judge:
 Files: new `agent/bowl_clearance.py`; `agent/twin_mujoco.py` (clearance-related lines only); `tests/test_twin_leakage.py`
 (3 tests); new `docs/vla/STUDENT_INPUTS.md`.
 
-- **Last truth exception removed from `realistic`.** The grasp-candidate and path clearance checks
+- **Bowl truth removed from the `realistic` clearance checks** (corrected after review 1: this was not the last
+  truth read; the grasp-axis choice and wrist view planning still read the true brick size, see section E). The grasp-candidate and path clearance checks
   (`expert._clearance`, `_straight_clear`) now measure the robot against the nominal bowl cross-section revolved
   around the **perceived** bowl centres, dilated by 5 mm (about 2x the largest bench16 bowl localisation error,
   2.6 mm). Robot collision geoms are sampled every 2 mm and the sampling slack (about 1.4 mm) is subtracted. In
@@ -294,3 +298,28 @@ pixels); max detector score delta 0.0017 (case 8); no decision changed. 130 test
 	  --headless --workers 2 --out <dir>/runs
 	.venv/Scripts/python scripts/vla/grade.py <dir>/runs
 	.venv/Scripts/python scripts/vla/replay_gate.py --out <dir>/gate --cases 0 1 2 3 4 5 6 7   # and 8-15
+
+## E. Review 1 response (in progress)
+
+The independent review of this report (commit `c654838` / `10f1933`) confirmed the core numbers (bench16 16/16 sorted,
+15/16 graded pass, face mismatches 12 -> 0 after alignment, replay gate 16/16) and found the following. Each is being
+fixed with a failing test first; this section will be updated with the fixes and evidence.
+
+| Priority | Finding | Fix under way |
+|---|---|---|
+| P1 before collection | The production entry (`twin_mcp run`) records no segment labels: all 22,828 frames have `segment == -1`; only the replay gate's `ExpertTracer` labels segments | One labelling implementation used by every recording entry; segment id / kind / instruction / `segment_done` / `chunk_valid_len` in the LeRobot export; a smoke batch through the exact pilot command path, read back and checked |
+| P1 before grading | `true_cross_px` is counted on the full frame, not in the detector crop; a 1x1 crop still graded 499 cross px and passed | Crop-space truth masks with the same region and transform as the RGB crop; threshold resolution stated; negative tests |
+| P1 before grading | Truncated or NaN contact columns (and missing branches) can pass the collision check | Length, finiteness and branch-presence checks; otherwise `unavailable` |
+| P1 before teacher ablations | `realistic` grasp-axis choice and wrist planning read the true brick size; the online student policy can read planner diagnostics in `Segment.params` (`target_q`, predicted faces, bottom pixels) | Believed brick size in realistic planning; one shared policy-visible field list for the online policy and the export |
+| P1 before recovery branches | Fresh-instance restore from disk is not faithful; `_save()` crashes for a student-held brick | Persist all state later behaviour depends on; fresh-instance restore tests for expert- and student-held bricks |
+| P2 replay criterion | Full-image render noise exempted byte-identical crops from exact score comparison | Separate full-image and crop flags; exact scores (all heads) for identical crops |
+
+Adopted recommendations without code yet:
+- Grader thresholds will be re-derived on a calibration subset of the training layouts at a chosen joint rejection
+  rate and frozen before validation and the sealed test (the current p95 pair rejects 9/95 = 9.5 % jointly).
+- S5 perturbation branches will keep their own accounting, separate from the online recovery budget, so a
+  `restore_checkpoint()` used to create a perturbation start cannot consume the single in-place retry; recovery
+  success will be reported over all perturbation attempts, split into detected / recovery started / sorted.
+- Next acceptance step before the 300-episode pilot: one small batch (normal, side-face defect, face-5 defect)
+  through the exact collection path, checked for segment labels, crop-space truth and complete contact records; and
+  one full "visible perturbation -> detection -> in-place recovery -> replay -> export" trajectory.

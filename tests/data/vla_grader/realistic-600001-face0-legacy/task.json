@@ -1,0 +1,15 @@
+{
+  "case": [
+    600001,
+    true,
+    0
+  ],
+  "policy": {
+    "order": "wrist_first",
+    "max_bottom_views": 2,
+    "max_wrist_views": 2,
+    "max_rewinds": 1
+  },
+  "video": false,
+  "use_llm": false
+}

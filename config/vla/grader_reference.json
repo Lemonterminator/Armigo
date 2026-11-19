@@ -5,6 +5,7 @@
       "top": 400
     },
     "min_true_cross_px": 25,
+    "min_true_cross_px_input": 10,
     "max_belief_error_mm": {
       "wrist_cam": 6.0,
       "top": 12.0
@@ -13,8 +14,9 @@
     "max_jaw_env_contact_n": 2.0
   },
   "notes": {
-    "min_true_face_px": "the agent's own WRIST_MIN_PX / BOTTOM_MIN_PX, applied to the true face pixels",
-    "min_true_cross_px": "PixelOracleInspector.min_defect_px",
+    "min_true_face_px": "the agent's own WRIST_MIN_PX / BOTTOM_MIN_PX, applied to the true face pixels inside the decision crop (camera pixels of the square the detector crop samples from: true_face_pixels_crop_native)",
+    "min_true_cross_px": "camera pixels of the cross inside the decision crop's sampling square (true_cross_px_crop_native); PixelOracleInspector.min_defect_px and the detector training label's MIN_DEFECT_PX. On the dataset-v6def holdout (sup-v7bot, 6,826 crops) the camera-pixel count inside the crop (estimated as crop-mask pixels x the crop's area scale) predicts detection on both cameras (recall at 25-49 px: wrist 0.77, top 0.88; below 25 px at most 0.52), the detector-input count does not (top crops are upsampled ~5x in area: 25-49 input px give recall 0.05)",
+    "min_true_cross_px_input": "pixels of the 256x256 detector input (true_cross_px_crop): a floor for strongly downsampled wrist crops; same holdout, wrist recall 0.19 at 1-9 input px, 0.64 at 10-24",
     "max_belief_error_mm": "1.5x the bench16 realistic maximum (wrist views, brick on the table: 3.4 mm; top views, brick in hand: 7.9 mm), rounded up",
     "max_robot_contact_n": "metrics.evaluate_episode_health unintended_force_limit_N (non-jaw links)",
     "max_jaw_env_contact_n": "jaws against table, bowls or clutter; docs/GRIPPER_BLOCKED_STATE.md blocked-jaw threshold; bench16 realistic expert peak 0.0 N"
