@@ -50,7 +50,8 @@ def test_camera_jitter_changes_only_the_cameras():
 		fixed = sample_case(seed, True, 2)
 		jit = sample_case(seed, True, 2, {"cameras": "jitter"})
 		assert jit.top != fixed.top and jit.front != fixed.front
-		assert repr(replace(jit, top=fixed.top, front=fixed.front)) == repr(fixed)
+		assert fixed.wrist_cam_offset is None and jit.wrist_cam_offset is not None
+		assert repr(replace(jit, top=fixed.top, front=fixed.front, wrist_cam_offset=None)) == repr(fixed)
 		assert repr(sample_case(seed, True, 2, {"cameras": "jitter"})) == repr(jit)  # deterministic per seed
 	assert sample_case(1_100_001, False, 5, {"cameras": "jitter"}).top != jit.top  # differs across seeds
 

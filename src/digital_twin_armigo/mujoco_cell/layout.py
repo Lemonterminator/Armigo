@@ -32,6 +32,9 @@ class Layout:
 	tile_m: float = 0.30
 	top: CameraPose | None = None
 	front: CameraPose | None = None
+	# Wrist camera mount error (dx, dy, dz in metres, rx, ry, rz in degrees) in the camera's own frame; None is the
+	# designed mount. The cell renders the offset mount; agents that plan with the nominal mount see the designed one.
+	wrist_cam_offset: tuple[float, float, float, float, float, float] | None = None
 	defect_kind: str = "cross"  # one of scene.DEFECT_KINDS: cross, tape, chip, scuff, discolor, cross_var
 	defect_seed: int = 0  # the defect's shape / colour is a deterministic function of this, the face and the kind
 

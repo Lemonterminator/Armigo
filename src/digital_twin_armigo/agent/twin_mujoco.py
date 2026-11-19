@@ -75,6 +75,10 @@ CAMERA_MODES = ("fixed", "jitter")
 TOP_JITTER = {"xy_m": 0.01, "height_m": 0.01, "yaw_deg": 2.0, "tilt_deg": 1.5, "roll_deg": 1.0, "focal_rel": 0.02}
 FRONT_JITTER = {"distance_m": 0.05, "height_m": 0.05, "yaw_deg": 10.0, "focal_rel": 0.05}  # uniform half-widths
 CAMERA_STREAM = 0xCA3  # second word of the camera stream's seed sequence
+# Wrist camera mount error under ``cameras="jitter"``: uniform half-widths per axis in the camera's own frame, drawn
+# from its own stream so the top and front draws stay as they were. The agent keeps planning with the designed mount.
+WRIST_JITTER = {"pos_m": 0.003, "rot_deg": 2.0}
+WRIST_STREAM = 1  # third word of the wrist stream's seed sequence
 FIXED_TOP = CameraPose(0.4895033468, 0.0, 0.5130680468, 180.0, 25.0712240655, 0.0, 612.47)
 FIXED_FRONT = {"distance_m": 0.55, "height_m": 0.35, "yaw_deg": 35, "focal_px": 560}
 
@@ -130,6 +134,15 @@ def case_cameras(seed: int, cameras: str = "fixed") -> tuple[CameraPose, CameraP
 	return top, front
 
 
+def case_wrist_offset(seed: int, cameras: str = "fixed") -> tuple[float, ...] | None:
+	"""Wrist camera mount error of a case (``Layout.wrist_cam_offset``): None for the fixed rig."""
+	if cameras == "fixed":
+		return None
+	rng = np.random.default_rng([seed, CAMERA_STREAM, WRIST_STREAM])
+	p, r = WRIST_JITTER["pos_m"], WRIST_JITTER["rot_deg"]
+	return tuple(float(v) for v in (*rng.uniform(-p, p, 3), *rng.uniform(-r, r, 3)))
+
+
 def sample_case(seed: int, positive: bool, face: int, options: dict | None = None):
 	"""The layout of case ``[seed, positive, face]`` or ``[seed, positive, face, options]``.
 
@@ -140,7 +153,8 @@ def sample_case(seed: int, positive: bool, face: int, options: dict | None = Non
 	- ``cameras``: ``"fixed"`` (default, the calibrated close-top rig) or ``"jitter"`` (D3, see ``case_cameras``).
 	  Only the cameras change. In ``realistic`` sensing TwinMujoco hand-eye calibrates the top camera of every
 	  episode from its own layout (``calibrate_layout`` in ``__init__``), so the skills see the jittered pose through
-	  that calibration; the intrinsics are taken as known. The bottom threshold profile (``PROFILE``) was tuned on
+	  that calibration; the intrinsics are taken as known. The wrist camera mount is perturbed too (``case_wrist_offset``); the
+	  agent is not told, and plans its wrist views with the designed mount (``_belief``). The bottom threshold profile (``PROFILE``) was tuned on
 	  the fixed cameras.
 	"""
 	if type(seed) is not int or not 0 <= seed <= 2**32 - 1 or type(positive) is not bool:
@@ -152,6 +166,7 @@ def sample_case(seed: int, positive: bool, face: int, options: dict | None = Non
 	prior = list(_layout_prior(opts["prior"])) if opts["prior"] else None
 	layout = sample_layout(np.random.default_rng(seed), CameraPose(**raw["camera"]), defective=positive, prior=prior)
 	layout.top, layout.front = case_cameras(seed, opts["cameras"])
+	layout.wrist_cam_offset = case_wrist_offset(seed, opts["cameras"])
 	layout.defect_kind = "cross_var"
 	layout.defect_face = face
 	layout.defect_seed = 19_199 + seed * 100_019
@@ -698,6 +713,16 @@ class TwinMujoco:
 	def _belief(self):
 		"""Show planners that read the brick from the simulation the believed pose instead: the perceived one on the
 		table, and in ``realistic`` also the carried one."""
+		if self.realistic:
+			# Realistic planners also see the designed wrist camera mount, not the actual (possibly offset) one.
+			with self.cell.nominal_wrist_cam(), self._believed_brick():
+				yield
+			return
+		with self._believed_brick():
+			yield
+
+	@contextmanager
+	def _believed_brick(self):
 		if self.realistic:
 			belief = self._brick_belief()
 		elif self.brick_est is None or self.held is not None:
