@@ -33,7 +33,7 @@ comparison (S12), and the S0 replay gate before any data collection.
 | Step | Status | Commit(s) |
 |---|---|---|
 | S0 student interface replay gate | **in progress** (not merged) | - |
-| S1 student inputs / teacher signals | **in progress** (not merged) | - |
+| S1 student inputs / teacher signals | merged (code part); D1 awaits the owner | `c269569`, merge (see B.4) |
 | S2 expert fixes | merged | `597cb87`, merge `2bdb6ea` |
 | S3 case generator and splits | merged | `2ac77da` |
 | S6 grader | merged | `703e674`, merge `98d893b`, integration fix (see B.4) |
@@ -152,9 +152,39 @@ Reviewer notes: a p95 threshold rejects the expert's own top 5 % by construction
 tail lands on one or two layouts; the 0.8x per-class gate is only meaningful on the 300-episode pilot. Each
 `_capture` now renders one extra segmentation view for `true_cross_px` (cost not yet measured).
 
+### B.3a S1: student inputs and teacher signals
+
+Files: new `agent/bowl_clearance.py`; `agent/twin_mujoco.py` (clearance-related lines only); `tests/test_twin_leakage.py`
+(3 tests); new `docs/vla/STUDENT_INPUTS.md`.
+
+- **Last truth exception removed from `realistic`.** The grasp-candidate and path clearance checks
+  (`expert._clearance`, `_straight_clear`) now measure the robot against the nominal bowl cross-section revolved
+  around the **perceived** bowl centres, dilated by 5 mm (about 2x the largest bench16 bowl localisation error,
+  2.6 mm). Robot collision geoms are sampled every 2 mm and the sampling slack (about 1.4 mm) is subtracted. In
+  `realistic` the expert class is wrapped by a subclass whose `_clearance` uses the proxy, so restore / retry paths
+  that rebuild the expert keep it. `truth` keeps the simulator geometry. `realistic` now refuses layouts with clutter
+  (clutter is not perceived; bench16 and the S3 suites have none).
+- Proxy check **[reported]**: on 267 random poses near the bowls of three layouts, no pose where the true geometry
+  collides and the proxy says clear; on average 1-3.5 mm more conservative. A plain cylinder + bounding boxes was
+  15-20 mm too conservative and changed 4 grasp choices, so it was replaced.
+- Leak test: after perception the simulator's green bowl is moved 0.4 m; the realistic clearance value does not
+  change, and `_env_geoms` is patched to raise if anything reads simulator bowl geometry. Moving the perceived bowl
+  does change the decision; the truth variant follows the moved simulator bowl.
+- bench16 realistic **[reported]**: before and after both 16/16, 0 unintended collisions, 22,828 total frames,
+  identical frame counts per episode, 0 recoveries.
+- `docs/vla/STUDENT_INPUTS.md`: inventory of every signal the realistic expert reads (file:line), whether an
+  RGB + joint-state student can infer it, and D1 options A (add as student inputs), B (restrict the teacher), C
+  (hybrid). Default recommendation (hybrid): add the previous action (6 values) as a student input; add gripper
+  effort only if the real SO-101 driver reads gripper load at 30 Hz, otherwise drop effort from the teacher's contact
+  estimate (record `gripper_cmd` and `effort_frac` in `actions.npz` now either way); keep the student RGB-only and
+  measure the depth gap; 2 observation frames plus the S7 per-segment frame index. The export is not yet changed.
+- Known gaps: joint state is the exact simulated position (real encoders are quantised); the exported `top_depth` is
+  a clean height image, not the noisy depth the teacher reads; the proxy ignores the held brick (as the old clearance
+  did).
+
 ### B.4 Integration by the coordinator
 
-- Merge order S3 -> S2 -> S6; no textual conflicts.
+- Merge order S3 -> S2 -> S6 -> S1; no textual conflicts.
 - **Fix:** `EpisodeTrace.start` replaced any `substep_observer` / `frame_observer` already installed on the cell
   (`scripts/catalog_record_mujoco.py` installs its own on a separate cell, so nothing broke today). It now chains
   existing observers.
@@ -168,8 +198,6 @@ tail lands on one or two layouts; the 0.8x per-class gate is only meaningful on 
 - **S0** (`agent/student_rollout.py`, segment executor, controller, `ReplayPolicy`, `scripts/vla/replay_gate.py`).
   The gate is: every bench16 realistic episode replayed through the student interface reproduces capture frames
   exactly, detector decisions, early stops, segment ends, destination and the final `evaluate`.
-- **S1** (clearance checks on perceived bowls in `realistic`, leak test, `docs/vla/STUDENT_INPUTS.md` teacher-signal
-  inventory for owner decision D1).
 
 ### B.6 End-to-end acceptance on the merged tree
 
@@ -197,7 +225,9 @@ So merging S2 did not change bench16 outcomes or grades relative to the S6 branc
    specifically?
 5. Collisions use substep peaks per frame. Is a per-frame peak threshold sufficient, or should impulse / duration
    also gate?
-6. Anything in revision 2's ordering (S0/S1/S2 before a 300-episode pilot) that the implemented pieces change?
+6. S1: is a fixed 5 mm margin around the perceived bowls justified by 16 episodes of localisation error, or should
+   the margin scale with the localisation uncertainty per episode? Is the hybrid D1 recommendation sound?
+7. Anything in revision 2's ordering (S0/S1/S2 before a 300-episode pilot) that the implemented pieces change?
 
 ## D. Reproduce
 
