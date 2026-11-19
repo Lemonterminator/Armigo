@@ -145,7 +145,12 @@ def _default_rollout(
 			str(port),
 		]
 		proc = subprocess.Popen(cmd, env=env)
-		_wait_server_health(url)
+		try:
+			_wait_server_health(url)
+		except BaseException:
+			proc.kill()  # never leak the spawned server when it fails to become healthy
+			proc.wait(timeout=10)
+			raise
 
 	scorer = default_sup_scorer(detector)
 	predictor = RemoteChunkPredictor(url)
@@ -160,15 +165,18 @@ def _default_rollout(
 		for i, case in enumerate(iter_cases):
 			ep_dir = raw_dir / f"case-{i:04d}"
 			policy = ChunkClientPolicy(predictor, mode=resolved_mode)
-			run = run_takeover_episode(
-				case,
-				scorer,
-				ep_dir,
-				policy=policy,
-				takeover_config=takeover_cfg,
-				video=video,
-				enforce_train_only=True,
-			)
+			try:
+				run = run_takeover_episode(
+					case,
+					scorer,
+					ep_dir,
+					policy=policy,
+					takeover_config=takeover_cfg,
+					video=video,
+					enforce_train_only=True,
+				)
+			finally:
+				policy.close()
 			results.append({"episode": ep_dir, "result": run["result"], "takeover": run["takeover"]})
 	finally:
 		if hasattr(scorer, "close"):
@@ -306,14 +314,20 @@ def _default_eval(
 		str(detector),
 		"--mode",
 		mode,
+		"--no-teacher",  # the stopping rule only needs the student sort rate; skip re-running the teacher each iter
 	]
 	if max_episodes is not None:
 		cmd.extend(["--max-episodes", str(max_episodes)])
 	subprocess.run(cmd, env=env, check=True)
-	summary_path = eval_out_dir / "summary.json"
+	# eval_closed_loop.py (S10) writes eval_summary.json = {"summary": {...}, ...}; also accept a flat summary.json.
+	summary_path = eval_out_dir / "eval_summary.json"
 	if not summary_path.is_file():
-		raise FileNotFoundError(f"eval_closed_loop.py did not produce {summary_path}")
+		summary_path = eval_out_dir / "summary.json"
+	if not summary_path.is_file():
+		raise FileNotFoundError(f"eval_closed_loop.py did not produce eval_summary.json in {eval_out_dir}")
 	payload = json.loads(summary_path.read_text(encoding="utf-8"))
+	if isinstance(payload.get("summary"), dict):
+		payload = payload["summary"]
 	if "student_sort_rate" not in payload:
 		for alt in ("sort_rate", "success_rate"):
 			if alt in payload:

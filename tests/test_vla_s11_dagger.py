@@ -596,3 +596,22 @@ def test_run_dagger_iter_cli_dry_run(tmp_path: Path):
 	assert hist["dry_run"] is True
 	assert hist["stopped_early"] is True
 	assert hist["iters_completed"] == 3  # dry_rates: [0.64, 0.61, 0.62] -> -0.03, +0.01 -> stops at iter 3
+
+
+def test_default_eval_reads_s10_eval_summary_json(tmp_path: Path, monkeypatch):
+	"""``_default_eval`` must parse the file scripts/vla/eval_closed_loop.py actually writes (eval_summary.json)."""
+	val = ROOT / "config/vla/val.json"
+	captured: dict[str, list[str]] = {}
+
+	def fake_run(cmd, env=None, check=False):
+		captured["cmd"] = list(cmd)
+		out = Path(cmd[cmd.index("--out") + 1])
+		report = {"mode_resolved": "sync", "summary": {"student_sort_rate": 0.8125, "episodes": 16}, "episodes": []}
+		(out / "eval_summary.json").write_text(json.dumps(report), encoding="utf-8")
+
+	monkeypatch.setattr(run_dagger_iter.subprocess, "run", fake_run)
+	payload = run_dagger_iter._default_eval(
+		1, tmp_path / "ckpt", val, tmp_path / "ev", detector=tmp_path / "det.json", mode="auto", max_episodes=None
+	)
+	assert payload["student_sort_rate"] == pytest.approx(0.8125)
+	assert "--no-teacher" in captured["cmd"]
