@@ -38,7 +38,7 @@ from .twin_jobs import (
 	JobStore,
 	open_saver,
 )
-from .twin_mujoco import PROFILE, ROOT, TwinMujoco, file_digest, sample_case
+from .twin_mujoco import PROFILE, ROOT, TwinMujoco, file_digest, load_suite, sample_case
 from .twin_pool import EpisodePool
 from .twin_record import EpisodeTrace, export_lerobot, write_json
 from .twin_resume import live_checkpoint_ids, load_plan, restore
@@ -720,7 +720,7 @@ def main():
 	server = sub.add_parser("serve")
 	options(server)
 	server.add_argument("--out", type=Path, default=ROOT / "data/catalog/agent")
-	server.add_argument("--suite", type=Path, help="Operator-controlled JSON array of [seed, defective, face].")
+	server.add_argument("--suite", type=Path, help="Operator-controlled suite (twin_mujoco.load_suite).")
 	server.add_argument("--transport", choices=("stdio", "streamable-http"), default="stdio")
 	server.add_argument("--host", default="127.0.0.1")
 	server.add_argument("--port", type=int, default=8765)
@@ -760,7 +760,7 @@ def main():
 	if a.command == "export":
 		export_lerobot(a.episodes, a.out, a.repo_id)
 		return
-	cases = [tuple(row) for row in json.loads(a.suite.read_text(encoding="utf-8-sig"))] if a.suite else DEMO_CASES
+	cases = load_suite(a.suite) if a.suite else DEMO_CASES
 	if not cases:
 		p.error("episode suite must be nonempty")
 	if a.command == "step":

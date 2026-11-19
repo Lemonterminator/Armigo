@@ -11,6 +11,7 @@ import time
 from collections import deque
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
+from functools import lru_cache
 from pathlib import Path
 from types import MappingProxyType
 from typing import ClassVar
@@ -56,21 +57,124 @@ RETRY_MOVED_DEG = 3.0
 BOTTOM_BORDER_PX = 40  # realistic bottom views keep the believed brick this far inside the top image
 
 
-def sample_case(seed: int, positive: bool, face: int):
+# Case options (the optional 4th element of a case, see sample_case / load_suite).
+CASE_OPTIONS = ("prior", "cameras")
+CAMERA_MODES = ("fixed", "jitter")
+# ``cameras="jitter"`` (plan decision D3): per-layout perturbation of the fixed top and front cameras, drawn from a
+# separate random stream of the seed so every other layout quantity stays identical to ``cameras="fixed"``. Top
+# sigmas match sample_layout's own top-camera jitter; the wrist camera rides on the arm and is never perturbed.
+TOP_JITTER = {"xy_m": 0.01, "height_m": 0.01, "yaw_deg": 2.0, "tilt_deg": 1.5, "roll_deg": 1.0, "focal_rel": 0.02}
+FRONT_JITTER = {"distance_m": 0.05, "height_m": 0.05, "yaw_deg": 10.0, "focal_rel": 0.05}  # uniform half-widths
+CAMERA_STREAM = 0xCA3  # second word of the camera stream's seed sequence
+FIXED_TOP = CameraPose(0.4895033468, 0.0, 0.5130680468, 180.0, 25.0712240655, 0.0, 612.47)
+FIXED_FRONT = {"distance_m": 0.55, "height_m": 0.35, "yaw_deg": 35, "focal_px": 560}
+
+
+@lru_cache(maxsize=8)
+def _layout_prior(path: str) -> tuple[dict, ...]:
+	"""Real-layout prior (``layout-prior`` output, e.g. config/sim/prior_grasp.json), as the data pipeline reads it."""
+	file = Path(path) if Path(path).is_absolute() else ROOT / path
+	rows = json.loads(file.read_text(encoding="utf-8"))
+	prior = tuple(p for p in rows if "green" in p and "pink" in p)
+	if not prior or not any(p.get("brick") for p in prior):
+		raise ValueError(f"layout prior {path} has no bowl and brick rows")
+	return prior
+
+
+def _case_options(options) -> dict:
+	if options is None:
+		return {"prior": None, "cameras": "fixed"}
+	if not isinstance(options, dict) or set(options) - set(CASE_OPTIONS):
+		raise ValueError(f"case options must be a dict with keys from {CASE_OPTIONS}")
+	prior, cameras = options.get("prior"), options.get("cameras", "fixed")
+	if prior is not None and (type(prior) is not str or not prior):
+		raise ValueError("case option prior must be a layout prior JSON path")
+	if cameras not in CAMERA_MODES:
+		raise ValueError(f"case option cameras must be one of {CAMERA_MODES}")
+	return {"prior": prior, "cameras": cameras}
+
+
+def case_cameras(seed: int, cameras: str = "fixed") -> tuple[CameraPose, CameraPose]:
+	"""Top and front camera of a case: the fixed rig, or its per-seed perturbation (``cameras="jitter"``)."""
+	f = FIXED_FRONT
+	if cameras == "fixed":
+		return FIXED_TOP, look_from((0.20, 0.0), f["distance_m"], f["height_m"], f["yaw_deg"], focal_px=f["focal_px"])
+	rng = np.random.default_rng([seed, CAMERA_STREAM])
+	t, j = FIXED_TOP, TOP_JITTER
+	top = CameraPose(
+		t.x + rng.normal(0, j["xy_m"]),
+		t.y + rng.normal(0, j["xy_m"]),
+		t.height + rng.normal(0, j["height_m"]),
+		t.yaw_deg + rng.normal(0, j["yaw_deg"]),
+		t.tilt_deg + rng.normal(0, j["tilt_deg"]),
+		t.roll_deg + rng.normal(0, j["roll_deg"]),
+		t.focal_px * (1 + rng.uniform(-j["focal_rel"], j["focal_rel"])),
+	)
+	j = FRONT_JITTER
+	front = look_from(
+		(0.20, 0.0),
+		f["distance_m"] + rng.uniform(-j["distance_m"], j["distance_m"]),
+		f["height_m"] + rng.uniform(-j["height_m"], j["height_m"]),
+		f["yaw_deg"] + rng.uniform(-j["yaw_deg"], j["yaw_deg"]),
+		focal_px=f["focal_px"] * (1 + rng.uniform(-j["focal_rel"], j["focal_rel"])),
+	)
+	return top, front
+
+
+def sample_case(seed: int, positive: bool, face: int, options: dict | None = None):
+	"""The layout of case ``[seed, positive, face]`` or ``[seed, positive, face, options]``.
+
+	``options`` (all optional; omitted or None reproduces the three-element case exactly):
+
+	- ``prior``: path (absolute or repository-relative) of a real-layout prior; bowls and brick start from measured
+	  real positions (``sample_layout(prior=...)``) instead of uniform positions in reach. Changes the whole layout.
+	- ``cameras``: ``"fixed"`` (default, the calibrated close-top rig) or ``"jitter"`` (D3, see ``case_cameras``).
+	  Only the cameras change. In ``realistic`` sensing TwinMujoco hand-eye calibrates the top camera of every
+	  episode from its own layout (``calibrate_layout`` in ``__init__``), so the skills see the jittered pose through
+	  that calibration; the intrinsics are taken as known. The bottom threshold profile (``PROFILE``) was tuned on
+	  the fixed cameras.
+	"""
 	if type(seed) is not int or not 0 <= seed <= 2**32 - 1 or type(positive) is not bool:
 		raise ValueError("invalid fixture seed or class")
 	if type(face) is not int or not 0 <= face < 6:
 		raise ValueError("face must be in [0, 5]")
+	opts = _case_options(options)
 	raw = json.loads((ROOT / "config/sim/top_camera_joint.json").read_text(encoding="utf-8"))
-	layout = sample_layout(np.random.default_rng(seed), CameraPose(**raw["camera"]), defective=positive)
-	layout.top = CameraPose(0.4895033468, 0.0, 0.5130680468, 180.0, 25.0712240655, 0.0, 612.47)
-	layout.front = look_from((0.20, 0.0), 0.55, 0.35, 35, focal_px=560)
+	prior = list(_layout_prior(opts["prior"])) if opts["prior"] else None
+	layout = sample_layout(np.random.default_rng(seed), CameraPose(**raw["camera"]), defective=positive, prior=prior)
+	layout.top, layout.front = case_cameras(seed, opts["cameras"])
 	layout.defect_kind = "cross_var"
 	layout.defect_face = face
 	layout.defect_seed = 19_199 + seed * 100_019
 	layout.clutter = []
 	layout.distractors = []
 	return layout
+
+
+def load_suite(path: Path) -> list[tuple]:
+	"""Cases of a suite file: a JSON array of ``[seed, positive, face]`` (optionally with a 4th options dict), or an
+	object ``{"cases": [...], "options": {...}, ...metadata}`` whose suite-level options (see sample_case) are
+	appended to every case as its 4th element. Default options are dropped, so such cases stay three elements."""
+	raw = json.loads(Path(path).read_text(encoding="utf-8-sig"))
+	options = None
+	if isinstance(raw, dict):
+		if not isinstance(raw.get("cases"), list):
+			raise TypeError("suite object needs a 'cases' array")
+		opts = _case_options(raw.get("options") or None)
+		options = {k: v for k, v in opts.items() if v != _case_options(None)[k]} or None
+		raw = raw["cases"]
+	if not isinstance(raw, list):
+		raise TypeError("suite must be a JSON array of cases or an object with 'cases'")
+	cases = []
+	for row in raw:
+		if not isinstance(row, list) or len(row) not in (3, 4):
+			raise ValueError(f"invalid case {row!r}")
+		if len(row) == 4:
+			if options is not None:
+				raise ValueError("a case has its own options and the suite sets options too")
+			_case_options(row[3])
+		cases.append(tuple(row) if options is None else (*row, options))
+	return cases
 
 
 @contextmanager
