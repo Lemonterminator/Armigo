@@ -1,0 +1,150 @@
+{
+  "schema": "armigo-agent-episode/v1",
+  "fps": 30,
+  "task": "Inspect the brick for a cross. Sort defective bricks into the pink bowl and normal bricks into the green bowl.",
+  "state_names": [
+    "shoulder_pan.pos",
+    "shoulder_lift.pos",
+    "elbow_flex.pos",
+    "wrist_flex.pos",
+    "wrist_roll.pos",
+    "gripper.pos"
+  ],
+  "branches": [
+    {
+      "id": 0,
+      "start_frame": 0,
+      "actions": 1035
+    }
+  ],
+  "video": false,
+  "provenance": {
+    "engine": "mujoco",
+    "sensing": "realistic",
+    "camera_profile": "mujoco-close-top-1.35",
+    "detector_sha256": "5c83410f079799f0094a59ffeef59b7bbb7ae0655716e6456dc48a343c09e47c",
+    "policy": {
+      "order": "wrist_first",
+      "max_bottom_views": 2,
+      "max_wrist_views": 2,
+      "max_rewinds": 1
+    },
+    "llm_enabled": false,
+    "bottom_threshold": null,
+    "model": null
+  },
+  "result": {
+    "verdict": "SUCCESS",
+    "label": "defective",
+    "label_correct": true,
+    "destination": "pink",
+    "active_branch": 0,
+    "rewinds": 0,
+    "retries": 0,
+    "recovery_variants": [],
+    "failures": [],
+    "active_views": 2,
+    "views": 2,
+    "sim_frames": 1035,
+    "active_frames": 1035,
+    "evidence": [
+      "0:329:wrist_cam",
+      "0:535:wrist_cam"
+    ],
+    "cleared_faces": [
+      0,
+      3,
+      4
+    ],
+    "health": {
+      "verdict": "SUCCESS",
+      "reason_codes": [],
+      "evidence_refs": {
+        "n_frames": 1035,
+        "ref_frame": 684,
+        "slip_peak_frame": 897,
+        "release_obs_window": [
+          928,
+          1018
+        ],
+        "req_settle_frames": 15,
+        "trailing_settle_frames": 58,
+        "final_contained_in_bowl": true,
+        "ever_contained_in_bowl": true,
+        "substep_collision_frames": [],
+        "unintended_collision_frames": []
+      },
+      "evaluator_version": "v2-audited",
+      "terminal_ok": true,
+      "process_ok": true,
+      "success": true,
+      "failure_mode": "ok",
+      "grasped_ok": true,
+      "max_slip_pos_m": 0.0007921146720278904,
+      "max_slip_rot_deg": 1.6999462590472463,
+      "dual_contact_ratio": 1.0,
+      "mean_pinch_force_N": 7.38187720909535,
+      "max_pinch_force_N": 7.456411661180699,
+      "pinch_normal_peak_N": 7.4592977181951445,
+      "pinch_tangential_peak_N": 0.43741260075563937,
+      "pinch_impulse_Ns": 57.80328807856337,
+      "max_tracking_error_rad": 0.2639076159712168,
+      "tracking_error_ratio": 0.0,
+      "max_tracking_lag_duration_s": 0.0,
+      "max_stall_duration_s": 1.1333333333333333,
+      "torque_saturation_ratio": 0.3507246376811594,
+      "torque_evidence_source": "solver_measured",
+      "unintended_collision_count": 0,
+      "max_unintended_force_N": 0.0,
+      "unintended_collision_impulse_Ns": 0.0,
+      "settled_in_bowl": true,
+      "settle_consecutive_frames": 58,
+      "final_dist_to_bowl_m": 0.002545207108084671,
+      "final_brick_speed_mps": 2.357688107108203e-16,
+      "final_brick_ang_vel_rps": 1.282869955547716e-07
+    },
+    "llm": {
+      "consulted": 0,
+      "adopted": 0,
+      "fallback_reasons": {},
+      "prompt_tokens": [],
+      "latency_s_total": 0.0,
+      "attempts": 0,
+      "prompt_tokens_median": null,
+      "prompt_tokens_max": null
+    },
+    "smoothness": {
+      "frames": 1035,
+      "jerk_rms_cmd": 6.197,
+      "jerk_rms_meas": 7.425,
+      "jerk_peak_meas": 111.9,
+      "jerk_p99_meas": 42.5,
+      "stops": 21,
+      "still_fraction": 0.212,
+      "jerk_peak_phase": "rest",
+      "worst_phases": [
+        {
+          "phase": "rest",
+          "frames": 6,
+          "jerk_rms_meas": 25.06,
+          "jerk_rms_cmd": 0.0
+        },
+        {
+          "phase": "return",
+          "frames": 60,
+          "jerk_rms_meas": 15.31,
+          "jerk_rms_cmd": 13.89
+        },
+        {
+          "phase": "approach",
+          "frames": 638,
+          "jerk_rms_meas": 7.17,
+          "jerk_rms_cmd": 5.78
+        }
+      ],
+      "clipped_frames": 1
+    },
+    "student_eligible": true,
+    "placement_evidence": "0:535:wrist_cam"
+  }
+}

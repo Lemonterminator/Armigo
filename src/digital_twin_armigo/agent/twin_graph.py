@@ -32,7 +32,7 @@ class Policy:
 	order: Literal["wrist_first", "bottom_first"] = "wrist_first"
 	max_bottom_views: int = 2
 	max_wrist_views: int = 2
-	max_rewinds: int = 1
+	max_rewinds: int = 1  # one recovery budget: physics rewinds (truth) plus in-place retries (realistic)
 
 	def __post_init__(self):
 		if self.order not in ("wrist_first", "bottom_first"):

@@ -12,7 +12,7 @@ import cv2
 import numpy as np
 
 from ..constants import FPS, STATE_NAMES, TOP_CROP
-from ..joints import rad_to_normalized
+from ..joints import joint_normalization
 from .twin_graph import EDGES, NODES, TASK
 
 CAMERAS = ("front", "wrist", "top_rgb", "top_depth")
@@ -60,6 +60,10 @@ class EpisodeTrace:
 		self.branches = [{"id": 0, "start_frame": 0}]
 		self.streams = {}
 		self.rows = []
+		# Additive per-frame columns (agent/student_rollout.py): the motion segment of each command, set by whoever
+		# announces segments (-1: none), and the exact float64 state and command for bitwise replay.
+		self.segment = -1
+		self.exact = []
 		self.images = None
 		self.started = time.perf_counter()
 		self.keyframes = self.path / "keyframes"
@@ -70,6 +74,37 @@ class EpisodeTrace:
 
 	def start(self, cell):
 		write_json(self.path / "graph.json", {"nodes": NODES, "edges": EDGES})
+		# Scoring only (S6 grader): per-frame contact peaks over the frame's physics substeps, stored next to the
+		# actions of every branch, so collisions can be counted over all attempts. The evaluator's own measure
+		# excludes the jaws; ``contact_jaw_env_n`` is the jaws against the table, bowls and clutter.
+		self.contacts = []
+		self._jaw_env_peak = 0.0
+		# Chain any observers already installed on the cell (e.g. a catalog recorder) instead of replacing them.
+		prior_substep = getattr(cell, "substep_observer", None)
+		prior_frame = getattr(cell, "frame_observer", None)
+
+		def substep():
+			if prior_substep is not None:
+				prior_substep()
+			self._substep_contact(cell)
+
+		def frame(episode):
+			if prior_frame is not None:
+				prior_frame(episode)
+			self._frame_contact(episode)
+
+		cell.substep_observer = substep
+		cell.frame_observer = frame
+
+	def _substep_contact(self, cell):
+		from ..mujoco_cell.episode import jaw_env_contact_force
+
+		self._jaw_env_peak = max(self._jaw_env_peak, jaw_env_contact_force(cell))
+
+	def _frame_contact(self, episode):
+		robot = float(np.max(episode.last("substep_unintended")))
+		self.contacts.append((robot, self._jaw_env_peak))
+		self._jaw_env_peak = 0.0
 
 	def event(self, kind, node, branch, frame, **payload):
 		row = {
@@ -102,6 +137,9 @@ class EpisodeTrace:
 
 	def command(self, state, target, phase):
 		self.rows.append((state.copy(), target.copy(), phase))
+		self.exact.append(
+			(np.asarray(state, dtype=np.float64).copy(), np.asarray(target, dtype=np.float64).copy(), self.segment)
+		)
 
 	def step(self, cell, node):
 		if self.video:
@@ -211,17 +249,30 @@ class EpisodeTrace:
 			path = self.path / f"branch-{self.branch}"
 			path.mkdir(exist_ok=True)
 			state, action, phase = zip(*self.rows, strict=True)
+			extra = {}
+			contacts = getattr(self, "contacts", None)
+			if contacts is not None and len(contacts) == len(self.rows):
+				pairs = np.array(contacts, dtype="float32").reshape(-1, 2)
+				extra = {"contact_robot_n": pairs[:, 0], "contact_jaw_env_n": pairs[:, 1]}
+			state64, action64, segment = zip(*self.exact, strict=True)
 			np.savez_compressed(
 				path / "actions.npz",
 				state=np.array(state, dtype="float32"),
 				action=np.array(action, dtype="float32"),
 				phase=phase,
+				**extra,
+				state_f64=np.array(state64, dtype=np.float64),
+				action_f64=np.array(action64, dtype=np.float64),
+				segment=np.array(segment, dtype=np.int32),
 			)
 		self.branches[-1]["actions"] = len(self.rows)
 		for stream in self.streams.values():
 			stream.close()
 		self.streams = {}
 		self.rows = []
+		if getattr(self, "contacts", None) is not None:
+			self.contacts = []
+		self.exact = []
 
 	def finish(self, result, provenance):
 		self._finish_branch()
@@ -246,8 +297,101 @@ class EpisodeTrace:
 		self.event_log.close()
 
 
+# Per-frame segment columns of the student export (plan S7). Segments are announced by the expert backend of every
+# production entry (agent/student_rollout.ExpertTracer) as ``segment`` / ``segment_end`` events and the per-frame
+# ``segment`` column of actions.npz. Row r is (observation r, the command applied after it).
+SEGMENT_FEATURES = {
+	"segment.index": {"dtype": "int64", "shape": (1,), "names": None},
+	"segment.kind": {"dtype": "string", "shape": (1,), "names": None},
+	"segment.done": {"dtype": "bool", "shape": (1,), "names": None},
+	"segment.chunk_valid_len": {"dtype": "int64", "shape": (1,), "names": None},
+}
+SEGMENT_DONE_CONVENTION = (
+	"segment.done is True on row r when the segment before it ended at observation r with segment_done (end reason"
+	" 'done'). Observation r is then both the last observation of the ended segment (the policy answered done under"
+	" its instruction) and the first observation of the next one (row r's task and action): no step happens between"
+	" them. The ended segment is meta/segments.json's row with end == r (normally row r-1's segment). The last"
+	" segment's done observation follows the last action and has no row (the episode ends). Ends by a monitor"
+	" (brick_lost) or a fault are boundaries but not segment_done."
+)
+CHUNK_VALID_LEN_CONVENTION = (
+	"segment.chunk_valid_len on row r = rows from r to the end of row r's segment (>= 1): an action chunk starting at"
+	" row r may use its steps 0 .. chunk_valid_len-1; later steps belong to the next segment and must be masked."
+)
+
+
+class SegmentLabelError(ValueError):
+	"""The recording's segment labels are missing or inconsistent: the episode cannot be exported."""
+
+
+def segment_labels(episode: Path) -> dict:
+	"""Per-row segment labels of an episode's single branch, checked against its events.
+
+	Returns ``segments`` (one dict per segment in id order: id, kind, instruction, params, start, end, reason) and
+	per-row arrays ``index``, ``kind``, ``instruction``, ``done`` and ``chunk_valid_len`` (see SEGMENT_DONE_CONVENTION
+	and CHUNK_VALID_LEN_CONVENTION). Raises :class:`SegmentLabelError` when a row has no segment (``-1``: recorded
+	without segment labels), a segment's rows do not match its events, or the segments do not tile the branch."""
+	episode = Path(episode)
+	with np.load(episode / "branch-0" / "actions.npz", allow_pickle=False) as rows:
+		if "segment" not in rows.files:
+			raise SegmentLabelError(f"{episode.name}: actions.npz has no segment column")
+		ids = rows["segment"].astype(np.int64)
+	n = len(ids)
+	if n == 0:
+		raise SegmentLabelError(f"{episode.name}: no actions")
+	if (ids < 0).any():
+		raise SegmentLabelError(
+			f"{episode.name}: {int((ids < 0).sum())} of {n} frames have no segment (segment == -1); record with the"
+			" segment-labelling expert backend (student_rollout.ExpertTracer)"
+		)
+	events = [json.loads(line) for line in (episode / "events.jsonl").read_text(encoding="utf-8").splitlines()]
+	starts = {e["id"]: e for e in events if e["kind"] == "segment"}
+	ends = {e["id"]: e for e in events if e["kind"] == "segment_end"}
+	if starts.keys() != ends.keys() or sorted(starts) != list(range(len(starts))):
+		raise SegmentLabelError(f"{episode.name}: segment start / end events do not pair up")
+	segments, cursor = [], 0
+	for sid in sorted(starts):
+		start, end = starts[sid], ends[sid]
+		first, last = start["frame"], end["frame"]
+		if first != cursor or last - first != end["frames"] or last > n:
+			raise SegmentLabelError(f"{episode.name}: segment {sid} [{first}, {last}) does not continue at {cursor}")
+		if not (ids[first:last] == sid).all():
+			raise SegmentLabelError(f"{episode.name}: frames of segment {sid} carry another segment id")
+		segments.append(
+			{
+				"id": sid,
+				"kind": start["segment_kind"],
+				"instruction": start["instruction"],
+				"params": start["params"],
+				"start": first,
+				"end": last,
+				"reason": end["reason"],
+			}
+		)
+		cursor = last
+	if cursor != n:
+		raise SegmentLabelError(f"{episode.name}: segments cover {cursor} of {n} frames")
+	by_id = {s["id"]: s for s in segments}
+	row = np.arange(n)
+	done = np.zeros(n, dtype=bool)
+	for s in segments:
+		if s["reason"] == "done" and s["end"] < n:
+			done[s["end"]] = True
+	return {
+		"segments": segments,
+		"index": ids,
+		"kind": [by_id[i]["kind"] for i in ids],
+		"instruction": [by_id[i]["instruction"] for i in ids],
+		"done": done,
+		"chunk_valid_len": np.array([by_id[i]["end"] for i in ids], dtype=np.int64) - row,
+	}
+
+
 def student_frames(episode: Path):
-	"""Yield only contiguous, successful unrewound samples for the LeRobot exporter."""
+	"""Yield only contiguous, successful unrewound samples for the LeRobot exporter. In-place retries are allowed
+	(one continuous branch: a recovery demonstration); a physics rewind is not. Joints are in radians. Each frame
+	carries its segment columns (SEGMENT_FEATURES) and the segment instruction as ``task``; an episode with frames
+	outside any segment is rejected (:class:`SegmentLabelError`)."""
 	from contextlib import ExitStack
 
 	episode = Path(episode)
@@ -266,6 +410,7 @@ def student_frames(episode: Path):
 	):
 		raise ValueError("episode is not eligible for VLA export")
 	root = episode / "branch-0"
+	labels = segment_labels(episode)
 	with ExitStack() as stack:
 		rows = stack.enter_context(np.load(root / "actions.npz", allow_pickle=False))
 		readers = {
@@ -273,9 +418,13 @@ def student_frames(episode: Path):
 		}
 		for row_index, (state, action) in enumerate(zip(rows["state"], rows["action"], strict=True)):
 			frame = {
-				"observation.state": rad_to_normalized(state),
-				"action": rad_to_normalized(action),
-				"task": TASK,
+				"observation.state": np.asarray(state, dtype=np.float32),
+				"action": np.asarray(action, dtype=np.float32),
+				"task": labels["instruction"][row_index],
+				"segment.index": np.array([labels["index"][row_index]], dtype=np.int64),
+				"segment.kind": labels["kind"][row_index],
+				"segment.done": np.array([labels["done"][row_index]], dtype=bool),
+				"segment.chunk_valid_len": np.array([labels["chunk_valid_len"][row_index]], dtype=np.int64),
 			}
 			for name, reader in readers.items():
 				pixels = next(reader, None)
@@ -302,7 +451,8 @@ def export_lerobot(episodes: list[Path], out: Path, repo_id: str):
 	from ..constants import CAMERA_SHAPES, TOP_FULL
 	from ..lerobot_export import lerobot_features
 
-	# Fail before creating output if an episode ended on a branch with privileged failure context.
+	# Fail before creating output if an episode ended on a branch with privileged failure context or lacks segment
+	# labels (student_frames checks both on its first frame).
 	for path in episodes:
 		frames = student_frames(path)
 		try:
@@ -321,7 +471,8 @@ def export_lerobot(episodes: list[Path], out: Path, repo_id: str):
 				"cameras": {**CAMERA_SHAPES, "top_full": [TOP_FULL[1], TOP_FULL[0], 3]},
 			},
 			video=True,
-		),
+		)
+		| {key: dict(spec) for key, spec in SEGMENT_FEATURES.items()},
 	)
 	try:
 		for path in episodes:
@@ -335,8 +486,24 @@ def export_lerobot(episodes: list[Path], out: Path, repo_id: str):
 		{
 			"schema": "armigo-student-provenance/v1",
 			"episodes": [{"episode_index": i, "source": path.name} for i, path in enumerate(episodes)],
-			"sampling": "pre-action RGB and proprioception; next policy command; Studio normalized joint units",
+			"sampling": "pre-action RGB and proprioception; next policy command; joint angles in radians",
+			"joint_units": joint_normalization(STATE_NAMES),
 			"decision_camera": "top_full or wrist at recorded frame index",
+			"task": "the instruction of the frame's segment (meta/segments.json); the episode goal is goal_task",
+			"goal_task": TASK,
+		},
+	)
+	write_json(
+		out / "meta/segments.json",
+		{
+			"schema": "armigo-student-segments/v1",
+			"features": sorted(SEGMENT_FEATURES),
+			"segment_done": SEGMENT_DONE_CONVENTION,
+			"chunk_valid_len": CHUNK_VALID_LEN_CONVENTION,
+			"episodes": [
+				{"episode_index": i, "source": str(path), "segments": segment_labels(path)["segments"]}
+				for i, path in enumerate(episodes)
+			],
 		},
 	)
 

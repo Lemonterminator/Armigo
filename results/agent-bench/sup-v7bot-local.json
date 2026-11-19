@@ -1,0 +1,38 @@
+{
+  "kind": "sup",
+  "checkpoint": "E:/digital_twin_armigo/results/anomaly/sup-v7bot/head-lora-v7bot.pt",
+  "mode": "lora",
+  "rank": 8,
+  "alpha": 16.0,
+  "input_size": 256,
+  "crop_size": 256,
+  "head": "both",
+  "view_q": 0.99,
+  "calibration": {
+    "selector": "results/anomaly/sup-v7bot/scores-v6.npz:split=train,label=normal",
+    "n_crops": 7339,
+    "n_bricks": 212
+  },
+  "cameras": {
+    "top": {
+      "cls": {
+        "t": 0.6089843511581421,
+        "med": -3.826171875
+      },
+      "seg": {
+        "t": 5.337500095367432,
+        "med": -3.9375
+      }
+    },
+    "wrist_cam": {
+      "cls": {
+        "t": 1.054296851158142,
+        "med": -3.88671875
+      },
+      "seg": {
+        "t": 5.318124771118164,
+        "med": -4.8125
+      }
+    }
+  }
+}

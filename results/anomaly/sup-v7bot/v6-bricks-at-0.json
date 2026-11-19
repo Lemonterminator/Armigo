@@ -1,0 +1,42 @@
+{
+ "old/pipeline": {
+  "recall": [
+   304,
+   304
+  ],
+  "false_alarms": [
+   29,
+   84
+  ]
+ },
+ "old/all": {
+  "recall": [
+   304,
+   304
+  ],
+  "false_alarms": [
+   36,
+   84
+  ]
+ },
+ "new/pipeline": {
+  "recall": [
+   304,
+   304
+  ],
+  "false_alarms": [
+   26,
+   84
+  ]
+ },
+ "new/all": {
+  "recall": [
+   304,
+   304
+  ],
+  "false_alarms": [
+   32,
+   84
+  ]
+ }
+}

@@ -13,6 +13,7 @@ results/real_ref/*.png
 uv-cache/
 # written next to so101.xml by the MuJoCo cell
 assets/so101_mjcf/_marker_*.png
+assets/so101_mjcf/_calib_card.png
 assets/so101_mjcf/_sorting_cell_*.xml
 # Local recordings and simulator logs; compact verification reports stay versionable.
 results/verification-*/data/
@@ -33,5 +34,8 @@ results/anomaly/*.log
 # Agent bench: full run folders, recorded videos and the machine-specific detector spec stay local.
 results/agent-bench/before/
 results/agent-bench/final/
+results/agent-bench/perception/runs/
+results/agent-bench/step-mcp/runs/
 results/agent-bench/videos/*.mp4
 results/agent-bench/sup-local.json
+results/demos/

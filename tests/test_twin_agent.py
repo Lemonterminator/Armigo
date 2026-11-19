@@ -83,13 +83,14 @@ def test_recorded_camera_observation_precedes_its_action_and_rewound_trace_is_re
 	pytest.importorskip("av")
 	pytest.importorskip("cv2")
 	from digital_twin_armigo.agent.twin_graph import TASK
-	from digital_twin_armigo.agent.twin_record import CAMERAS, Video, student_frames
+	from digital_twin_armigo.agent.twin_record import CAMERAS, SegmentLabelError, Video, student_frames
 	from digital_twin_armigo.constants import TOP_FULL
 
 	episode = tmp_path / "episode"
 	branch = episode / "branch-0"
 	branch.mkdir(parents=True)
-	result = {"verdict": "SUCCESS", "student_eligible": True, "rewinds": 0}
+	# An in-place retry keeps one continuous branch, so it stays exportable (a recovery demonstration).
+	result = {"verdict": "SUCCESS", "student_eligible": True, "rewinds": 0, "retries": 1}
 	manifest = {
 		"schema": "armigo-agent-episode/v1",
 		"video": True,
@@ -99,7 +100,16 @@ def test_recorded_camera_observation_precedes_its_action_and_rewound_trace_is_re
 		"fps": 30,
 	}
 	(episode / "episode.json").write_text(json.dumps(manifest))
-	np.savez(branch / "actions.npz", state=np.zeros((2, 6)), action=np.ones((2, 6)))
+	# wrist_roll 2.8 rad lies outside the Studio [-100, 100] range; radians are exported unchanged.
+	action = np.array([[0.1, -0.2, 0.3, -0.4, 2.8, 1.0]] * 2, dtype=np.float32)
+	np.savez(branch / "actions.npz", state=np.zeros((2, 6)), action=action, segment=np.array([0, 1], dtype=np.int32))
+	events = []
+	for sid, (kind, text) in enumerate((("prepare", "Wait at rest."), ("scan_view", "Move the wrist camera."))):
+		events += [
+			{"kind": "segment", "frame": sid, "id": sid, "segment_kind": kind, "instruction": text, "params": {}},
+			{"kind": "segment_end", "frame": sid + 1, "id": sid, "frames": 1, "reason": "done"},
+		]
+	(episode / "events.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events))
 	for name in CAMERAS:
 		shape = (TOP_FULL[1], TOP_FULL[0], 3) if name == "top_rgb" else (2, 2, 3)
 		video = Video(branch / f"{name}.mkv", shape, lossless=True)
@@ -108,12 +118,23 @@ def test_recorded_camera_observation_precedes_its_action_and_rewound_trace_is_re
 		video.close()
 	rows = list(student_frames(episode))
 	assert len(rows) == 2
+	assert np.array_equal(rows[0]["action"], action[0]) and rows[0]["action"].dtype == np.float32
+	assert np.array_equal(rows[1]["observation.state"], np.zeros(6))
 	assert np.all(rows[0]["observation.images.top_rgb_v2"] == 25)
 	assert np.all(rows[1]["observation.images.wrist"] == 37)
-	assert rows[0]["task"] == rows[1]["task"] == TASK
+	# The LeRobot task is the frame's segment instruction; the episode goal (TASK) stays in the manifest.
+	assert [r["task"] for r in rows] == ["Wait at rest.", "Move the wrist camera."]
+	assert [r["segment.kind"] for r in rows] == ["prepare", "scan_view"]
+	assert [int(r["segment.index"][0]) for r in rows] == [0, 1]
+	assert [bool(r["segment.done"][0]) for r in rows] == [False, True]  # segment 0 ended at observation 1
+	assert [int(r["segment.chunk_valid_len"][0]) for r in rows] == [1, 1]
 	assert set(rows[0]) == {"task", "action", "observation.state"} | {
 		"observation.images." + x for x in ("front", "wrist", "top_rgb_v2", "top_depth_v2", "top_full")
-	}
+	} | {"segment.index", "segment.kind", "segment.done", "segment.chunk_valid_len"}
+	# A recording without segment labels (segment == -1) is not exportable.
+	np.savez(branch / "actions.npz", state=np.zeros((2, 6)), action=action, segment=np.array([-1, -1], dtype=np.int32))
+	with pytest.raises(SegmentLabelError, match="no segment"):
+		next(student_frames(episode))
 	result["rewinds"] = 1
 	(episode / "episode.json").write_text(json.dumps(manifest))
 	with pytest.raises(ValueError, match="not eligible"):

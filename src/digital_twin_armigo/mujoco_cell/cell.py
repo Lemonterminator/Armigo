@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Self
 
@@ -51,6 +52,21 @@ def _drop_specks(geom: np.ndarray, is_brick: np.ndarray) -> np.ndarray:
 	return out
 
 
+def mount_offset(pos: np.ndarray, quat: np.ndarray, offset) -> tuple[np.ndarray, np.ndarray]:
+	"""A camera mount (body-frame ``pos``, ``quat`` wxyz) moved by ``offset`` = (dx, dy, dz) metres and (rx, ry,
+	rz) degrees, both expressed in the camera's own frame (rotation applied as a rotation vector)."""
+	dp, rv = np.asarray(offset[:3], dtype=np.float64), np.radians(np.asarray(offset[3:], dtype=np.float64))
+	shift = np.zeros(3)
+	mujoco.mju_rotVecQuat(shift, dp, np.asarray(quat, dtype=np.float64))
+	dq = np.array([1.0, 0.0, 0.0, 0.0])
+	angle = float(np.linalg.norm(rv))
+	if angle > 0:
+		mujoco.mju_axisAngle2Quat(dq, rv / angle, angle)
+	out = np.zeros(4)
+	mujoco.mju_mulQuat(out, np.asarray(quat, dtype=np.float64), dq)
+	return np.asarray(pos, dtype=np.float64) + shift, out
+
+
 class Cell:
 	"""One episode's MuJoCo model with renderers for the dataset cameras.
 
@@ -70,6 +86,7 @@ class Cell:
 		render_enabled: bool = True,
 		sensor_noise: D415NoiseCfg | None = None,
 		face_probes: bool = False,
+		extra_xml: tuple[str, str] = ("", ""),
 	) -> None:
 		write_marker_textures(menagerie, {m[0] for m in layout.markers})
 		# The scene includes so101.xml by relative path, so it is compiled from a file next to it.
@@ -82,6 +99,7 @@ class Cell:
 				mass_scale=mass_scale,
 				friction_scale=friction_scale,
 				face_probes=face_probes,
+				extra_xml=extra_xml,
 			),
 			encoding="utf-8",
 		)
@@ -183,6 +201,34 @@ class Cell:
 			self._cam_poses["top"] = layout.top
 		if layout.front is not None:
 			self._cam_poses["front"] = layout.front
+		# Wrist camera mount: the model renders the actual mount (designed mount plus layout.wrist_cam_offset);
+		# ``nominal_wrist_cam`` switches to the designed mount for planners that only know the nominal camera model.
+		self._wrist_cam = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_CAMERA, "wrist_cam")
+		self.wrist_cam_nominal = None
+		self.wrist_cam_actual = None
+		offset = getattr(layout, "wrist_cam_offset", None)
+		if self._wrist_cam >= 0:
+			cid = self._wrist_cam
+			self.wrist_cam_nominal = (m.cam_pos[cid].copy(), m.cam_quat[cid].copy())
+			self.wrist_cam_actual = self.wrist_cam_nominal
+			if offset is not None:
+				self.wrist_cam_actual = mount_offset(*self.wrist_cam_nominal, offset)
+				m.cam_pos[cid], m.cam_quat[cid] = self.wrist_cam_actual
+
+	@contextmanager
+	def nominal_wrist_cam(self, data=None):
+		"""Show the designed wrist camera mount instead of the actual one (no-op without a mount offset)."""
+		if self.wrist_cam_actual is self.wrist_cam_nominal:
+			yield
+			return
+		m, d, cid = self.model, self.data if data is None else data, self._wrist_cam
+		m.cam_pos[cid], m.cam_quat[cid] = self.wrist_cam_nominal
+		mujoco.mj_camlight(m, d)
+		try:
+			yield
+		finally:
+			m.cam_pos[cid], m.cam_quat[cid] = self.wrist_cam_actual
+			mujoco.mj_camlight(m, d)
 
 	def _apply_physics_spec(self, physics: PhysicsSpec, mass_scale: float, friction_scale: float) -> None:
 		"""Align MuJoCo actuator gains, joint dynamics, and surface friction with :class:`PhysicsSpec`."""
@@ -485,6 +531,23 @@ class Cell:
 			"bbox": bbox,
 		}
 
+	def visibility_labels(self, camera: str, data=None) -> tuple[np.ndarray, np.ndarray]:
+		"""Per-pixel ``(face, defect)`` of ``camera``'s full frame, exactly as :meth:`face_visibility` counts them:
+		the face id (-1 off the face probes) and the defect-cross mask, arm occlusion included. Summing them over
+		the frame gives ``face_visibility``'s ``faces`` and ``defect``; resampling them like an image crop gives what
+		that crop shows."""
+		if not self.has_face_probes:
+			raise RuntimeError("visibility_labels needs a Cell built with face_probes=True")
+		d = self.data if data is None else data
+		self.renderer.enable_segmentation_rendering()
+		try:
+			self.renderer.update_scene(d, camera, scene_option=self._all_groups)
+			seg = self.renderer.render()
+		finally:
+			self.renderer.disable_segmentation_rendering()
+		geom = _drop_specks(np.where(seg[..., 1] == self._obj_geom, seg[..., 0], -1), self._is_brick)
+		return self._face_of[geom], self._is_defect[geom]
+
 	def robot_min_z(self, data=None) -> float:
 		"""Lowest point of the moving links' collision geometry (oriented bounding boxes), metres above the table;
 		of ``data`` (another ``MjData`` of this model) when given."""
@@ -549,6 +612,6 @@ class Cell:
 				raise ValueError("top CameraPose must be set before applying camera-frame D415 depth noise")
 			rgb = degrade_rgb(rgb, rng, self.sensor_noise)
 			z, valid = degrade_depth_height(
-				z, valid, top_pose, rng, self.sensor_noise, crop=TOP_CROP, full_shape=TOP_FULL
+				z, valid, top_pose, rng, self.sensor_noise, crop=TOP_CROP, full_shape=(TOP_FULL[1], TOP_FULL[0])
 			)
 		return rgb, layered_height_image(z, valid)

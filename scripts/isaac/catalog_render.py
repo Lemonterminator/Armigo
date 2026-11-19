@@ -19,6 +19,9 @@ def main():
 	p.add_argument("--out", required=True, type=Path)
 	p.add_argument("--max-frames", type=int, default=0)
 	p.add_argument("--start-frame", type=int, default=0)
+	p.add_argument(
+		"--stride", type=int, default=1, help="Render every n-th recorded frame; the video plays at fps / n."
+	)
 	a = p.parse_args()
 	request = json.loads(a.request.read_text(encoding="utf-8"))
 	e = request["episode"]
@@ -37,6 +40,9 @@ def main():
 	if "telemetry" in roles:
 		with np.load(roles["telemetry"], allow_pickle=False) as z:
 			trace = {k: z[k] for k in ("phases", "jaw_forces", "brick_vel") if k in z}
+	captions = json.loads(roles["captions"].read_text(encoding="utf-8")) if "captions" in roles else None
+	if captions is not None and len(captions) != len(motion):
+		raise ValueError("captions do not match motion")
 	quality = request.get("profile") == "quality"
 	width, height = (1920, 1080) if quality else (1280, 720)
 	spp = 128 if quality else 32
@@ -149,8 +155,9 @@ def main():
 		for _ in range(20):
 			app.update()
 		max_error = 0.0
-		for output_frame, poses in enumerate(motion[a.start_frame : a.start_frame + (a.max_frames or len(motion))]):
-			frame = output_frame + a.start_frame
+		frames = range(a.start_frame, len(motion), max(1, a.stride))[: a.max_frames or None]
+		for output_frame, frame in enumerate(frames):
+			poses = motion[frame]
 			for transform, pose in zip(ops, poses, strict=True):
 				transform[0].Set(Gf.Vec3d(*pose[:3]))
 				transform[1].Set(Gf.Quatd(float(pose[6]), Gf.Vec3d(*pose[3:6])))
@@ -185,6 +192,11 @@ def main():
 			if "jaw_forces" in trace:
 				caption.append("jaw total: " + " / ".join(f"{v:.2f}" for v in trace["jaw_forces"][frame]) + " N")
 			cv2.putText(image, " | ".join(caption), (20, 64), cv2.FONT_HERSHEY_SIMPLEX, 0.5, (220, 235, 225), 1)
+			if captions is not None:
+				cv2.rectangle(image, (0, height - 44), (width - 344, height), (25, 38, 34), -1)
+				cv2.putText(
+					image, captions[frame], (20, height - 16), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (255, 230, 160), 1
+				)
 			for i, (_, annotator, name) in enumerate(insets):
 				tile = cv2.cvtColor(np.asarray(annotator.get_data())[:, :, :3], cv2.COLOR_RGB2BGR)
 				x = width - 332
@@ -202,7 +214,7 @@ def main():
 				max_error = max(max_error, float(np.max(np.abs(np.array(actual) - pose[:3]))))
 			print(json.dumps({"frame": frame + 1, "total": len(motion)}), flush=True)
 		stage.GetRootLayer().Export(str(a.out / "replay.usda"))
-		encode_video(a.out, float(scene.get("fps", 30)))
+		encode_video(a.out, float(scene.get("fps", 30)) / max(1, a.stride))
 		(a.out / "render.json").write_text(
 			json.dumps(
 				{
@@ -211,7 +223,8 @@ def main():
 					"isaac_version": version("isaacsim"),
 					"physics_advanced": False,
 					"source_frames": len(motion),
-					"rendered_frames": min(a.max_frames or len(motion), len(motion) - a.start_frame),
+					"rendered_frames": len(frames),
+					"stride": max(1, a.stride),
 					"source_start_frame": a.start_frame,
 					"spp": spp,
 					"resolution": [width, height],
