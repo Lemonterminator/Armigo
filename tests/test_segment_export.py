@@ -47,7 +47,56 @@ def test_segment_labels_done_and_chunk_valid_len(tmp_path):
 	# done on the first observation of the next segment; the last segment's done observation has no row
 	assert labels["done"].tolist() == [False, False, False, True, False, True, False]
 	assert labels["chunk_valid_len"].tolist() == [3, 2, 1, 2, 1, 2, 1]
+	assert labels["frame"].tolist() == [0, 1, 2, 0, 1, 0, 1]
+	assert labels["end_reason"] == ["done"] * 3 + ["brick_lost"] * 2 + ["done"] * 2
+	assert labels["bowl"] == [""] * 7
+	assert labels["view"].tolist() == [0] * 7
+	assert labels["views"].tolist() == [0] * 7
 	assert [s["reason"] for s in labels["segments"]] == ["done", "brick_lost", "done", "done"]
+
+
+def test_segment_labels_policy_params_only_from_policy_inputs(tmp_path):
+	from digital_twin_armigo.agent.twin_record import segment_labels
+
+	episode = tmp_path / "ep_params"
+	(episode / "branch-0").mkdir(parents=True)
+	np.savez(episode / "branch-0" / "actions.npz", segment=np.array([0, 0, 1, 1, 2], dtype=np.int32))
+	events = [
+		{
+			"kind": "segment",
+			"frame": 0,
+			"id": 0,
+			"segment_kind": "scan_view",
+			"instruction": "scan 2 of 4",
+			"params": {"mode": "orbit", "view": 2, "views": 4, "faces": [1, 2], "target_q": [0.1] * 6},
+		},
+		{"kind": "segment_end", "frame": 2, "id": 0, "frames": 2, "reason": "done"},
+		{
+			"kind": "segment",
+			"frame": 2,
+			"id": 1,
+			"segment_kind": "carry_to_bowl",
+			"instruction": "carry to pink",
+			"params": {"bowl": "pink"},
+		},
+		{"kind": "segment_end", "frame": 4, "id": 1, "frames": 2, "reason": "done"},
+		{
+			"kind": "segment",
+			"frame": 4,
+			"id": 2,
+			"segment_kind": "lower_on_table",
+			"instruction": "lower",
+			"params": {"xy": [0.2, 0.1]},
+		},
+		{"kind": "segment_end", "frame": 5, "id": 2, "frames": 1, "reason": "done"},
+	]
+	(episode / "events.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events), encoding="utf-8")
+	labels = segment_labels(episode)
+	assert labels["frame"].tolist() == [0, 1, 0, 1, 0]
+	assert labels["end_reason"] == ["done"] * 5
+	assert labels["view"].tolist() == [2, 2, 0, 0, 0]
+	assert labels["views"].tolist() == [4, 4, 0, 0, 0]
+	assert labels["bowl"] == ["", "", "pink", "pink", ""]
 
 
 @pytest.mark.parametrize(
@@ -89,6 +138,7 @@ def test_production_entry_labels_like_the_replay_gate_and_exports_segment_column
 	from digital_twin_armigo.agent.student_rollout import _segments_of, run_episode
 	from digital_twin_armigo.agent.twin_graph import Policy
 	from digital_twin_armigo.agent.twin_mcp import TwinService
+	from digital_twin_armigo.agent.twin_mujoco import INITIAL_Q
 	from digital_twin_armigo.agent.twin_record import segment_labels, student_frames
 
 	case = (600001, True, 0)
@@ -108,6 +158,10 @@ def test_production_entry_labels_like_the_replay_gate_and_exports_segment_column
 	labels = segment_labels(episode)
 	with np.load(episode / "branch-0" / "actions.npz") as rows:
 		assert len(rows["segment"]) == result["sim_frames"] and (rows["segment"] >= 0).all()
+		assert "gripper_cmd" in rows.files and "effort_frac" in rows.files
+		assert rows["gripper_cmd"].dtype == np.float32 and rows["effort_frac"].dtype == np.float32
+		recorded_actions = rows["action"].copy()
+		recorded_gripper_cmd = rows["gripper_cmd"].copy()
 	# Every capture is taken at a segment boundary: at the end of a scan_view / present_bottom segment.
 	ends = {s["end"]: s["kind"] for s in labels["segments"]}
 	views = [e for e in events if e["kind"] == "view"]
@@ -123,3 +177,23 @@ def test_production_entry_labels_like_the_replay_gate_and_exports_segment_column
 		assert frame["task"] == seg["instruction"] and frame["segment.kind"] == seg["kind"]
 		assert 1 <= valid and i + valid == seg["end"] <= n  # a chunk never reaches past its segment
 		assert bool(frame["segment.done"][0]) == (i > 0 and i == seg["start"])  # first observation of a later segment
+		assert int(frame["segment.frame"][0]) == i - seg["start"]
+		assert frame["segment.end_reason"] == seg["reason"]
+		expected_prev = INITIAL_Q.astype(np.float32) if i == 0 else recorded_actions[i - 1]
+		assert np.array_equal(frame["observation.prev_action"], expected_prev)
+		assert frame["observation.gripper_cmd"].dtype == np.float32
+		assert float(frame["observation.gripper_cmd"][0]) == float(recorded_gripper_cmd[i])
+		assert bool(frame["mask.is_blind"][0]) is False
+		assert bool(frame["mask.is_takeover"][0]) is False
+		assert bool(frame["mask.supervise_action"][0]) is True
+		if seg["kind"] == "scan_view":
+			assert int(frame["segment.view"][0]) == seg["params"]["view"]
+			assert int(frame["segment.views"][0]) == seg["params"]["views"]
+			assert frame["segment.bowl"] == ""
+		elif seg["kind"] == "carry_to_bowl":
+			assert frame["segment.bowl"] == seg["params"]["bowl"]
+			assert int(frame["segment.view"][0]) == 0 and int(frame["segment.views"][0]) == 0
+		else:
+			assert frame["segment.bowl"] == "" and int(frame["segment.view"][0]) == 0
+		for cam in ("top_rgb_v2", "top_depth_v2", "wrist", "top_full", "front"):
+			assert f"observation.images.{cam}" in frame

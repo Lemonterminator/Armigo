@@ -20,7 +20,8 @@ FORCE_AT_FULL_EFFORT_N = 3.0  # reported jaw force at the torque limit (above th
 
 
 class GripperContact:
-	def __init__(self) -> None:
+	def __init__(self, *, use_effort: bool = True) -> None:
+		self.use_effort = use_effort
 		self.prev: float | None = None
 
 	def reset(self) -> None:
@@ -30,6 +31,9 @@ class GripperContact:
 		"""Estimated (left, right) jaw normal force in newtons from the gripper command, position and effort."""
 		speed = 0.0 if self.prev is None else abs(meas - self.prev) * FPS
 		self.prev = float(meas)
-		touching = meas - cmd > GAP_RAD and effort_frac >= EFFORT_MIN and speed < STILL_RAD_S
-		force = FORCE_AT_FULL_EFFORT_N * min(effort_frac, 1.0) if touching else 0.0
+		effort_ok = (not self.use_effort) or (effort_frac >= EFFORT_MIN)
+		touching = meas - cmd > GAP_RAD and effort_ok and speed < STILL_RAD_S
+		if not touching:
+			return np.array([0.0, 0.0])
+		force = FORCE_AT_FULL_EFFORT_N * min(effort_frac, 1.0) if self.use_effort else FORCE_AT_FULL_EFFORT_N
 		return np.array([force, force])

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import enum
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import numpy as np
 
@@ -31,13 +31,17 @@ class GripperMonitorParams:
 	clamp_force_n: float = 1.5
 	blocked_frames: int = 4
 	fps: float = float(FPS)
+	use_effort: bool = True
 
 
 class GripperMonitor:
 	"""Pure-function stateful monitor tracking whether the gripper is FREE, MOVING, CLAMPED, or BLOCKED."""
 
-	def __init__(self, params: GripperMonitorParams | None = None) -> None:
-		self.p = params or GripperMonitorParams()
+	def __init__(self, params: GripperMonitorParams | None = None, *, use_effort: bool | None = None) -> None:
+		p = params or GripperMonitorParams()
+		if use_effort is not None:
+			p = replace(p, use_effort=use_effort)
+		self.p = p
 		self.reset()
 
 	def reset(self) -> None:
@@ -61,11 +65,12 @@ class GripperMonitor:
 			self._run = 0
 			return GripperState.CLAMPED, 0
 		err = float(cmd) - float(meas)
+		effort_ok = (not p.use_effort) or (float(effort_frac) >= p.effort_min)
 		stalled = (
 			abs(err) > p.err_rad
 			and abs(vel) < p.still_rad_s
 			and (max(fn) if fn else 0.0) < p.brick_force_n
-			and float(effort_frac) >= p.effort_min
+			and effort_ok
 		)
 		self._run = self._run + 1 if stalled else 0
 		if self._run >= p.blocked_frames:

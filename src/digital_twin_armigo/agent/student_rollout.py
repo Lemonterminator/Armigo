@@ -46,50 +46,9 @@ from typing import Any, Protocol
 import numpy as np
 
 from ..constants import PHASES
-from ..mujoco_cell.gripper_state import GripperMonitor, GripperState
-from .twin_mujoco import MAX_TOTAL_FRAMES, WRIST_MIN_PX, TwinMujoco
-
-# kind -> (instruction template, held: the brick is carried (lost-brick monitor on), default phase, frame budget)
-SEGMENT_KINDS: dict[str, tuple[str, bool, str, int]] = {
-	"prepare": ("Wait at rest, then move the arm to the ready pose with the gripper open.", False, "approach", 600),
-	"scan_view": (
-		"Move the wrist camera to inspection view {view} of {views} around the brick and hold still.",
-		False,
-		"approach",
-		900,
-	),
-	"return_ready": ("Return the arm to the ready pose with the gripper open.", False, "approach", 600),
-	"grasp": ("Grasp the brick on the table.", False, "grasp", 1500),
-	"lift": ("Lift the grasped brick straight up.", True, "lift", 600),
-	"present_bottom": (
-		"Show the bottom face of the held brick to the top camera and hold still.",
-		True,
-		"show_hold",
-		900,
-	),
-	"return_to_lift": ("Move the held brick back to the lift pose.", True, "show_move", 600),
-	"lower_on_table": (
-		"Carry the held brick back to its spot on the table and lower it onto the table.",
-		True,
-		"place",
-		1200,
-	),
-	"release_on_table": (
-		"Open the gripper, let the brick settle on the table and lift the gripper clear.",
-		False,
-		"place",
-		600,
-	),
-	"carry_to_bowl": ("Carry the held brick over the {bowl} bowl and lower it into the bowl.", True, "place", 1200),
-	"release_in_bowl": (
-		"Open the gripper to drop the brick into the bowl, lift clear and return to the rest pose.",
-		False,
-		"place",
-		900,
-	),
-	# Recovery (TwinMujoco._retry): let go of a brick that cannot be put down, then return_ready.
-	"let_go": ("Open the gripper where it is and rise.", False, "place", 300),
-}
+from ..mujoco_cell.gripper_state import GripperMonitor, GripperMonitorParams, GripperState
+from .twin_mujoco import INITIAL_Q, MAX_TOTAL_FRAMES, WRIST_MIN_PX, TwinMujoco
+from .twin_record import POLICY_FIELDS, POLICY_PARAMS, SEGMENT_KINDS, Segment, policy_inputs
 
 # Composite expert generators: (segment kind, frame predicate (phase, carried) -> bool) in order. A composite
 # generator's frames belong to the first part, from the current one on, whose predicate holds. ``carried`` marks
@@ -110,60 +69,8 @@ _PARTS: dict[str, tuple[tuple[str, Callable[[str, bool], bool]], ...]] = {
 }
 
 
-# Segment params a policy may read: exactly the fields the instruction texts are formatted from (a test checks
-# this). The other params (``mode``, ``faces``, ``target_q``, ``via_poses``, ``bottom_px``, ``xy``) are planner
-# outputs: a real-rig student under the D1 default (docs/vla/STUDENT_INPUTS.md) gets the instruction, not the plan.
-POLICY_PARAMS: tuple[str, ...] = ("view", "views", "bowl")
-# Keys of policy_inputs(): the one definition shared by the online policy and the offline training export.
-POLICY_FIELDS: tuple[str, ...] = ("kind", "instruction", *POLICY_PARAMS)
-
-
 class SegmentMappingError(RuntimeError):
 	"""A skill ran a motion the segment mapping does not know, or its frames do not fit the expected parts."""
-
-
-@dataclass(frozen=True)
-class Segment:
-	kind: str
-	params: dict[str, Any] = field(default_factory=dict)
-
-	def __post_init__(self):
-		if self.kind not in SEGMENT_KINDS:
-			raise ValueError(f"unknown segment kind {self.kind!r}")
-		json.dumps(self.params, allow_nan=False)  # params must be plain JSON
-
-	@property
-	def instruction(self) -> str:
-		return SEGMENT_KINDS[self.kind][0].format(**self.params)
-
-	@property
-	def held(self) -> bool:
-		return SEGMENT_KINDS[self.kind][1]
-
-	@property
-	def phase(self) -> str:
-		return SEGMENT_KINDS[self.kind][2]
-
-	@property
-	def max_frames(self) -> int:
-		return SEGMENT_KINDS[self.kind][3]
-
-	@property
-	def diagnostics(self) -> dict[str, Any]:
-		"""Planner outputs carried for replay and grading only (never shown to a policy)."""
-		return {k: v for k, v in self.params.items() if k not in POLICY_PARAMS}
-
-	def key(self) -> str:
-		"""Canonical identity used to match a student's segment with a recorded one (includes the diagnostics)."""
-		return json.dumps({"kind": self.kind, "params": self.params}, sort_keys=True, allow_nan=False)
-
-
-def policy_inputs(segment: Segment) -> dict[str, Any]:
-	"""The segment as a policy (online) or a training example (offline export) sees it: ``POLICY_FIELDS`` only, with
-	None for a param the segment kind does not have."""
-	out = {"kind": segment.kind, "instruction": segment.instruction}
-	out.update({k: segment.params.get(k) for k in POLICY_PARAMS})
-	return json.loads(json.dumps(out))  # a detached copy
 
 
 @dataclass
@@ -178,6 +85,9 @@ class StudentObservation:
 	segment_frame: int  # actions applied so far in this segment
 	q: np.ndarray  # joint reading (rad), the recorded ``state``
 	_images: Callable[[], dict[str, np.ndarray]]
+	q_prev: np.ndarray | None = None  # previous frame joint reading (rad), (6,) float64
+	prev_action: np.ndarray | None = None  # previous applied target (rad), INITIAL_Q at frame 0, (6,) float64
+	gripper_cmd: float = 0.0  # filtered gripper command from obs["gripper_cmd"]
 
 	def images(self) -> dict[str, np.ndarray]:
 		return self._images()
@@ -387,6 +297,26 @@ class StudentTwin(_SegmentMixin, TwinMujoco):
 		super().__init__(layout, scorer, record, **kwargs)
 		self._segment_setup()
 
+	def _segment_setup(self):
+		super()._segment_setup()
+		self._q_prev: np.ndarray | None = None
+		self._prev_action: np.ndarray = INITIAL_Q.copy()
+
+	def _checkpoint_extra(self):
+		extra = super()._checkpoint_extra()
+		extra["q_prev"] = None if self._q_prev is None else self._q_prev.tolist()
+		extra["prev_action"] = self._prev_action.tolist()
+		return extra
+
+	def _restore_extra(self, extra):
+		super()._restore_extra(extra)
+		if extra is None:
+			return
+		qp = extra.get("q_prev")
+		self._q_prev = None if qp is None else np.array(qp, dtype=np.float64)
+		pa = extra.get("prev_action")
+		self._prev_action = INITIAL_Q.copy() if pa is None else np.array(pa, dtype=np.float64)
+
 	# -- the segment executor -----------------------------------------------------------------------------------
 
 	def run_segment(self, seg: Segment) -> str | None:
@@ -401,7 +331,11 @@ class StudentTwin(_SegmentMixin, TwinMujoco):
 		frames = 0
 		after_step = False  # the next observation follows a step of this segment (the checks read it)
 		clamp_run = 0
-		monitor = GripperMonitor()
+		monitor = (
+			GripperMonitor(GripperMonitorParams(effort_min=0.0, use_effort=False))
+			if self.realistic
+			else GripperMonitor()
+		)
 		self._clamped = self._blocked = False
 		while True:
 			if self.total_frames >= MAX_TOTAL_FRAMES:
@@ -428,14 +362,21 @@ class StudentTwin(_SegmentMixin, TwinMujoco):
 			if seg.held and ex.lost:
 				self._segment_end("brick_lost")
 				return None
+			q = np.asarray(obs["q"], dtype=np.float64).copy()
+			q_prev = q.copy() if self._q_prev is None else self._q_prev.copy()
+			prev_action = self._prev_action.copy()
+			gripper_cmd = float(obs["gripper_cmd"])
 			step = self.segment_policy.act(
 				StudentObservation(
 					frame=self.ep.n_frames,
 					task=dict(task),
 					segment_id=sid,
 					segment_frame=frames,
-					q=np.asarray(obs["q"], dtype=np.float64).copy(),
+					q=q,
 					_images=self._images,
+					q_prev=q_prev,
+					prev_action=prev_action,
+					gripper_cmd=gripper_cmd,
 				)
 			)
 			if step.done:
@@ -456,6 +397,8 @@ class StudentTwin(_SegmentMixin, TwinMujoco):
 			if phase not in PHASES:
 				raise ValueError(f"unknown phase {phase!r}")
 			error = self._apply_target(obs, target, phase)
+			self._q_prev = q
+			self._prev_action = target.copy()
 			frames += 1
 			after_step = True
 			if error:
