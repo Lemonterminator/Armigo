@@ -115,3 +115,60 @@ def test_perceived_bowl_proxy_geometry():
 	for poly in _BOWL_WALL_POLYS:
 		for r, z in poly:
 			assert bowl_distance(at(r, z), c) <= 1e-9
+
+
+def _plans(backend):
+	"""Grasp candidates (roll, pinched faces, target) and the first wrist-scan plan the backend makes now."""
+	ex = backend.expert
+	backend._belief_obs = True  # the grasp is planned on the perceived pose (TwinMujoco._grasp)
+	try:
+		ex.obs = backend._observe()
+	finally:
+		backend._belief_obs = False
+	grasps = [(round(c["roll"], 9), c["pinched_faces"], tuple(np.round(c["target"], 9))) for c in ex.grasp_candidates()]
+	with backend._belief():
+		ex.kin.data.qpos[:] = backend.cell.data.qpos
+	steps, mode, _ = backend._scan_plan([], 0)
+	views = [(tuple(np.round(c.q, 9)), tuple(c.faces_px)) for c, _ in steps]
+	return grasps, mode, views
+
+
+@pytest.mark.parametrize("sensing", ["truth", "realistic"])
+def test_realistic_plans_use_the_perceived_brick_size(tmp_path, sensing, monkeypatch):
+	"""The realistic grasp axes, orbit ring and held-brick clearance use the size class perceived from the top depth
+	footprint: changing the simulator's brick size behind a fixed perception leaves the realistic plans unchanged,
+	while the truth plans follow it."""
+	pytest.importorskip("mujoco")
+	pytest.importorskip("cv2")
+	from digital_twin_armigo.agent.twin_mujoco import INITIAL_Q, TwinMujoco, sample_case
+	from digital_twin_armigo.agent.twin_record import EpisodeTrace
+	from digital_twin_armigo.constants import DUPLO_2X2, DUPLO_2X4
+	from digital_twin_armigo.inspection_scorer import FixedScorer
+	from digital_twin_armigo.mujoco_cell.inspection_views import HeldBrickPoser
+
+	monkeypatch.delenv("ARMIGO_BRICK_PERCEPTION", raising=False)
+	trace = EpisodeTrace(tmp_path / sensing, video=False)
+	scorer = FixedScorer(lambda _camera, _rgb: -1, {"top": 0, "wrist_cam": 0})
+	layout = sample_case(600001, False, 5)
+	assert tuple(layout.brick_size) == DUPLO_2X2
+	backend = TwinMujoco(layout, scorer, trace, sensing=sensing)
+	try:
+		if sensing == "realistic":
+			assert backend._perceive() is None and backend.brick_est.size == DUPLO_2X2
+		before = _plans(backend)
+		assert {c[1] for c in before[0]} == {(0, 1), (2, 3)}  # a square brick may be pinched across either axis
+		layout.brick_size = DUPLO_2X4  # the simulator's brick changes behind the (fixed) perception
+		ex = backend.expert  # rebuilt as a retry / restore does, so nothing cached at construction survives
+		backend.expert = backend.expert_type(backend.cell, INITIAL_Q, backend._expert_xy, ex.p, ex.rp)
+		after = _plans(backend)
+		if sensing == "realistic":
+			assert after == before
+			assert backend._plan_brick_size() == DUPLO_2X2
+			assert HeldBrickPoser(backend.cell, backend._plan_brick_size()).size.tolist() == list(DUPLO_2X2)
+		else:
+			assert {c[1] for c in after[0]} == {(2, 3)}  # a 2x4 brick only across its short axis
+			assert after[2] != before[2]  # the orbit ring follows the longer top face
+			assert backend._plan_brick_size() is None
+	finally:
+		trace.close()
+		backend.close()

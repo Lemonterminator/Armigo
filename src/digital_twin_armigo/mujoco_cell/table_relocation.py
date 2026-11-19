@@ -185,13 +185,15 @@ def plan_bottom_view(
 	seed: int = 0,
 	clearance: Callable[[np.ndarray], bool] | None = None,
 	border_px: int = 0,
+	brick_size=None,
 ) -> ViewCandidate | None:
 	"""Arm pose (held brick carried rigidly) showing the brick's bottom face largest to the top camera, among random
 	joint vectors that keep arm and brick ``clearance_m`` above the table along the straight path from ``q_from``.
 	With ``border_px``, the brick's image box must also keep that far from the image edges (room for an uncertain
-	in-hand pose)."""
+	in-hand pose). ``brick_size``: the held brick's extents for the table clearance (default: the simulator's brick).
+	"""
 	rng = np.random.default_rng(seed)
-	poser = HeldBrickPoser(cell)
+	poser = HeldBrickPoser(cell, brick_size)
 	lo, hi = cell.jnt_range[:, 0], cell.jnt_range[:, 1]
 	best: ViewCandidate | None = None
 	for _ in range(samples):
@@ -205,7 +207,7 @@ def plan_bottom_view(
 			continue
 		if border_px and not _inside(v.bbox, TOP_FULL, border_px):
 			continue
-		if path_min_z(cell, q_from, q, carried=True) < clearance_m * 0.5:
+		if path_min_z(cell, q_from, q, carried=True, brick_size=brick_size) < clearance_m * 0.5:
 			continue
 		if clearance is not None and not clearance(q):
 			continue

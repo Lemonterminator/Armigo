@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import dataclasses
 import json
+import string
 from types import SimpleNamespace
 
 import numpy as np
 import pytest
 
 from digital_twin_armigo.agent.student_rollout import (
+	POLICY_FIELDS,
+	POLICY_PARAMS,
 	SEGMENT_KINDS,
 	ExpertTracer,
 	PolicyStep,
@@ -21,7 +25,10 @@ from digital_twin_armigo.agent.student_rollout import (
 	_scan_stops,
 	_SegmentMixin,
 	compare_runs,
+	policy_inputs,
 )
+
+DIAGNOSTICS = ("mode", "faces", "target_q", "via_poses", "bottom_px", "xy")
 
 
 def test_segment_instruction_and_identity():
@@ -37,6 +44,30 @@ def test_segment_instruction_and_identity():
 		Segment("lift", {"bad": float("nan")})
 	for kind, (text, held, phase, budget) in SEGMENT_KINDS.items():
 		assert text and budget > 0 and isinstance(held, bool), kind
+
+
+def test_policy_inputs_hide_planner_diagnostics():
+	"""A policy gets the instruction and the fields it is formatted from, never the planner's outputs."""
+	seg = Segment(
+		"scan_view",
+		{"mode": "orbit", "view": 2, "views": 5, "faces": [1, 2], "target_q": [0.1] * 6, "via_poses": 3},
+	)
+	task = policy_inputs(seg)
+	assert tuple(task) == POLICY_FIELDS
+	assert task == {"kind": "scan_view", "instruction": seg.instruction, "view": 2, "views": 5, "bowl": None}
+	assert set(seg.diagnostics) == {"mode", "faces", "target_q", "via_poses"}
+	for diag in (seg, Segment("present_bottom", {"target_q": [0.0] * 6, "bottom_px": 900})):
+		assert not set(policy_inputs(diag)) & set(DIAGNOSTICS)
+		assert "0.1" not in json.dumps(policy_inputs(diag))
+	task["view"] = 99  # a detached copy
+	assert seg.params["view"] == 2
+	# Every instruction is formatted from policy-visible params only, so the text cannot leak a diagnostic.
+	for kind, (text, *_) in SEGMENT_KINDS.items():
+		fields = {f for _, f, _, _ in string.Formatter().parse(text) if f}
+		assert fields <= set(POLICY_PARAMS), kind
+	# The per-frame observation carries the task, not the Segment.
+	names = {f.name for f in dataclasses.fields(StudentObservation)}
+	assert "segment" not in names and "task" in names
 
 
 def _splitter(name):
@@ -122,7 +153,9 @@ def test_motion_mapping_by_generator():
 
 
 def _obs(seg, i):
-	return StudentObservation(frame=i, segment=seg, segment_id=0, segment_frame=i, q=np.zeros(6), _images=dict)
+	return StudentObservation(
+		frame=i, task=policy_inputs(seg), segment_id=0, segment_frame=i, q=np.zeros(6), _images=dict
+	)
 
 
 def test_replay_policy_plays_actions_then_segment_done():
@@ -130,13 +163,21 @@ def test_replay_policy_plays_actions_then_segment_done():
 	rec = RecordedSegment(seg, np.ones((2, 6)), np.zeros((2, 6)), ["lift", "lift"], "done")
 	policy = ReplayPolicy([rec])
 	with pytest.raises(ReplayMismatch):
-		ReplayPolicy([rec]).start(Segment("grasp"), 0)
-	policy.start(seg, 0)
+		ReplayPolicy([rec]).start(policy_inputs(Segment("grasp")), 0)
+	policy.start(policy_inputs(seg), 0)
 	steps = [policy.act(_obs(seg, i)) for i in range(3)]
 	assert [s.done for s in steps] == [False, False, True]
 	assert steps[0].phase == "lift" and np.array_equal(steps[1].target, np.ones(6))
 	assert policy.state_mismatches == 0
 	assert isinstance(steps[2], PolicyStep)
+	# Diagnostics are matched through the separate channel only.
+	view = Segment("present_bottom", {"target_q": [0.0] * 6, "bottom_px": 900})
+	replay = ReplayPolicy([RecordedSegment(view, np.ones((1, 6)), np.zeros((1, 6)), ["show_hold"], "done")])
+	other = Segment("present_bottom", {"target_q": [0.0] * 6, "bottom_px": 901})
+	replay.start(policy_inputs(other), 0)  # the task alone cannot tell them apart
+	replay.check_segment(view, 0)
+	with pytest.raises(ReplayMismatch):
+		replay.check_segment(other, 0)
 
 
 def test_compare_runs_and_scan_stops():
@@ -173,6 +214,54 @@ def test_compare_runs_and_scan_stops():
 	checks, info = compare_runs(run, other)
 	assert checks["scores"] and checks["events"] and not checks["images"]
 	assert info["render_noise_views"] == ["0:20:wrist_cam"] and info["render_noise_max_score_delta"] > 0
+	assert info["render_noise_crop_views"] == ["0:20:wrist_cam"] and info["render_noise_frame_views"] == []
+
+
+def _keyframe(path, level=0):
+	import cv2
+
+	img = np.full((48, 64, 3), 100, np.uint8)
+	img[0, 0, 0] += level
+	path.parent.mkdir(parents=True, exist_ok=True)
+	assert cv2.imwrite(str(path), img)
+
+
+def test_full_frame_noise_does_not_exempt_an_identical_crop(tmp_path):
+	"""Render noise in a view's full frame only: the crop the detector scored is bitwise equal, so its total and head
+	scores must still match exactly (the full-frame tolerance still applies to the image check)."""
+	pytest.importorskip("cv2")
+	from digital_twin_armigo.agent.student_rollout import crop_digests
+
+	view = {"id": "0:20:wrist_cam", "camera": "wrist_cam", "frame": 20, "score": 0.5, "threshold": 0.0, "faces": [1]}
+	events = [
+		{"kind": "node", "node": "scan_wrist", "frame": 0},
+		{"kind": "view", "frame": 20, "observation": view, "detector": {"head_scores": {"cls": 0.5, "seg": 0.2}}},
+	]
+	dirs = {}
+	for name, level in (("expert", 0), ("student", 1)):  # one full-frame pixel one level off
+		dirs[name] = tmp_path / name
+		_keyframe(dirs[name] / "keyframes" / "0-20-wrist_cam-frame.png", level)
+		_keyframe(dirs[name] / "keyframes" / "0-20-wrist_cam-crop.png")
+	run = {"events": events, "result": {"destination": "pink"}, "digest": "x", "crops": crop_digests(dirs["expert"])}
+	other = json.loads(json.dumps(run))
+	other["crops"] = crop_digests(dirs["student"])
+	assert other["crops"]["0-20-wrist_cam-frame.png"] != run["crops"]["0-20-wrist_cam-frame.png"]
+	assert other["crops"]["0-20-wrist_cam-crop.png"] == run["crops"]["0-20-wrist_cam-crop.png"]
+	checks, info = compare_runs(run, other, dirs["expert"], dirs["student"])
+	assert all(checks.values()), checks
+	assert info["render_noise_frame_views"] == ["0:20:wrist_cam"] and info["render_noise_crop_views"] == []
+	# The auditor's case: the total score moves by 0.5, the decision does not; the identical crop catches it.
+	other["events"][1]["observation"]["score"] = 1.0
+	checks, _ = compare_runs(run, other, dirs["expert"], dirs["student"])
+	assert checks["images"] and checks["decisions"] and not checks["scores"] and not checks["events"]
+	# A single detector head that moves is caught as well.
+	other["events"][1]["observation"]["score"] = 0.5
+	other["events"][1]["detector"]["head_scores"]["seg"] = 0.2001
+	checks, _ = compare_runs(run, other, dirs["expert"], dirs["student"])
+	assert checks["images"] and not checks["scores"] and not checks["events"]
+	# A decision flip is never tolerated, whatever the images.
+	other["events"][1]["observation"]["score"] = -0.1
+	assert not compare_runs(run, other, dirs["expert"], dirs["student"])[0]["decisions"]
 
 
 class ConstantScorer:
@@ -183,6 +272,23 @@ class ConstantScorer:
 
 	def score(self, camera, image):
 		return 1.0
+
+
+class SpyPolicy:
+	"""Wraps a policy and records everything it is handed."""
+
+	def __init__(self, inner):
+		self.inner, self.tasks = inner, []
+
+	def start(self, task, segment_id):
+		assert isinstance(task, dict)
+		self.tasks.append(task)
+		self.inner.start(task, segment_id)
+
+	def act(self, obs):
+		assert not any(isinstance(getattr(obs, f.name), Segment) for f in dataclasses.fields(obs))
+		assert obs.task == self.tasks[-1]
+		return self.inner.act(obs)
 
 
 def test_mujoco_expert_replays_identically_through_the_student_interface(tmp_path):
@@ -202,11 +308,18 @@ def test_mujoco_expert_replays_identically_through_the_student_interface(tmp_pat
 		assert (rows["segment"] >= 0).all() and len(rows["segment"]) == expert["frames"]
 		assert np.array_equal(rows["action_f64"].astype(np.float32), rows["action"])
 
-	policy = ReplayPolicy.from_trace(tmp_path / "expert")
-	student = run_episode(case, ConstantScorer(), tmp_path / "student", policy=policy)
+	policy = SpyPolicy(ReplayPolicy.from_trace(tmp_path / "expert"))
+	student = run_episode(
+		case, ConstantScorer(), tmp_path / "student", policy=policy, segment_monitor=policy.inner.check_segment
+	)
 	checks, _ = compare_runs(expert, student, tmp_path / "expert", tmp_path / "student")
 	assert all(checks.values()), checks
-	assert policy.state_mismatches == 0 and policy.index == len(policy.segments) - 1
+	replay = policy.inner
+	assert replay.state_mismatches == 0 and replay.index == len(replay.segments) - 1
+	# The online policy saw only the policy-visible fields, although the recorded segments carry target_q etc.
+	assert any("target_q" in s.segment.params for s in replay.segments)
+	assert policy.tasks and all(tuple(t) == POLICY_FIELDS for t in policy.tasks)
+	assert not any(d in json.dumps(policy.tasks) for d in DIAGNOSTICS)
 
 	# The gate is sensitive: one target changed by a micro-radian changes the physics.
 	tampered = ReplayPolicy.from_trace(tmp_path / "expert")

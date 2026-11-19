@@ -2,12 +2,14 @@
 
 For each case the expert runs once through the graph with segment markers (``ExpertTracer``; reused when its
 ``run.json`` already exists in ``--out``), then a ``StudentTwin`` replays it with ``ReplayPolicy`` (the recorded
-float64 targets and segment ends). Checks per case (``student_rollout.compare_runs``), all exact: physics telemetry
+float64 targets and segment ends; it sees only the policy inputs, and its ``check_segment`` matches every whole
+segment, planner diagnostics included, through the separate ``segment_monitor`` channel). Checks per case (``student_rollout.compare_runs``), all exact: physics telemetry
 digest and every observed joint reading, capture frames, detector decisions, early stops of the wrist scan, segment
 kinds/params/start/end, destination, the ``evaluate`` result and the whole event stream (without wall-clock fields).
 Two documented exceptions: captured images are compared within the MuJoCo renderer's own repeatability (it is not
-bitwise repeatable for one state, see ``RENDER_MAX_LEVEL``), and a view's detector scores are compared exactly only
-when its crop is bitwise equal (else the score delta is reported; the decision is still exact);
+bitwise repeatable for one state, see ``RENDER_MAX_LEVEL``), and a view's detector scores (total and every head)
+are compared exactly whenever its detector crop is bitwise equal, even if its full frame differs; only a differing
+crop reports the score delta instead (the decision is always exact);
 ``smoothness.clipped_frames`` is left out of the result (see ``compare_runs``).
 
 	PYTHONPATH=src .venv/Scripts/python scripts/vla/replay_gate.py --out E:/s0-scratch/gate
@@ -55,7 +57,9 @@ def gate_case(index, case, scorer, out: Path, sensing="realistic", video=False):
 	policy = ReplayPolicy.from_trace(expert_dir)
 	error, info = None, {}
 	try:
-		student = run_episode(case, scorer, student_dir, policy=policy, sensing=sensing, video=video)
+		student = run_episode(
+			case, scorer, student_dir, policy=policy, segment_monitor=policy.check_segment, sensing=sensing, video=video
+		)
 		checks, info = compare_runs(expert, student, expert_dir, student_dir)
 		checks["state"] = policy.state_mismatches == 0
 		checks["all_segments_used"] = policy.index == len(policy.segments) - 1
@@ -116,7 +120,8 @@ def main():
 				f"{'PASS' if row['pass'] else 'FAIL ' + ','.join(failed)}"
 				+ (f"  [{row['error']}]" if row["error"] else "")
 				+ (
-					f"  (render noise: {len(row['render_noise_views'])} views, max level "
+					f"  (render noise: {len(row['render_noise_views'])} views, "
+					f"{len(row['render_noise_crop_views'])} with a differing crop, max level "
 					f"{row['render_noise_max_level']}, {row['render_noise_max_fraction']:.5f} px, "
 					f"max score delta {row['render_noise_max_score_delta']:.4f})"
 					if row.get("render_noise_views")

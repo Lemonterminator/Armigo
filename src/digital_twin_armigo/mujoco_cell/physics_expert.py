@@ -253,7 +253,6 @@ class ClosedLoopExpert:
 		self.inspections: list[dict] = []  # one record per inspection call
 		self.label: str | None = None
 		self.kin = Kinematics(cell)
-		self.size = tuple(cell.layout.brick_size)
 		self.obs: dict[str, np.ndarray] = {}
 		self.last = self.q_start.copy()
 		self.grasp_retries = 0
@@ -275,6 +274,12 @@ class ClosedLoopExpert:
 		self._lo, self._hi = cell.jnt_range[:, 0].copy(), cell.jnt_range[:, 1].copy()
 		self.clipped_frames = 0  # frames whose scripted target fell outside the joint range and was clipped
 		self._gen = self._script()
+
+	@property
+	def size(self) -> tuple[float, float, float]:
+		"""Brick extents (x, y, z) the grasp, carry and release planning uses: the simulator's brick here. The
+		realistic twin overrides this with the size class perceived in the top depth image."""
+		return tuple(self.cell.layout.brick_size)
 
 	# -- plumbing --------------------------------------------------------------------------------------------------
 

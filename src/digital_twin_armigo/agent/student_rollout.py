@@ -8,6 +8,10 @@ moves the arm within one segment and says when the segment is done (``segment_do
 Three pieces:
 
 - :class:`Segment` names a segment (``kind``, JSON ``params``) and gives its text instruction (a VLA task string).
+  Its params mix the instruction's own fields with planner outputs (target joints, predicted visible faces, pixel
+  counts). A policy sees only :func:`policy_inputs` (the ``POLICY_FIELDS``: kind, instruction and the fields the
+  instruction is formatted from); everything else is a diagnostic for replay and grading (``Segment.diagnostics``),
+  reachable only through the executor's separate ``segment_monitor`` channel.
 - :class:`StudentTwin` is a :class:`~.twin_mujoco.TwinMujoco` whose motion generators are never run. Each call of
   ``_execute(generator)`` is mapped to one segment, or to a short sequence of segments for the three skills whose
   generator has a decision point inside (grasp and lift, park, release into a bowl), and each segment is executed
@@ -104,6 +108,14 @@ _PARTS: dict[str, tuple[tuple[str, Callable[[str, bool], bool]], ...]] = {
 }
 
 
+# Segment params a policy may read: exactly the fields the instruction texts are formatted from (a test checks
+# this). The other params (``mode``, ``faces``, ``target_q``, ``via_poses``, ``bottom_px``, ``xy``) are planner
+# outputs: a real-rig student under the D1 default (docs/vla/STUDENT_INPUTS.md) gets the instruction, not the plan.
+POLICY_PARAMS: tuple[str, ...] = ("view", "views", "bowl")
+# Keys of policy_inputs(): the one definition shared by the online policy and the offline training export.
+POLICY_FIELDS: tuple[str, ...] = ("kind", "instruction", *POLICY_PARAMS)
+
+
 class SegmentMappingError(RuntimeError):
 	"""A skill ran a motion the segment mapping does not know, or its frames do not fit the expected parts."""
 
@@ -134,18 +146,32 @@ class Segment:
 	def max_frames(self) -> int:
 		return SEGMENT_KINDS[self.kind][3]
 
+	@property
+	def diagnostics(self) -> dict[str, Any]:
+		"""Planner outputs carried for replay and grading only (never shown to a policy)."""
+		return {k: v for k, v in self.params.items() if k not in POLICY_PARAMS}
+
 	def key(self) -> str:
-		"""Canonical identity used to match a student's segment with a recorded one."""
+		"""Canonical identity used to match a student's segment with a recorded one (includes the diagnostics)."""
 		return json.dumps({"kind": self.kind, "params": self.params}, sort_keys=True, allow_nan=False)
+
+
+def policy_inputs(segment: Segment) -> dict[str, Any]:
+	"""The segment as a policy (online) or a training example (offline export) sees it: ``POLICY_FIELDS`` only, with
+	None for a param the segment kind does not have."""
+	out = {"kind": segment.kind, "instruction": segment.instruction}
+	out.update({k: segment.params.get(k) for k in POLICY_PARAMS})
+	return json.loads(json.dumps(out))  # a detached copy
 
 
 @dataclass
 class StudentObservation:
-	"""What a policy sees at one frame. ``images()`` gives the recorder's camera images of this frame (rendered on
-	demand when the trace records no video); rendering is skipped unless a policy asks for it."""
+	"""What a policy sees at one frame. ``task`` is :func:`policy_inputs` of the current segment (no planner
+	diagnostics). ``images()`` gives the recorder's camera images of this frame (rendered on demand when the trace
+	records no video); rendering is skipped unless a policy asks for it."""
 
 	frame: int
-	segment: Segment
+	task: dict[str, Any]  # policy_inputs(segment): POLICY_FIELDS only
 	segment_id: int
 	segment_frame: int  # actions applied so far in this segment
 	q: np.ndarray  # joint reading (rad), the recorded ``state``
@@ -163,7 +189,8 @@ class PolicyStep:
 
 
 class SegmentPolicy(Protocol):
-	def start(self, segment: Segment, segment_id: int) -> None: ...
+	def start(self, task: dict[str, Any], segment_id: int) -> None:
+		"""A new segment begins; ``task`` is its :func:`policy_inputs`."""
 
 	def act(self, obs: StudentObservation) -> PolicyStep: ...
 
@@ -322,8 +349,20 @@ class StudentTwin(_SegmentMixin, TwinMujoco):
 	targets, and its ``lost`` / ``_no_dual`` / ``aborted`` fields carry the lost-brick and clamp checks, so the
 	inherited skill code reads them as it reads the expert's."""
 
-	def __init__(self, layout, scorer, record, policy: SegmentPolicy, **kwargs):
+	def __init__(
+		self,
+		layout,
+		scorer,
+		record,
+		policy: SegmentPolicy,
+		*,
+		segment_monitor: Callable[[Segment, int], None] | None = None,
+		**kwargs,
+	):
 		self.segment_policy = policy  # not ``policy``: TwinMujoco keeps the graph's Policy there
+		# Separate channel for replay checks and grading: receives the whole segment, diagnostics included. The policy
+		# itself only ever gets policy_inputs(segment).
+		self.segment_monitor = segment_monitor
 		super().__init__(layout, scorer, record, **kwargs)
 		self._segment_setup()
 
@@ -334,7 +373,10 @@ class StudentTwin(_SegmentMixin, TwinMujoco):
 		``SEGMENT_FRAME_BUDGET``, a fault) or None; a lost brick ends a held segment with ``expert.lost`` set."""
 		ex, p = self.expert, self.expert.p
 		sid = self._segment_begin(seg)
-		self.segment_policy.start(seg, sid)
+		if self.segment_monitor is not None:
+			self.segment_monitor(seg, sid)
+		task = policy_inputs(seg)
+		self.segment_policy.start(dict(task), sid)
 		frames = 0
 		after_step = False  # the next observation follows a step of this segment (the checks read it)
 		clamp_run = 0
@@ -368,7 +410,7 @@ class StudentTwin(_SegmentMixin, TwinMujoco):
 			step = self.segment_policy.act(
 				StudentObservation(
 					frame=self.ep.n_frames,
-					segment=seg,
+					task=dict(task),
 					segment_id=sid,
 					segment_frame=frames,
 					q=np.asarray(obs["q"], dtype=np.float64).copy(),
@@ -489,7 +531,10 @@ class RecordedSegment:
 
 class ReplayPolicy:
 	"""Plays a recorded expert episode segment by segment: the recorded float64 targets, then ``segment_done`` where
-	the expert's segment ended. Each observed joint reading is compared with the recorded one (bitwise)."""
+	the expert's segment ended. Each observed joint reading is compared with the recorded one (bitwise).
+
+	As a policy it sees only the task (``policy_inputs``). Pass :meth:`check_segment` as the student's
+	``segment_monitor`` to also match each whole segment, diagnostics included, with the recorded one."""
 
 	def __init__(self, segments: list[RecordedSegment]):
 		self.segments = segments
@@ -529,12 +574,20 @@ class ReplayPolicy:
 			raise ValueError("actions outside any segment")
 		return cls(out)
 
-	def start(self, segment: Segment, segment_id: int) -> None:
+	def start(self, task: dict[str, Any], segment_id: int) -> None:
 		self.index += 1
 		if self.index >= len(self.segments):
+			raise ReplayMismatch(f"segment {segment_id} ({task['kind']}) is past the end of the recording")
+		recorded = policy_inputs(self.segments[self.index].segment)
+		if task != recorded or segment_id != self.index:
+			raise ReplayMismatch(f"segment {segment_id}: student task {task} != recorded {recorded}")
+
+	def check_segment(self, segment: Segment, segment_id: int) -> None:
+		"""Diagnostics channel (``StudentTwin(segment_monitor=...)``): the whole segment must match the recording."""
+		if segment_id >= len(self.segments):
 			raise ReplayMismatch(f"segment {segment_id} ({segment.kind}) is past the end of the recording")
-		rec = self.segments[self.index]
-		if rec.segment.key() != segment.key() or segment_id != self.index:
+		rec = self.segments[segment_id]
+		if rec.segment.key() != segment.key():
 			raise ReplayMismatch(f"segment {segment_id}: student {segment.key()} != recorded {rec.segment.key()}")
 
 	def act(self, obs: StudentObservation) -> PolicyStep:
@@ -605,8 +658,10 @@ def _scan_stops(events):
 # The MuJoCo renderer is not repeatable: rendering one simulator state several times in a row gives images that
 # differ by one 8-bit level on a few dozen pixels near shadow edges (measured on bench16 case 10, wrist camera: 8
 # distinct images in 12 renders, max difference 1, at most 46 of 307200 pixels; repeatable with shadows off or
-# without multisampling). Captured images are therefore compared within this bound, and the detector scores of a
-# view are compared exactly only when its crop is bitwise equal; the decision (score >= threshold) always exactly.
+# without multisampling). Captured images (full frame and detector crop) are therefore compared within this bound.
+# The detector sees only the crop: when a view's crop is bitwise equal its total score and every head score are
+# compared exactly, even if its full frame differs by render noise; only a crop that differs exempts the scores
+# (reported instead). The decision (score >= threshold) is always compared exactly.
 RENDER_MAX_LEVEL = 1
 RENDER_MAX_FRACTION = 0.001
 
@@ -623,17 +678,22 @@ def _image_diff(a: Path, b: Path) -> tuple[int, float]:
 
 def compare_runs(expert: dict, student: dict, expert_dir: Path | None = None, student_dir: Path | None = None):
 	"""Gate checks between two runs; returns ``(checks, info)``. Each run: ``result``, ``events``, ``digest``,
-	``crops`` (sha256 per keyframe file). With the trace directories, keyframes that are not bitwise equal are
-	compared within the renderer's repeatability (RENDER_MAX_LEVEL / RENDER_MAX_FRACTION) and their views' scores
-	are reported instead of checked. ``smoothness.clipped_frames`` is excluded from the result check: it counts the
-	expert generator's raw targets that act() clipped, which a replay of the executed (already clipped) targets
+	``crops`` (sha256 per keyframe file: ``<view>-frame.png`` full image, ``<view>-crop.png`` detector input). With
+	the trace directories, keyframes that are not bitwise equal are compared within the renderer's repeatability
+	(RENDER_MAX_LEVEL / RENDER_MAX_FRACTION). Full-frame noise and crop noise are flagged separately: only a view whose
+	crop differs has its scores reported instead of checked; with a bitwise-equal crop the total and per-head
+	detector scores must match exactly. ``smoothness.clipped_frames`` is excluded from the result check: it counts
+	the expert generator's raw targets that act() clipped, which a replay of the executed (already clipped) targets
 	cannot see."""
 	ee, se = comparable_events(expert["events"]), comparable_events(student["events"])
-	noisy, image_ok, worst = set(), expert["crops"].keys() == student["crops"].keys(), (0, 0.0)
+	image_ok, worst = expert["crops"].keys() == student["crops"].keys(), (0, 0.0)
+	noisy_frames, noisy = set(), set()  # view ids whose full frame / detector crop differ by render noise
 	for name in sorted(set(expert["crops"]) & set(student["crops"])):
 		if expert["crops"][name] == student["crops"][name]:
 			continue
-		noisy.add(name.rsplit("-", 1)[0].replace("-", ":", 2))  # keyframe stem -> view id
+		stem, _, suffix = name.removesuffix(".png").rpartition("-")
+		view_id = stem.replace("-", ":", 2)  # keyframe stem -> view id
+		(noisy if suffix == "crop" else noisy_frames).add(view_id)
 		if expert_dir is None or student_dir is None:
 			image_ok = False
 			continue
@@ -647,7 +707,7 @@ def compare_runs(expert: dict, student: dict, expert_dir: Path | None = None, st
 	def decided(v):
 		return v["score"] is not None and v["score"] >= v["threshold"]
 
-	def masked(ev):  # scores of views whose crop differs by render noise are reported, not compared
+	def masked(ev):  # scores of views whose detector crop differs by render noise are reported, not compared
 		out = json.loads(json.dumps(ev))
 		for e in out:
 			if e["kind"] == "view" and e["observation"]["id"] in noisy:
@@ -660,6 +720,13 @@ def compare_runs(expert: dict, student: dict, expert_dir: Path | None = None, st
 		r.get("smoothness", {}).pop("clipped_frames", None)
 		return r
 
+	def exact_scores(ev):  # total and every head score of each view whose detector crop is bitwise equal
+		return [
+			(e["observation"]["id"], e["observation"]["score"], (e.get("detector") or {}).get("head_scores"))
+			for e in ev
+			if e["kind"] == "view" and e["observation"]["id"] not in noisy
+		]
+
 	ev_, sv_ = views(ee), views(se)
 	score_delta = [
 		abs(a["score"] - b["score"])
@@ -671,8 +738,7 @@ def compare_runs(expert: dict, student: dict, expert_dir: Path | None = None, st
 		"images": image_ok,
 		"decisions": [(v["faces"], v["threshold"], decided(v)) for v in ev_]
 		== [(v["faces"], v["threshold"], decided(v)) for v in sv_],
-		"scores": [(v["id"], v["score"]) for v in ev_ if v["id"] not in noisy]
-		== [(v["id"], v["score"]) for v in sv_ if v["id"] not in noisy],
+		"scores": exact_scores(ee) == exact_scores(se),
 		"early_stops": _scan_stops(ee) == _scan_stops(se),
 		"segments": _segments_of(ee) == _segments_of(se),
 		"destination": expert["result"]["destination"] == student["result"]["destination"],
@@ -681,7 +747,9 @@ def compare_runs(expert: dict, student: dict, expert_dir: Path | None = None, st
 		"events": masked(ee) == masked(se),
 	}
 	info = {
-		"render_noise_views": sorted(noisy),
+		"render_noise_views": sorted(noisy | noisy_frames),  # any keyframe of the view differs
+		"render_noise_frame_views": sorted(noisy_frames),  # full frame differs (crop may be equal)
+		"render_noise_crop_views": sorted(noisy),  # detector crop differs: scores reported, not compared
 		"render_noise_max_level": worst[0],
 		"render_noise_max_fraction": worst[1],
 		"render_noise_max_score_delta": max(score_delta, default=0.0),
@@ -695,9 +763,19 @@ def crop_digests(trace_dir: Path) -> dict[str, str]:
 	}
 
 
-def run_episode(case, scorer, out: Path, *, policy: SegmentPolicy | None = None, sensing="realistic", video=False):
-	"""Run one case through the graph: the expert (with segment markers) when ``policy`` is None, else the student.
-	Writes the trace to ``out`` and returns ``result``, ``events``, ``digest``, ``crops`` and the twin's counters."""
+def run_episode(
+	case,
+	scorer,
+	out: Path,
+	*,
+	policy: SegmentPolicy | None = None,
+	segment_monitor: Callable[[Segment, int], None] | None = None,
+	sensing="realistic",
+	video=False,
+):
+	"""Run one case through the graph: the expert (with segment markers) when ``policy`` is None, else the student
+	(``segment_monitor``: the diagnostics channel, see :class:`StudentTwin`). Writes the trace to ``out`` and returns
+	``result``, ``events``, ``digest``, ``crops`` and the twin's counters."""
 	from .twin_graph import Policy, build_graph
 	from .twin_mujoco import sample_case
 	from .twin_record import EpisodeTrace
@@ -707,7 +785,7 @@ def run_episode(case, scorer, out: Path, *, policy: SegmentPolicy | None = None,
 	if policy is None:
 		twin = ExpertTracer(layout, scorer, trace, sensing=sensing)
 	else:
-		twin = StudentTwin(layout, scorer, trace, policy, sensing=sensing)
+		twin = StudentTwin(layout, scorer, trace, policy, segment_monitor=segment_monitor, sensing=sensing)
 	try:
 		result = build_graph(twin, Policy()).invoke({}, config={"recursion_limit": 64})["result"]
 		trace.finish(

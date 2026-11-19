@@ -17,12 +17,34 @@ before. On bench16 `realistic` the result stays 16/16, with frame counts identic
 every episode and 0 unintended collisions. A plain-cylinder proxy with box bounds also passed 16/16, but it was
 15-20 mm more conservative next to bowls and changed 4 grasp choices. Test: `tests/test_twin_leakage.py`.
 
+**Brick size (audit fix).** The `realistic` planners no longer read the simulator's brick size
+(`layout.brick_size`). `locate_brick` already classifies the top-face footprint from the noisy top depth as 2x2 or
+2x4 (long side > 48 mm, `agent/perception.py`); `TwinMujoco._believed_brick_size` returns that class (from the
+current estimate, else the last one). It sets the grasp axes (a square brick may also be pinched across its second
+axis) and the grasp band, the put-down and release heights (expert class wrapped by `with_believed_brick_size`;
+`ClosedLoopExpert.size` is now a property), the orbit ring (`plan_orbit_scan(brick_size=)`), and the held brick's
+table clearance (`path_min_z` / `plan_bottom_view` / `HeldBrickPoser(brick_size=)`). `truth` keeps the simulator's
+size. Test: changing the simulator's brick size from 2x2 to 2x4 behind a fixed perception leaves the realistic grasp
+candidates and wrist plan unchanged; the truth plans follow it (`tests/test_twin_leakage.py`).
+
+**Still read from the simulator's brick model.** The planners' visible-face pixel counts and the detector crop
+(`face_visibility` / `detector_crop`: a segmentation render) and the orbit's robot-to-brick clearance
+(`mj_geomDistance`) use the simulator's brick geoms, placed at the **believed** pose. Their extents are the true ones.
+They agree with the believed brick whenever the size class is perceived correctly (`size_correct` in
+`brick_perceived` events). Removing this needs a second, believed-size brick model in the kinematic copy. Not done.
+
 ## 1. Two levels of signals
 
 Under R3 (hierarchical student), the graph and a small controller keep the **segment-level** decisions: which view
 comes next, the detector label, early stop, the placement check, and recovery. The student executes the motion
 **inside** a segment. A segment-level signal therefore never needs to become a student input. It only has to be
-computable on the real rig by the controller. The column "Level" marks this: **M** = read inside a motion segment
+computable on the real rig by the controller. The interface enforces this: a policy receives only
+`policy_inputs(segment)` (`agent/student_rollout.py`; keys `POLICY_FIELDS` = kind, instruction, `view`, `views`,
+`bowl`, the fields the instruction text is formatted from). The planner outputs in the segment params (`target_q`,
+predicted `faces`, `bottom_px`, `via_poses`, `mode`, the park `xy`) are diagnostics for replay and grading, and
+reach only the separate `segment_monitor` channel. The offline export should use the same `policy_inputs`.
+
+The column "Level" marks this: **M** = read inside a motion segment
 (the student must reproduce its effect); **C** = read by the controller between segments.
 
 "Inferable" means:
@@ -43,7 +65,7 @@ computable on the real rig by the controller. The column "Level" marks this: **M
 | 6 | Gripper speed (difference of successive `q[5]`) | `sensing.py:31`; `gripper_state.py:57` | "settled" condition of contact / BLOCKED | M | **history** (two frames of joint state) |
 | 7 | Estimated jaw forces `obs["jaw_normal"]` = GripperContact(4, 1, 5, 6) | `twin_mujoco.py:550-552`; `physics_expert.py:362` (`_dual`), `616-619` (clamp), `863-865` (lost after 10 frames) | clamp verified, brick lost while carrying | M (clamp, lost), C (lost aborts the skill) | as 4 + 5 + 6 |
 | 8 | Brick velocity `obs["brick_vel"]` | `twin_mujoco.py:549` (forced to zero); `physics_expert.py:617, 917`; `table_relocation.py:328` | clamp "still", settle after release | M | **yes**: a constant (zero), so the settle and clamp loops reduce to fixed frame counts |
-| 9 | Brick pose on the table: `locate_brick` on **noisy top depth** through the calibrated camera | `twin_mujoco.py:456-465` (noise), `471`; `perception.py:128` | grasp target and roll, orbit / hover scan plans, bottom-view planning, detector crop | M (grasp approach), C (scan plan) | **approx.**: top RGB shows the brick on a known table plane with a fixed camera. The student sees RGB, not the teacher's metric depth. The exported `top_depth_v2` is a clean layered height image (`mujoco_cell/cell.py:543-556`), not the noisy depth the teacher reads |
+| 9 | Brick pose and size class (2x2 / 2x4 footprint) on the table: `locate_brick` on **noisy top depth** through the calibrated camera | `twin_mujoco.py:456-465` (noise), `471`; `perception.py:128` | grasp target, roll and axes, orbit / hover scan plans (ring size), bottom-view planning, detector crop | M (grasp approach), C (scan plan) | **approx.**: top RGB shows the brick on a known table plane with a fixed camera. The student sees RGB, not the teacher's metric depth. The exported `top_depth_v2` is a clean layered height image (`mujoco_cell/cell.py:543-556`), not the noisy depth the teacher reads |
 | 10 | Yaw continuity after a put-down (`_expected_yaw`) | `twin_mujoco.py:396, 476-480, 892` | keeps the face numbering across a park | C | history (the controller's memory) |
 | 11 | In-hand brick belief (`_grip_from_brick`, fixed at grasp time) | `twin_mujoco.py:436-445, 995` | carry and placement targets, bottom-view border, detector crop | M | **history**: needs the brick pose at the grasp (9) plus FK (3). Visible in wrist RGB (approx.) |
 | 12 | Perceived bowl centres `self.bowls` (colour + 3D rim fit in top RGB + depth) | `twin_mujoco.py:409-425` (`locate_bowls` at 412); `perception.py:218` | placement target `ex.bowl_xy` (`:1240`), brick-mask exclusion (`:471`), **clearance proxy** (`bowl_clearance.py`, after S1), placement check (`:1267`) | M (carry to bowl, clearance), C (check) | **approx. / yes**: bowls are large coloured objects in fixed top RGB, also visible in front RGB |
@@ -59,8 +81,9 @@ computable on the real rig by the controller. The column "Level" marks this: **M
 | 22 | Retry "brick moved" test (re-localised pose vs. the checkpoint belief, 5 mm / 3 deg) | `twin_mujoco.py:1207-1212` | keep or discard earlier views | C | not needed under R3 |
 
 Not read by the `realistic` expert any more: true bowl positions and collision geoms (removed by S1), true brick
-pose (only through the belief), true contact forces, true brick velocity. Ground truth still appears only in scoring
-events (`view_truth`, `error_*_mm`), in `actual_destination` (read by `evaluate` only) and in the final `evaluate`.
+pose (only through the belief), true brick size (the perceived size class; see section 0 for the brick-model
+caveat), true contact forces, true brick velocity. Ground truth still appears only in scoring events
+(`view_truth`, `error_*_mm`), in `actual_destination` (read by `evaluate` only) and in the final `evaluate`.
 The only remaining read of `layout.green/pink` before motion is the initial value of `self.bowls`. Perception
 overwrites it in `_sense_bowls`, or the episode stops with `BOWL_NOT_FOUND` before any motion.
 
