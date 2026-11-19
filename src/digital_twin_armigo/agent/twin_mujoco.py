@@ -27,6 +27,7 @@ from ..metrics import evaluate_episode_health, motion_smoothness
 from ..mujoco_cell import Cell
 from ..mujoco_cell._mj import mujoco
 from ..mujoco_cell.episode import PhysicsEpisode, observe
+from ..mujoco_cell.gripper_state import GripperMonitor, GripperMonitorParams
 from ..mujoco_cell.handeye_rig import calibrate_layout
 from ..mujoco_cell.inspection_planning import path_min_z
 from ..mujoco_cell.inspection_views import DETECTOR_PAD, capture_view, crop_counts, detector_crop
@@ -559,9 +560,7 @@ class TwinMujoco:
 			self.bowl_clearance = PerceivedBowlClearance(self.cell, self.bowls)
 			self.expert_type = with_perceived_bowl_clearance(self.expert_type, self.bowl_clearance)
 			self.expert_type = with_believed_brick_size(self.expert_type, self._believed_brick_size)
-		self.expert = self.expert_type(
-			self.cell, INITIAL_Q, self._expert_xy, ExpertParams(), RelocateParams(do_bottom=False, do_scan=False)
-		)
+		self.expert = self._make_expert(ExpertParams(), RelocateParams(do_bottom=False, do_scan=False))
 		self.node = ""
 		self.phases: list[int] = []
 		self.targets: list[np.ndarray] = []  # policy target per frame (before the command filter)
@@ -576,6 +575,12 @@ class TwinMujoco:
 		self.held: tuple[np.ndarray, float] | None = None
 		self.actual_destination = None
 		self.execution_error = None
+		if self.realistic:
+			seed = int(getattr(layout, "defect_seed", 0))
+			self._top_depth_rng = np.random.default_rng(seed + 40_000)
+			self.record.top_depth_rng = self._top_depth_rng
+		else:
+			self._top_depth_rng = None
 		self.record.start(self.cell)
 		self.record.initial(self.cell, INITIAL_Q)
 		# Brick perception (opt-in, see .perception): the top camera is calibrated before the episode, and the brick
@@ -596,8 +601,14 @@ class TwinMujoco:
 			self._depth_rng = np.random.default_rng(seed + 30_000)
 			self.event("camera_calibrated", **info)
 		if self.realistic:
-			self._contact = GripperContact()
+			self._contact = GripperContact(use_effort=False)
 			self._sense_bowls()
+
+	def _make_expert(self, params, relocate):
+		ex = self.expert_type(self.cell, INITIAL_Q, self._expert_xy, params, relocate)
+		if self.realistic:
+			ex.gripper_monitor = GripperMonitor(GripperMonitorParams(effort_min=0.0, use_effort=False))
+		return ex
 
 	@property
 	def recoveries(self) -> int:
@@ -794,7 +805,13 @@ class TwinMujoco:
 	def _apply_target(self, obs, target, phase):
 		"""Record and apply one joint target through the command filter; returns a fault code or None."""
 		# Observation at t is paired with the next unfiltered policy command.
-		self.record.command(obs["q"], target, phase)
+		self.record.command(
+			obs["q"],
+			target,
+			phase,
+			gripper_cmd=float(obs["gripper_cmd"]),
+			effort_frac=float(obs["effort_frac"]),
+		)
 		self.ep.step(target)
 		self.total_frames += 1
 		self.phases.append(PHASES.index(phase))
@@ -857,6 +874,8 @@ class TwinMujoco:
 		if self.perception is not None:
 			agent["depth_rng"] = self._depth_rng.bit_generator.state
 			agent["camera"] = {"k": np.asarray(self._cam_k).tolist(), "world_from_cam": self._cam_est.tolist()}
+		if self.realistic:
+			agent["top_depth_rng"] = self._top_depth_rng.bit_generator.state
 		if self.realistic and directory is not None:
 			agent["empty_bowl_depth"] = self._write_depth_reference(directory)
 		agent = json.loads(json.dumps(agent, allow_nan=False))  # in memory exactly as on disk (tuples become lists)
@@ -1421,7 +1440,7 @@ class TwinMujoco:
 		params = self.expert.p if params is None else params
 		relocate = self.expert.rp if relocate is None else relocate
 		self._clipped_frames += getattr(self.expert, "clipped_frames", 0)
-		self.expert = ex = self.expert_type(self.cell, INITIAL_Q, self._expert_xy, params, relocate)
+		self.expert = ex = self._make_expert(params, relocate)
 		ex.last = np.array(checkpoint.expert["last"])
 		ex._active_open_g = checkpoint.expert["active_open"]
 		ex._frame_idx = checkpoint.expert["frame_idx"]
@@ -1441,6 +1460,8 @@ class TwinMujoco:
 			self._park_xy = np.array(agent["park_xy"])
 		if agent.get("depth_rng") is not None and self.perception is not None:
 			self._depth_rng.bit_generator.state = copy.deepcopy(agent["depth_rng"])
+		if agent.get("top_depth_rng") is not None and self.realistic:
+			self._top_depth_rng.bit_generator.state = copy.deepcopy(agent["top_depth_rng"])
 		if agent.get("bowls") is not None:
 			for name, xy in agent["bowls"].items():
 				self.bowls[name] = np.array(xy, dtype=np.float64)  # in place: the clearance proxy reads this mapping
@@ -1581,7 +1602,7 @@ class TwinMujoco:
 		self.event("retry", reason=failure.get("code"), variant=variant or None)
 		lost = self.expert.lost
 		self._clipped_frames += getattr(self.expert, "clipped_frames", 0)
-		self.expert = ex = self.expert_type(self.cell, INITIAL_Q, self._expert_xy, params, relocate)
+		self.expert = ex = self._make_expert(params, relocate)
 		ex.last = self.cell.joints().copy()
 		self._contact.reset()
 		error = None
