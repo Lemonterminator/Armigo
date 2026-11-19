@@ -60,6 +60,10 @@ class EpisodeTrace:
 		self.branches = [{"id": 0, "start_frame": 0}]
 		self.streams = {}
 		self.rows = []
+		# Additive per-frame columns (agent/student_rollout.py): the motion segment of each command, set by whoever
+		# announces segments (-1: none), and the exact float64 state and command for bitwise replay.
+		self.segment = -1
+		self.exact = []
 		self.images = None
 		self.started = time.perf_counter()
 		self.keyframes = self.path / "keyframes"
@@ -133,6 +137,9 @@ class EpisodeTrace:
 
 	def command(self, state, target, phase):
 		self.rows.append((state.copy(), target.copy(), phase))
+		self.exact.append(
+			(np.asarray(state, dtype=np.float64).copy(), np.asarray(target, dtype=np.float64).copy(), self.segment)
+		)
 
 	def step(self, cell, node):
 		if self.video:
@@ -247,12 +254,16 @@ class EpisodeTrace:
 			if contacts is not None and len(contacts) == len(self.rows):
 				pairs = np.array(contacts, dtype="float32").reshape(-1, 2)
 				extra = {"contact_robot_n": pairs[:, 0], "contact_jaw_env_n": pairs[:, 1]}
+			state64, action64, segment = zip(*self.exact, strict=True)
 			np.savez_compressed(
 				path / "actions.npz",
 				state=np.array(state, dtype="float32"),
 				action=np.array(action, dtype="float32"),
 				phase=phase,
 				**extra,
+				state_f64=np.array(state64, dtype=np.float64),
+				action_f64=np.array(action64, dtype=np.float64),
+				segment=np.array(segment, dtype=np.int32),
 			)
 		self.branches[-1]["actions"] = len(self.rows)
 		for stream in self.streams.values():
@@ -261,6 +272,7 @@ class EpisodeTrace:
 		self.rows = []
 		if getattr(self, "contacts", None) is not None:
 			self.contacts = []
+		self.exact = []
 
 	def finish(self, result, provenance):
 		self._finish_branch()

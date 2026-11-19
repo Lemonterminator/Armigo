@@ -654,35 +654,47 @@ class TwinMujoco:
 		while self.total_frames < MAX_TOTAL_FRAMES:
 			if self.on_frame is not None:
 				self.on_frame(self)
-			obs = observe(self.cell, self.ep)
-			if self.realistic:
-				belief = self._brick_belief()
-				if belief is None:
-					obs["brick_pos"], obs["brick_quat"] = np.full(3, np.nan), np.array([0.0, 0.0, 0.0, 1.0])
-				else:
-					obs["brick_pos"], obs["brick_quat"] = belief
-				obs["brick_vel"] = np.zeros(3)
-				obs["jaw_normal"] = self._contact.update(
-					float(obs["gripper_cmd"]), float(obs["q"][5]), float(obs["effort_frac"])
-				)
-			elif self._belief_obs and self.brick_est is not None:
-				obs["brick_pos"] = self.brick_est.pos.copy()
-				obs["brick_quat"] = self.brick_est.quat_xyzw()
+			obs = self._observe()
 			target, phase = expert.act(obs)
 			if expert.done:
 				return None
-			# Observation at t is paired with the next unfiltered policy command.
-			self.record.command(obs["q"], target, phase)
-			self.ep.step(target)
-			self.total_frames += 1
-			self.phases.append(PHASES.index(phase))
-			self.targets.append(np.asarray(target, dtype=np.float64).copy())
-			self.record.step(self.cell, self.node)
-			if self.fault and self.fault(self.node, self.branch, self.ep.n_frames):
+			if error := self._apply_target(obs, target, phase):
 				expert._gen.close()
-				return "INJECTED_MOTION_FAILURE"
+				return error
 		expert._gen.close()
 		return "ACTION_BUDGET_EXHAUSTED"
+
+	# Per-frame hooks shared by _execute and the student segment executor (agent/student_rollout.py).
+	def _observe(self):
+		"""The expert's per-frame observation (sensor-derived fields in ``realistic``). Updates the contact estimate."""
+		obs = observe(self.cell, self.ep)
+		if self.realistic:
+			belief = self._brick_belief()
+			if belief is None:
+				obs["brick_pos"], obs["brick_quat"] = np.full(3, np.nan), np.array([0.0, 0.0, 0.0, 1.0])
+			else:
+				obs["brick_pos"], obs["brick_quat"] = belief
+			obs["brick_vel"] = np.zeros(3)
+			obs["jaw_normal"] = self._contact.update(
+				float(obs["gripper_cmd"]), float(obs["q"][5]), float(obs["effort_frac"])
+			)
+		elif self._belief_obs and self.brick_est is not None:
+			obs["brick_pos"] = self.brick_est.pos.copy()
+			obs["brick_quat"] = self.brick_est.quat_xyzw()
+		return obs
+
+	def _apply_target(self, obs, target, phase):
+		"""Record and apply one joint target through the command filter; returns a fault code or None."""
+		# Observation at t is paired with the next unfiltered policy command.
+		self.record.command(obs["q"], target, phase)
+		self.ep.step(target)
+		self.total_frames += 1
+		self.phases.append(PHASES.index(phase))
+		self.targets.append(np.asarray(target, dtype=np.float64).copy())
+		self.record.step(self.cell, self.node)
+		if self.fault and self.fault(self.node, self.branch, self.ep.n_frames):
+			return "INJECTED_MOTION_FAILURE"
+		return None
 
 	def _save(self, views):
 		"""Checkpoint the skill boundary, also while the brick is held: the grasp is physical (no weld), so the
