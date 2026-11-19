@@ -93,15 +93,18 @@ after a failure on 600006 in this suite (15/16 → 16/16), so bench16 is a tuned
   perturbation branches inherit their parent's split. bench16 is a regression suite only. The final test layouts are
   generated once, frozen, and never used for tuning or DAgger.
 
-### Open (owner decides before S2)
+### Open (ratified defaults for Pilot; fallback routes documented)
 
-- **D1.** Student inputs on the real rig: `front` camera present? depth? gripper effort / previous command? action
-  history? (drives R1).
-- **D2.** Student family: SmolVLA (about 450M), pi0 / pi0.5 with LoRA, or ACT with a skill embedding (also the
-  ablation in S12).
-- **D3.** Camera-pose randomization per layout (requires per-episode hand-eye calibration in `realistic`) or fixed
-  cameras matching the real rig.
-- **D4.** Pilot size (proposal 300 episodes) and whether to scale (gated by section 10).
+- **D1.** Student inputs on the real rig (**ratified for Pilot**): `top_rgb_v2`, noisy D415 `top_depth_v2`, and
+  `wrist` (no `front` camera); 36-dim state + history + structured conditioning (`q_t`, `q_{t-1}`, `a_{t-1}`,
+  `gripper_cmd`, 12-kind one-hot, 3-bowl one-hot, `view_norm`, `segment_frame_norm`) plus segment instruction text.
+  `realistic` teacher uses S1 Option B (no `effort_frac` gate), while `actions.npz` still records `effort_frac` for
+  zero-recollection Option A fallback (`STATE_DIM=37`) if needed.
+- **D2.** Student family (**ratified for Pilot**): SmolVLA (about 450M, main student) + ACT (baseline, fast closed-loop
+  sanity check first), both with pooled-prefix MLP end-step head (plus S12 ablation).
+- **D3.** Camera-pose randomization (**ratified for Pilot**): fixed cameras matching the real rig (`cameras: "fixed"`
+  in `config/vla/{train,val,test}.json`); `cameras: "jitter"` deferred until pilot passes ≥ 0.7x teacher.
+- **D4.** Pilot size (**ratified**): 300 training + 60 validation episodes; scale to ~2000 gated by section 10.
 
 ## 4. Pipeline (DAG)
 
@@ -275,9 +278,11 @@ Each step: goal, principle, components (**exists** / **new** / **change**), gate
 - **Outputs.**
   - Action chunk A: the next H = 50 steps (1.67 s at 30 fps) of 6 absolute joint targets in radians, normalized by
     the training set mean and standard deviation.
-  - End step: a categorical over H + 1 classes, "the segment ends at chunk step k" (k = 0 .. H-1) or "not within
-    this chunk". The executor stops the segment at that step without waiting for the next inference (with 100+ ms
-    per SmolVLA call, a per-frame "done now" head would end segments several frames late).
+  - End step: a categorical over H + 2 classes (`NUM_END_CLASSES = H + 2`), "the segment ends after executing k
+    actions" (`k = 0 .. H`, where `0` is immediate end / zero-frame segments such as `let_go` and `1 .. H` match
+    `chunk_valid_len <= H`) or class `H + 1` = "not within this chunk" (`chunk_valid_len > H`). The executor stops the
+    segment at that step without waiting for the next inference (with 100+ ms per SmolVLA call, a per-frame "done now"
+    head would end segments several frames late).
 - **Losses.**
   - Actions, flow matching with the segment mask. Per sample τ ∈ (0, 1), ε ~ N(0, I), A_τ = τ ε + (1 - τ) A, target
     velocity u = ε - A:
@@ -285,10 +290,10 @@ Each step: goal, principle, components (**exists** / **new** / **change**), gate
     blind (S5) and k does not reach past a takeover (S11). Masked steps are filled with the segment's last valid
     action, never the next segment's (as LeRobot pads at an episode end with `is_pad`). Inference integrates about
     10 Euler steps from noise. ACT: masked L1 + 10 KL.
-  - End step, cross-entropy: L_done = CE(p_θ(end step | o, c), y), y = `chunk_valid_len` if `chunk_valid_len` ≤ H
-    and the segment ended with reason `done`, else "not within this chunk". Masked for segments ended by a monitor
-    or a fault (`brick_lost`, faults): the student did not choose those ends. Class weights for the rare in-chunk
-    classes.
+  - End step, cross-entropy: L_done = CE(p_θ(end step | o, c), y), y = `chunk_valid_len` (`0..H`) if `chunk_valid_len` ≤ H
+    and the segment ended with reason `done`, else class `H + 1` ("not within this chunk"). Masked (`ignore_index=-100`)
+    for segments ended by a monitor or a fault (`brick_lost`, faults) or blind/unsupervised frames: the student did not
+    choose those ends. Class weights for the rare in-chunk classes.
   - Total L = L_act + λ L_done, λ ≈ 0.1 to start.
 - **Label trap (S7 convention).** `segment.done` is True on row r, whose `task` is already the NEXT segment's
   instruction (`SEGMENT_DONE_CONVENTION`). Training a per-frame "done now" head on (observation r, row r's task)
