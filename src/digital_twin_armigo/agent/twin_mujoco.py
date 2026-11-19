@@ -35,6 +35,7 @@ from ..mujoco_cell.orbit_scan import OrbitParams, plan_orbit_scan
 from ..mujoco_cell.physics_expert import MIN_JERK_PEAK_RATIO, ExpertParams, _min_jerk
 from ..mujoco_cell.table_relocation import RelocateExpert, RelocateParams, plan_bottom_view, plan_table_scan
 from ..physics import NonIdealityCfg, load_physics_spec
+from .bowl_clearance import PerceivedBowlClearance, with_perceived_bowl_clearance
 from .perception import PerceptionCfg, bowl_fill, bowl_filled, locate_bowls, locate_brick, yaw_error_deg
 from .sensing import GripperContact
 from .twin_graph import Policy, decision, select_skill
@@ -411,10 +412,12 @@ class TwinMujoco:
 	- the expert's contact signals come from the gripper position and effort (.sensing), and brick speed reads zero;
 	- a placement is checked by the top camera (depth against an empty-bowl image);
 	- a failure is recovered from the current state (park or drop, relocate the brick) instead of a physics rewind;
-	- the motion-health check moves to the final evaluation, which, as in ``truth``, is ground truth.
+	- the motion-health check moves to the final evaluation, which, as in ``truth``, is ground truth;
+	- the grasp and path clearance checks measure the robot against the nominal bowl shape at the perceived bowl
+	  centres, dilated by a 5 mm margin (.bowl_clearance), not against the simulator's bowl geoms. Clutter is not
+	  perceived, so realistic refuses layouts with clutter.
 
-	Still from the simulator: the bowl and clutter collision geometry in the grasp clearance checks (at the true bowl
-	positions, about 1 mm from the perceived ones).
+	``truth`` keeps the simulator's bowl and clutter collision geometry in the clearance checks.
 	"""
 
 	scan_peak_speed = SCAN_PEAK_SPEED
@@ -460,7 +463,18 @@ class TwinMujoco:
 			layout, SO101_MJCF_DIR, physics=self.spec, dynamic_clutter=True, assisted_grasp=False, face_probes=True
 		)
 		self.ep = PhysicsEpisode(self.cell, INITIAL_Q, layout.brick_xy, layout.brick_yaw_deg, cfg)
+		# Bowl centres the skills use; realistic replaces both with the perceived ones (_sense_bowls) before any motion.
+		self.bowls = {
+			"green": np.asarray(layout.green, dtype=np.float64),
+			"pink": np.asarray(layout.pink, dtype=np.float64),
+		}
 		self.expert_type = ContinuousCarryExpert if smooth_carry else RelocateExpert
+		if self.realistic:
+			# Clutter is not perceived, and the clearance proxy below knows only the bowls.
+			if layout.clutter:
+				raise ValueError("realistic sensing does not perceive clutter: use a layout without clutter")
+			self.bowl_clearance = PerceivedBowlClearance(self.cell, self.bowls)
+			self.expert_type = with_perceived_bowl_clearance(self.expert_type, self.bowl_clearance)
 		self.expert = self.expert_type(
 			self.cell, INITIAL_Q, self._expert_xy, ExpertParams(), RelocateParams(do_bottom=False, do_scan=False)
 		)
@@ -491,10 +505,6 @@ class TwinMujoco:
 		self._expected_yaw = None  # realistic: yaw the brick should show after the agent put it down itself
 		self._checkpoint_belief: dict[str, object] = {}
 		self._park_xy = np.asarray(layout.brick_xy, dtype=np.float64)
-		self.bowls = {
-			"green": np.asarray(layout.green, dtype=np.float64),
-			"pink": np.asarray(layout.pink, dtype=np.float64),
-		}
 		self.scene_error = None
 		if self.perception is not None:
 			seed = int(getattr(layout, "defect_seed", 0))
@@ -1005,7 +1015,8 @@ class TwinMujoco:
 
 	def _straight_clear(self, first, last, *, held=False):
 		with self._belief():
-			self.expert.kin.data.qpos[:] = self.cell.data.qpos
+			if not self.realistic:  # truth: bowls / clutter as they are now (realistic: perceived-bowl proxy)
+				self.expert.kin.data.qpos[:] = self.cell.data.qpos
 			# Sample the swept arm and bowl/clutter clearance in addition to table height.
 			qs = [first + a * (last - first) for a in np.linspace(0, 1, 10)]
 			return path_min_z(self.cell, first, last, carried=held) >= 0.015 and self.expert._clearance(qs) >= 0
