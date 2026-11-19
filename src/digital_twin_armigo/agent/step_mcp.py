@@ -32,8 +32,9 @@ import numpy as np
 
 from ..inspection import assert_no_defect_leakage
 from ..mujoco_cell.inspection_views import capture_view
+from .student_rollout import ExpertTracer
 from .twin_graph import Policy, decision
-from .twin_mujoco import PROFILE, TwinMujoco, blind_geometry, sample_case
+from .twin_mujoco import PROFILE, blind_geometry, sample_case
 from .twin_record import EpisodeTrace
 
 PROFILES = ("omniscient", "realistic")
@@ -111,7 +112,8 @@ class StepSession:
 		self.policy = STEP_POLICY
 		self.trace = EpisodeTrace(path, video=False)
 		self.case = case
-		self.backend = TwinMujoco(
+		# Segment-labelling expert (student_rollout.ExpertTracer): the recorded frames carry their motion segment.
+		self.backend = ExpertTracer(
 			sample_case(*case),
 			scorer,
 			self.trace,

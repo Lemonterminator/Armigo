@@ -90,3 +90,9 @@ def test_scripted_client_sorts_a_normal_brick_through_the_step_tools(tmp_path):
 	finally:
 		service.close()
 	assert result["label"] == "normal" and result["verdict"] == "SUCCESS", result["failures"]
+	# The step tools record with the segment-labelling expert, as twin_mcp does: every frame has a segment.
+	from digital_twin_armigo.agent.twin_record import segment_labels
+
+	(episode,) = (tmp_path / "realistic" / "sessions").iterdir()
+	labels = segment_labels(episode)
+	assert len(labels["index"]) == result["sim_frames"] and labels["segments"][0]["kind"] == "prepare"

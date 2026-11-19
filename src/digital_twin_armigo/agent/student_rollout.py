@@ -17,7 +17,9 @@ Three pieces:
   checks, in-place recovery) is the unchanged ``TwinMujoco`` code; the few decisions taken inside a generator are
   reproduced between segments (clamp check, carried-brick belief at the grasp, lost-brick monitor, put-down yaw).
 - :class:`ExpertTracer` is the unchanged expert with segment markers: the same mapping labels its frames, so expert
-  recordings carry the same segment ids, instructions and ends a student is driven with.
+  recordings carry the same segment ids, instructions and ends a student is driven with. It is the expert backend of
+  every recording entry (``twin_mcp run`` / ``serve`` / resume through ``TwinService.run``, and the step MCP), so
+  production recordings and replay-gate traces are labelled by this one implementation.
 
 Recording: both twins emit ``segment`` / ``segment_end`` events and set ``EpisodeTrace.segment``, which writes a
 per-frame ``segment`` column (and exact ``state_f64`` / ``action_f64``) to ``actions.npz``. The segment-end
@@ -260,7 +262,9 @@ class _SegmentMixin:
 
 class ExpertTracer(_SegmentMixin, TwinMujoco):
 	"""The unchanged expert, recording which segment each of its frames belongs to (events and the per-frame
-	``segment`` column). Behaviour is identical to :class:`TwinMujoco`: the targets pass through unchanged."""
+	``segment`` column). Behaviour is identical to :class:`TwinMujoco`: the targets pass through unchanged. The
+	production entries build this class (twin_mcp ``TwinService.run``, step_mcp ``StepSession``); the LeRobot export
+	(``twin_record.segment_labels``) refuses frames without a segment."""
 
 	def __init__(self, *args, **kwargs):
 		super().__init__(*args, **kwargs)

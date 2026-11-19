@@ -24,6 +24,7 @@ from mcp.server.fastmcp import Context, FastMCP, Image
 
 from ..inspection_scorer import default_sup_scorer
 from .llm import DEFAULT_MODEL, OpenAICompatLLM
+from .student_rollout import ExpertTracer
 from .twin_graph import Policy, build_graph, search_policies
 from .twin_jobs import (
 	ACTIVE,
@@ -38,7 +39,7 @@ from .twin_jobs import (
 	JobStore,
 	open_saver,
 )
-from .twin_mujoco import PROFILE, ROOT, TwinMujoco, file_digest, load_suite, sample_case
+from .twin_mujoco import PROFILE, ROOT, file_digest, load_suite, sample_case
 from .twin_pool import EpisodePool
 from .twin_record import EpisodeTrace, export_lerobot, write_json
 from .twin_resume import live_checkpoint_ids, load_plan, restore
@@ -235,7 +236,9 @@ class TwinService:
 				trace.path / "task.json",
 				{"case": list(case), "policy": asdict(policy), "video": video, "use_llm": use_llm},
 			)
-			backend = TwinMujoco(
+			# The expert with segment labels (S0/S7): every recorded frame carries its motion segment, labelled by the
+			# same code the replay gate uses, so production recordings and replay-gate traces label identically.
+			backend = ExpertTracer(
 				layout,
 				self.scorer,
 				trace,
