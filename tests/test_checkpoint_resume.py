@@ -238,6 +238,9 @@ def test_held_resume_from_disk_parks_on_the_belief_identically(tmp_path):
 	fresh = TwinMujoco(sample_case(*CASE), ClearScorer(), resumed_trace, sensing="realistic")
 	try:
 		restore(fresh, plan)
+		# The full belief, size class included (realistic planners read the believed brick size).
+		assert fresh._believed_brick_size() == tuple(ck.agent["brick_est"]["size"])
+		assert fresh._perceived_size == tuple(ck.agent["perceived_size"])
 		second = park_and_look(fresh, len(resumed_trace.events))
 	finally:
 		fresh.close()

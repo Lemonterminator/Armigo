@@ -818,6 +818,7 @@ class TwinMujoco:
 			"park_xy": self._park_xy.tolist(),
 			"expected_yaw": self._expected_yaw,
 			"brick_est": brick_to_json(self.brick_est),
+			"perceived_size": None if self._perceived_size is None else [float(v) for v in self._perceived_size],
 			"bowls": {name: np.asarray(xy, dtype=np.float64).tolist() for name, xy in self.bowls.items()},
 			"expert_params": asdict(ex.p),
 			"relocate_params": asdict(ex.rp),
@@ -1426,6 +1427,8 @@ class TwinMujoco:
 			self._contact.prev = agent.get("contact_prev")
 		if self.perception is not None:
 			self.brick_est = brick_from_json(agent.get("brick_est"))
+			size = agent.get("perceived_size")
+			self._perceived_size = None if size is None else tuple(size)
 		self.actual_destination = None
 		self.execution_error = None
 		self.wrist_count = checkpoint.wrist_count
