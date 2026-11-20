@@ -35,6 +35,33 @@ from digital_twin_armigo.vla.metrics import EvalAccumulator
 from digital_twin_armigo.vla.models import ACTWithEndHead, SmolVLAWithEndHead
 
 S9_END_STEP_F1_GATE = 0.9
+DEFAULT_END_HEAD_LR = {"act": 1e-3, "smolvla": 1e-4}
+SELECTION_RULE = (
+	"min action_mae_rad among evals with end_step_f1 >= 0.9; if none qualifies, max end_step_f1 "
+	"(diagnostic only, S9 fail)"
+)
+
+
+def _is_better_selection(cand: dict[str, Any], current: dict[str, Any] | None) -> bool:
+	"""A3 rule: gate-passing candidates rank by lowest action MAE; until one passes, rank by highest F1."""
+	if current is None:
+		return True
+	cand_pass = cand["end_step_f1"] >= S9_END_STEP_F1_GATE
+	cur_pass = current["end_step_f1"] >= S9_END_STEP_F1_GATE
+	if cand_pass != cur_pass:
+		return cand_pass
+	if cand_pass:
+		return cand["action_mae_rad"] < current["action_mae_rad"]
+	if abs(cand["end_step_f1"] - current["end_step_f1"]) > 1e-6:
+		return cand["end_step_f1"] > current["end_step_f1"]
+	return cand["action_mae_rad"] < current["action_mae_rad"]
+
+
+def _argbest(history: list[dict[str, Any]], key: str, *, maximize: bool) -> int | None:
+	if not history:
+		return None
+	pick = max if maximize else min
+	return int(pick(history, key=lambda r: r[key])["step"])
 
 
 def _seed_everything(seed: int) -> None:
@@ -156,6 +183,7 @@ def run_training(
 	batch_size: int = 16,
 	lr: float | None = None,
 	backbone_lr: float | None = None,
+	end_head_lr: float | None = None,
 	weight_decay: float | None = None,
 	warmup_steps: int = 500,
 	grad_clip: float = 10.0,
@@ -182,6 +210,9 @@ def run_training(
 	default_wd = 1e-10 if family == "smolvla" else 1e-4
 	lr_val = float(lr if lr is not None else default_lr)
 	wd_val = float(weight_decay if weight_decay is not None else default_wd)
+	# The End-Step Head starts from scratch: ACT's 1e-5 barely moves it in 20k steps (2026-11-20 probe on frozen
+	# step-4000 features: val F1 0.12 at 1e-5 vs 0.32 at 1e-3). SmolVLA already trains at 1e-4.
+	head_lr_val = float(end_head_lr if end_head_lr is not None else DEFAULT_END_HEAD_LR[family])
 
 	# Fit stats and end-step class weights EXCLUSIVELY on the training split.
 	normalizer = train_ds.fit_normalizer()
@@ -197,6 +228,9 @@ def run_training(
 				"student_cameras": list(STUDENT_CAMERAS),
 				"takeover_weight": train_ds.takeover_weight,
 				"lambda_done": lambda_done,
+				"lr": lr_val,
+				"end_head_lr": head_lr_val,
+				"weight_decay": wd_val,
 				"train": train_ds.summary(),
 				"val": val_ds.summary() if val_ds is not None else None,
 			},
@@ -223,9 +257,11 @@ def run_training(
 		model.policy.model.vlm_with_expert.vlm.to(dtype=torch.bfloat16)
 
 	if family == "act":
-		param_groups = model.get_optim_param_groups(lr_val, weight_decay=wd_val, backbone_lr=backbone_lr)
+		param_groups = model.get_optim_param_groups(
+			lr_val, weight_decay=wd_val, backbone_lr=backbone_lr, end_head_lr=head_lr_val
+		)
 	else:
-		param_groups = model.get_optim_param_groups(lr_val, weight_decay=wd_val)
+		param_groups = model.get_optim_param_groups(lr_val, weight_decay=wd_val, end_head_lr=head_lr_val)
 	trainable_params = [p for g in param_groups for p in g["params"]]
 	optimizer = torch.optim.AdamW(param_groups, betas=(0.9, 0.95) if family == "smolvla" else (0.9, 0.999))
 	scheduler = torch.optim.lr_scheduler.LambdaLR(
@@ -260,6 +296,8 @@ def run_training(
 	metrics_file = metrics_path.open("w", encoding="utf-8")
 	best_f1 = -1.0
 	best_mae = float("inf")
+	val_history: list[dict[str, Any]] = []
+	selected: dict[str, Any] | None = None
 	last_val_metrics: dict[str, Any] | None = None
 	batch_iter = _cycle_batches(train_loader)
 	amp_enabled = dev.type == "cuda" and use_amp
@@ -307,11 +345,16 @@ def run_training(
 					f"s9_gate={'PASS' if val_metrics['s9_gate_pass'] else 'FAIL'}",
 					flush=True,
 				)
-				is_better = (f1 > best_f1 + 1e-6) or (abs(f1 - best_f1) <= 1e-6 and mae_f < best_mae)
-				if is_better:
-					best_f1 = f1
-					best_mae = mae_f
-					model.save_checkpoint(out_dir / "best", extra_meta={"step": step, "val": val_metrics})
+				best_f1 = max(best_f1, f1)
+				best_mae = min(best_mae, mae_f)
+				cand = {"step": step, "end_step_f1": f1, "action_mae_rad": mae_f}
+				val_history.append(cand)
+				if _is_better_selection(cand, selected):
+					selected = {**cand, "s9_gate_pass": f1 >= S9_END_STEP_F1_GATE}
+					model.save_checkpoint(
+						out_dir / "best",
+						extra_meta={"step": step, "val": val_metrics, "selection_rule": SELECTION_RULE},
+					)
 
 			if save_every > 0 and step % save_every == 0 and step < steps:
 				model.save_checkpoint(out_dir / f"step-{step:06d}", extra_meta={"step": step})
@@ -329,8 +372,16 @@ def run_training(
 		"horizon": horizon,
 		"last_checkpoint": str(last_ckpt),
 		"best_checkpoint": str(out_dir / "best") if (out_dir / "best").exists() else None,
+		"selection_rule": SELECTION_RULE,
+		"selected": selected,
 		"best_end_step_f1": None if best_f1 < 0 else round(best_f1, 6),
-		"s9_gate_pass": bool(last_val_metrics["s9_gate_pass"]) if last_val_metrics is not None else None,
+		"best_end_step_f1_step": _argbest(val_history, "end_step_f1", maximize=True),
+		"best_action_mae_rad": None if not val_history else best_mae,
+		"best_action_mae_step": _argbest(val_history, "action_mae_rad", maximize=False),
+		"val_history": val_history,
+		# Gate of the SELECTED checkpoint (the one written to best/), not of the last evaluation.
+		"s9_gate_pass": None if selected is None else bool(selected["s9_gate_pass"]),
+		"last_s9_gate_pass": bool(last_val_metrics["s9_gate_pass"]) if last_val_metrics is not None else None,
 		"final_val_metrics": last_val_metrics,
 	}
 	(out_dir / "final_summary.json").write_text(json.dumps(summary, indent=2) + "\n", encoding="utf-8")
@@ -353,6 +404,7 @@ def main(argv: list[str] | None = None) -> int:
 	p.add_argument("--batch-size", type=int, default=16)
 	p.add_argument("--lr", type=float, default=None)
 	p.add_argument("--backbone-lr", type=float, default=None)
+	p.add_argument("--end-head-lr", type=float, default=None, help="End-Step Head LR (default: 1e-3 act, 1e-4 smolvla)")
 	p.add_argument("--weight-decay", type=float, default=None)
 	p.add_argument("--warmup-steps", type=int, default=500)
 	p.add_argument("--grad-clip", type=float, default=10.0)
@@ -402,6 +454,7 @@ def main(argv: list[str] | None = None) -> int:
 		batch_size=args.batch_size,
 		lr=args.lr,
 		backbone_lr=args.backbone_lr,
+		end_head_lr=args.end_head_lr,
 		weight_decay=args.weight_decay,
 		warmup_steps=args.warmup_steps,
 		grad_clip=args.grad_clip,

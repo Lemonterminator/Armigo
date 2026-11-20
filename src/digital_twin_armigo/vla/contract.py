@@ -1,4 +1,4 @@
-"""Data Contract v1 constants, 36-dim state encoding, and normalizer (pure numpy/optional torch/safetensors).
+"""Data Contract v1 constants, 38-dim state encoding, and normalizer (pure numpy/optional torch/safetensors).
 
 Must remain free of ``mujoco`` and planner diagnostic dependencies so both the repo ``.venv`` and the CUDA
 training environment (``E:\\il\\lerobot-cuda``) can import and execute it identically.
@@ -20,7 +20,7 @@ from ..joints import normalized_to_rad
 CONTRACT_VERSION = "armigo-vla-contract/v1"
 
 ACTION_DIM = 6
-STATE_DIM = 36
+STATE_DIM = 38
 IGNORE_INDEX = -100
 
 # Canonical student cameras (current frame only; never include front or top_full).
@@ -64,7 +64,11 @@ SEGMENT_TEMPLATES: dict[str, str] = {
 BOWL_VOCAB: tuple[str, ...] = ("", "green", "pink")
 BOWL_TO_INDEX: dict[str, int] = {bowl: idx for idx, bowl in enumerate(BOWL_VOCAB)}
 
-POLICY_PARAMS: tuple[str, ...] = ("view", "views", "bowl")
+# ``roll_deg``: the wrist roll the controller chose for this segment (grasp: which brick faces the jaws pinch, picked
+# from the detector's cleared / suspect faces; scan_view / present_bottom: the planned view pose). A segment-level
+# decision (R3), so it is part of the instruction; None for kinds without one.
+POLICY_PARAMS: tuple[str, ...] = ("view", "views", "bowl", "roll_deg")
+ROLL_SUFFIX = " Use a wrist roll of {roll_deg} degrees."
 POLICY_FIELDS: tuple[str, ...] = ("kind", "instruction", *POLICY_PARAMS)
 FORBIDDEN_DIAGNOSTIC_KEYS: tuple[str, ...] = ("mode", "faces", "target_q", "via_poses", "bottom_px", "xy")
 
@@ -93,7 +97,7 @@ def policy_inputs_from_segment_dict(kind: str, params: Mapping[str, Any] | None 
 	if kind not in SEGMENT_TEMPLATES:
 		raise ValueError(f"unknown segment kind {kind!r}")
 	p = dict(params or {})
-	instruction = SEGMENT_TEMPLATES[kind].format(**p)
+	instruction = format_instruction(kind, p)
 	out: dict[str, Any] = {"kind": kind, "instruction": instruction}
 	for key in POLICY_PARAMS:
 		val = p.get(key)
@@ -101,8 +105,29 @@ def policy_inputs_from_segment_dict(kind: str, params: Mapping[str, Any] | None 
 			val = int(val)
 		elif key == "bowl" and val is not None:
 			val = str(val)
+		elif key == "roll_deg" and val is not None:
+			val = float(val)
 		out[key] = val
 	return out
+
+
+def format_instruction(kind: str, params: Mapping[str, Any] | None = None) -> str:
+	"""The segment instruction: the kind's template, plus :data:`ROLL_SUFFIX` when the segment carries a roll."""
+	p = dict(params or {})
+	text = SEGMENT_TEMPLATES[kind].format(**p)
+	if p.get("roll_deg") is not None:
+		text += ROLL_SUFFIX.format(roll_deg=p["roll_deg"])
+	return text
+
+
+def roll_features(roll_deg: Any | None) -> tuple[float, float]:
+	"""State slots ``[36:38]`` for a segment roll: ``(roll in rad, 1.0)``, or ``(0.0, 0.0)`` without one."""
+	if roll_deg is None:
+		return 0.0, 0.0
+	val = float(roll_deg)
+	if not np.isfinite(val):
+		raise ValueError(f"roll_deg must be finite, got {roll_deg!r}")
+	return float(np.radians(val)), 1.0
 
 
 def _as_vec6(values: Any, name: str) -> np.ndarray:
@@ -124,10 +149,11 @@ def encode_state(
 	view: int | None = 0,
 	views: int | None = 0,
 	segment_frame: int = 0,
+	roll_deg: float | None = None,
 ) -> np.ndarray:
-	"""Encode the canonical 36-dim student state + conditioning vector (float32).
+	"""Encode the canonical 38-dim student state + conditioning vector (float32).
 
-	Layout (``STATE_DIM = 36``):
+	Layout (``STATE_DIM = 38``):
 	  - ``[0:6]``   ``q_t`` (rad)
 	  - ``[6:12]``  ``q_{t-1}`` (rad; repeats ``q_0`` when ``q_prev`` is None)
 	  - ``[12:18]`` ``a_{t-1}`` (rad; ``INITIAL_Q`` when ``prev_action`` is None)
@@ -136,6 +162,7 @@ def encode_state(
 	  - ``[31:34]`` ``bowl`` one-hot (3, ``("", "green", "pink")``)
 	  - ``[34:35]`` ``view_norm`` = ``view / max(views, 1) if view > 0 else 0.0``
 	  - ``[35:36]`` ``segment_frame_norm`` = ``min(segment_frame / 300.0, 5.0)``
+	  - ``[36:38]`` segment wrist roll: ``(radians(roll_deg), 1.0)``, or ``(0.0, 0.0)`` when the segment has none
 	"""
 	q_cur = _as_vec6(q_t, "q_t")
 	q_prv = q_cur if q_prev is None else _as_vec6(q_prev, "q_prev")
@@ -175,6 +202,7 @@ def encode_state(
 	out[31 + bowl_idx] = 1.0
 	out[34] = view_norm
 	out[35] = seg_frame_norm
+	out[36], out[37] = roll_features(roll_deg)
 	return out
 
 
@@ -186,7 +214,7 @@ def encode_state_from_task(
 	task: Mapping[str, Any],
 	segment_frame: int = 0,
 ) -> np.ndarray:
-	"""Encode the 36-dim vector from a ``policy_inputs`` task dict after checking for zero planner diagnostics."""
+	"""Encode the 38-dim vector from a ``policy_inputs`` task dict after checking for zero planner diagnostics."""
 	assert_no_planner_diagnostics(task)
 	return encode_state(
 		q_t=q_t,
@@ -198,6 +226,7 @@ def encode_state_from_task(
 		view=task.get("view"),
 		views=task.get("views"),
 		segment_frame=segment_frame,
+		roll_deg=task.get("roll_deg"),
 	)
 
 
@@ -235,7 +264,7 @@ def _is_torch_tensor(x: Any) -> bool:
 
 @dataclass
 class ActionNormalizer:
-	"""Per-joint mean/std normalizer for 6-DoF radian actions (and optional 36-dim student state).
+	"""Per-joint mean/std normalizer for 6-DoF radian actions (and optional 38-dim student state).
 
 	Stats MUST be fitted exclusively on the training split. Supports both numpy arrays and torch tensors,
 	and serializes cleanly to JSON and/or safetensors alongside checkpoints.

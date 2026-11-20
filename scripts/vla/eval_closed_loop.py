@@ -119,6 +119,23 @@ def bootstrap_paired_ci(
 	}
 
 
+def _episode_case(ep_dir: Path) -> list | None:
+	"""The full ``[seed, positive, face, ...]`` case recorded with an episode, or None."""
+	for rel in ("task.json", "run.json"):
+		p = ep_dir / rel
+		if p.exists():
+			data = json.loads(p.read_text(encoding="utf-8"))
+			if isinstance(data.get("case"), list) and data["case"]:
+				return list(data["case"])
+	ep_json = ep_dir / "episode.json"
+	if ep_json.exists():
+		manifest = json.loads(ep_json.read_text(encoding="utf-8"))
+		case = (manifest.get("provenance") or {}).get("case")
+		if isinstance(case, list) and case:
+			return list(case)
+	return None
+
+
 def _episode_case_seed(ep_dir: Path) -> int | None:
 	for rel, key in (("task.json", "case"), ("run.json", "case")):
 		p = ep_dir / rel
@@ -156,8 +173,14 @@ def load_teacher_baseline(
 					seed = int(cases[idx][0])
 		if seed is None:
 			continue
+		if seed in by_seed:
+			raise ValueError(
+				f"teacher seed {seed} appears twice ({by_seed[seed]['episode_dir']} and {ep_dir}); "
+				"pairing would be ambiguous"
+			)
 		by_seed[seed] = {
 			"seed": seed,
+			"case": _episode_case(ep_dir),
 			"verdict": result.get("verdict"),
 			"label": result.get("label"),
 			"label_correct": bool(result.get("label_correct", False)),
@@ -282,14 +305,31 @@ def summarize_closed_loop(
 	# Teacher paired comparison
 	paired_diff: dict[str, Any] | None = None
 	teacher_sort_rate: float | None = None
+	pairing: dict[str, Any] | None = None
 	if teacher_by_seed:
 		stu_vec: list[float] = []
 		tea_vec: list[float] = []
+		unpaired: list[int] = []
+		case_mismatch: list[int] = []
 		for r in student_records:
 			t_row = teacher_by_seed.get(int(r["seed"]))
-			if t_row is not None:
-				stu_vec.append(1.0 if r.get("verdict") == "SUCCESS" else 0.0)
-				tea_vec.append(1.0 if t_row.get("verdict") == "SUCCESS" else 0.0)
+			if t_row is None:
+				unpaired.append(int(r["seed"]))
+				continue
+			t_case = t_row.get("case")
+			if t_case is not None and list(t_case)[:3] != list(r["case"])[:3]:
+				case_mismatch.append(int(r["seed"]))
+				continue
+			stu_vec.append(1.0 if r.get("verdict") == "SUCCESS" else 0.0)
+			tea_vec.append(1.0 if t_row.get("verdict") == "SUCCESS" else 0.0)
+		# The gate compares rates over ONE set of layouts: every student layout must have exactly its teacher.
+		pairing = {
+			"students": n,
+			"paired": len(stu_vec),
+			"unpaired_seeds": unpaired,
+			"case_mismatch_seeds": case_mismatch,
+			"complete": bool(n > 0 and len(stu_vec) == n),
+		}
 		if stu_vec:
 			paired_diff = bootstrap_paired_ci(stu_vec, tea_vec, n_boot=n_boot, seed=boot_seed)
 			teacher_sort_rate = float(np.mean(tea_vec))
@@ -306,7 +346,12 @@ def summarize_closed_loop(
 	)
 
 	collision_gate_pass = (total_collisions == 0) and (collision_unavailable == 0) and (n > 0)
-	if teacher_sort_rate is not None:
+	if pairing is not None and not pairing["complete"]:
+		# Partial pairing gives a student rate and a teacher rate over different layouts: no gate.
+		sort_gate_threshold = None
+		sort_rate_gate_pass = None
+		pilot_gate_pass = None
+	elif teacher_sort_rate is not None:
 		sort_gate_threshold = PILOT_TEACHER_RATIO_GATE * teacher_sort_rate
 		sort_rate_gate_pass: bool | None = student_sort_rate >= sort_gate_threshold
 		pilot_gate_pass: bool | None = bool(sort_rate_gate_pass and collision_gate_pass)
@@ -348,6 +393,7 @@ def summarize_closed_loop(
 		"rate_diff": round(rate_diff, 4) if rate_diff is not None else None,
 		"sort_rate_ratio": round(sort_ratio, 4) if sort_ratio is not None else None,
 		"paired_teacher_student": paired_diff,
+		"teacher_pairing": pairing,
 		"pilot_gate": {
 			"ratio_threshold": PILOT_TEACHER_RATIO_GATE,
 			"sort_rate_threshold": round(sort_gate_threshold, 4) if sort_gate_threshold is not None else None,
@@ -496,6 +542,11 @@ def evaluate_closed_loop(
 	for idx, case in enumerate(cases):
 		ep_dir = out_dir / "student" / f"case-{idx:04d}"
 		if (ep_dir / "episode.json").exists():
+			recorded = _episode_case(ep_dir)
+			if recorded is None or list(recorded)[:3] != list(case)[:3]:
+				raise ValueError(
+					f"{ep_dir} holds case {recorded}, not suite case {list(case)}: use a fresh --out per checkpoint/suite"
+				)
 			rec = _episode_record_from_dir(ep_dir, case)
 			g = grade(ep_dir, reference=reference)
 			student_records.append(rec)
@@ -552,11 +603,27 @@ def evaluate_closed_loop(
 		teacher_summary=teacher_summary,
 		n_boot=n_boot,
 	)
+	# One row per layout: the case, the student's and the teacher's outcome (plan B paired table).
+	paired_rows = []
+	for r in student_records:
+		t_row = teacher_by_seed.get(int(r["seed"])) if teacher_by_seed else None
+		paired_rows.append(
+			{
+				"case": r["case"],
+				"student_verdict": r.get("verdict"),
+				"student_label": r.get("label"),
+				"teacher_verdict": None if t_row is None else t_row.get("verdict"),
+				"teacher_label": None if t_row is None else t_row.get("label"),
+				"student_dir": r.get("episode_dir"),
+				"teacher_dir": None if t_row is None else t_row.get("episode_dir"),
+			}
+		)
 	report = {
 		"mode_requested": mode,
 		"mode_resolved": resolved_mode,
 		"server_health": health,
 		"summary": summary,
+		"paired_rows": paired_rows,
 		"episodes": student_records,
 		"grades": student_grades,
 	}

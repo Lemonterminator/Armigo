@@ -32,6 +32,7 @@ from ..agent.student_rollout import (
 	StudentTwin,
 	crop_digests,
 	telemetry_digest,
+	with_grasp_roll,
 )
 from ..agent.twin_mujoco import (
 	MAX_TOTAL_FRAMES,
@@ -172,6 +173,18 @@ class TakeoverConfig:
 	enable_budget_or_stall: bool = True
 	allow_multiple_takeovers: bool = False
 	shadow_lag_alpha: float = 0.6
+	# Per-segment-kind joint-deviation gating. The shadow plan is time-indexed, so in moves to a fixed pose (prepare,
+	# return_ready) a student that merely starts earlier or later than the shadow reads as a large deviation; listing
+	# such kinds in ``deviation_exempt_kinds`` leaves them to the stall/budget gate. ``grasp_deviation_thresh_rad``
+	# tightens the gate where centimetre errors decide the outcome (the soft onset threshold scales with it).
+	deviation_exempt_kinds: tuple[str, ...] = ()
+	grasp_deviation_thresh_rad: float | None = None
+	# Hand a student grasp that ends without a verified clamp to the expert (re-perceive, grasp, lift) instead of
+	# failing it, so missed grasps yield expert corrections from the state the student reached.
+	takeover_on_no_clamp: bool = False
+	# Start the expert from the student's last commanded target instead of the measured joints: the command leads the
+	# measurement by the tracking lag, so restarting from the measurement steps the command backwards (a jerk spike).
+	expert_from_last_command: bool = False
 
 	def __post_init__(self) -> None:
 		if self.deviation_thresh_rad <= 0.0:
@@ -182,6 +195,17 @@ class TakeoverConfig:
 			raise ValueError("stall_frames must be >= 1")
 		if not (0.0 < self.shadow_lag_alpha <= 1.0):
 			raise ValueError("shadow_lag_alpha must lie in (0, 1]")
+		if self.grasp_deviation_thresh_rad is not None and self.grasp_deviation_thresh_rad <= 0.0:
+			raise ValueError("grasp_deviation_thresh_rad must be positive")
+
+	def deviation_thresholds(self, kind: str) -> tuple[float, float] | None:
+		"""``(hard, soft)`` joint-deviation thresholds for a segment kind, or None if the kind is exempt."""
+		if kind in self.deviation_exempt_kinds:
+			return None
+		if kind == "grasp" and self.grasp_deviation_thresh_rad is not None:
+			hard = float(self.grasp_deviation_thresh_rad)
+			return hard, hard * self.soft_deviation_thresh_rad / self.deviation_thresh_rad
+		return self.deviation_thresh_rad, self.soft_deviation_thresh_rad
 
 
 @dataclass(frozen=True)
@@ -542,21 +566,23 @@ class TakeoverGate:
 		shadow_target, shadow_phase, shadow_done = self._next_shadow(obs)
 		shadow_step_norm = float(np.max(np.abs(shadow_target - self._prev_shadow_target)))
 
-		if cfg.enable_joint_deviation:
-			if max_err > cfg.soft_deviation_thresh_rad:
+		thresholds = cfg.deviation_thresholds(seg.kind) if cfg.enable_joint_deviation else None
+		if thresholds is not None:
+			hard, soft = thresholds
+			if max_err > soft:
 				if self.deviation_onset_frame is None:
 					self.deviation_onset_frame = frame
 			else:
 				self.deviation_onset_frame = None
 
-			if max_err > cfg.deviation_thresh_rad:
+			if max_err > hard:
 				t_dev = self.deviation_onset_frame if self.deviation_onset_frame is not None else frame
 				return GateDecision(
 					trigger=True,
 					gate="joint_deviation",
 					reason="max_abs_joint_err_exceeded",
 					blind_start_frame=t_dev,
-					metrics={"max_abs_joint_err": round(max_err, 6), "threshold": cfg.deviation_thresh_rad},
+					metrics={"max_abs_joint_err": round(max_err, 6), "threshold": hard},
 				)
 
 		# 4. Segment frame budget or non-hold stall
@@ -640,6 +666,7 @@ class TakeoverTwin(StudentTwin):
 			**kwargs,
 		)
 		self.taken_over: bool = False
+		self._last_gate_obs: dict[str, Any] | None = None
 		self.takeover_frame: int | None = None
 		self.takeover_gate: str | None = None
 		self.takeover_reason: str | None = None
@@ -743,7 +770,9 @@ class TakeoverTwin(StudentTwin):
 		del q0, obs
 		return self._make_expert(self.expert.p, self.expert.rp)
 
-	def _trigger_takeover(self, seg: Segment, sid: int, decision: GateDecision, obs: Mapping[str, Any]) -> str:
+	def _trigger_takeover(
+		self, seg: Segment, sid: int, decision: GateDecision, obs: Mapping[str, Any], *, end_segment: bool = True
+	) -> str:
 		t_takeover = self.ep.n_frames
 		t_dev = decision.blind_start_frame
 		if t_dev is not None:
@@ -759,7 +788,8 @@ class TakeoverTwin(StudentTwin):
 		self.takeover_segment_kind = seg.kind
 		self.deviation_onset_frame = t_dev
 
-		self._segment_end("takeover")
+		if end_segment:
+			self._segment_end("takeover")
 		self.event(
 			"takeover",
 			gate=decision.gate,
@@ -770,9 +800,22 @@ class TakeoverTwin(StudentTwin):
 			metrics=decision.metrics,
 		)
 		ex = self.expert
-		ex.last = np.clip(np.asarray(obs["q"], dtype=np.float64), ex._lo, ex._hi)
+		start = self._prev_action if self.takeover_config.expert_from_last_command else obs["q"]
+		ex.last = np.clip(np.asarray(start, dtype=np.float64), ex._lo, ex._hi)
 		ex.done = False
 		ex.obs = dict(obs)
+		return TAKEOVER_RETURN_CODE
+
+	def _takeover_after_no_clamp(self, seg: Segment) -> str | None:
+		"""The student's grasp segment ended without a verified clamp: hand over to the expert in place (gate
+		``no_clamp``), or return None to keep the plain ``no_clamp`` failure when the gate is off or already used."""
+		cfg = self.takeover_config
+		if not cfg.takeover_on_no_clamp or self._last_gate_obs is None:
+			return None
+		if self.taken_over and not cfg.allow_multiple_takeovers:
+			return None
+		decision = GateDecision(trigger=True, gate="no_clamp", reason="student_grasp_ended_without_clamp")
+		self._trigger_takeover(seg, self.segments[-1]["id"], decision, self._last_gate_obs, end_segment=False)
 		return TAKEOVER_RETURN_CODE
 
 	def run_segment(self, seg: Segment) -> str | None:
@@ -815,6 +858,7 @@ class TakeoverTwin(StudentTwin):
 					self._blocked |= state is GripperState.BLOCKED
 
 			safe_obs = _sanitized_realistic_obs(obs, self._brick_belief())
+			self._last_gate_obs = safe_obs
 			if gate_active:
 				if not gate_started:
 					gate_started = True
@@ -1056,9 +1100,10 @@ class TakeoverTwin(StudentTwin):
 
 	def _takeover_grasp_and_lift(self, segs: dict[str, Segment]) -> str | None:
 		ex = self.expert
+		seg = with_grasp_roll(segs["grasp"], self._planned_grasp_roll())
 		self._belief_obs = True
 		try:
-			error = self.run_segment(segs["grasp"])
+			error = self.run_segment(seg)
 		finally:
 			self._belief_obs = False
 		if error == TAKEOVER_RETURN_CODE:
@@ -1066,6 +1111,8 @@ class TakeoverTwin(StudentTwin):
 		if error:
 			return error
 		if not self._clamped:
+			if not self._blocked and self._takeover_after_no_clamp(seg) == TAKEOVER_RETURN_CODE:
+				return self._expert_reperceive_and_grasp_and_lift()
 			ex.aborted = "gripper_blocked" if self._blocked else "no_clamp"
 			return None
 		self._grip_from_brick = np.linalg.inv(self._grip_pose()) @ self._table_belief_tf()

@@ -164,9 +164,16 @@ class _BaseVLAWrapper(nn.Module):
 	def _checkpoint_meta(self) -> dict[str, Any]:
 		raise NotImplementedError
 
-	def get_optim_param_groups(self, lr: float, *, weight_decay: float = 1e-4) -> list[dict[str, Any]]:
-		params = [p for p in self.parameters() if p.requires_grad]
-		return [{"params": params, "lr": float(lr), "weight_decay": float(weight_decay)}]
+	def get_optim_param_groups(
+		self, lr: float, *, weight_decay: float = 1e-4, end_head_lr: float | None = None
+	) -> list[dict[str, Any]]:
+		head = [p for n, p in self.named_parameters() if n.startswith("end_head.") and p.requires_grad]
+		rest = [p for n, p in self.named_parameters() if not n.startswith("end_head.") and p.requires_grad]
+		groups = [{"params": rest, "lr": float(lr), "weight_decay": float(weight_decay)}]
+		if head:
+			head_lr = float(end_head_lr) if end_head_lr is not None else float(lr)
+			groups.append({"params": head, "lr": head_lr, "weight_decay": float(weight_decay)})
+		return groups
 
 	def save_checkpoint(self, save_dir: str | Path, extra_meta: Mapping[str, Any] | None = None) -> Path:
 		out = Path(save_dir)
@@ -361,6 +368,7 @@ class SmolVLAWithEndHead(_BaseVLAWrapper):
 		input_features[OBS_STATE] = PolicyFeature(type=FeatureType.STATE, shape=(STATE_DIM,))
 		output_features = {ACTION: PolicyFeature(type=FeatureType.ACTION, shape=(ACTION_DIM,))}
 
+		pending_end_head_sd: dict[str, Any] | None = None
 		if self.tiny_for_test:
 			cfg = SmolVLAConfig(
 				chunk_size=self.horizon,
@@ -386,6 +394,9 @@ class SmolVLAWithEndHead(_BaseVLAWrapper):
 			cfg.output_features = output_features
 			with _tiny_smolvlm_context():
 				self.policy = SmolVLAPolicy(cfg)
+			# Tiny models can only continue from a local Armigo checkpoint (continue-training tests).
+			if init_from not in (None, "none", "scratch", "vlm") and Path(str(init_from)).exists():
+				pending_end_head_sd = self._load_pretrained_backbone(str(init_from), local_files_only=True)
 		else:
 			init_str = None if init_from in (None, "none", "scratch", "vlm") else str(init_from)
 			use_vlm_init = init_from == "vlm"
@@ -413,7 +424,7 @@ class SmolVLAWithEndHead(_BaseVLAWrapper):
 			cfg.output_features = output_features
 			self.policy = SmolVLAPolicy(cfg)
 			if init_str is not None:
-				self._load_pretrained_backbone(init_str, local_files_only=local_files_only)
+				pending_end_head_sd = self._load_pretrained_backbone(init_str, local_files_only=local_files_only)
 
 		vlm_hidden = int(self.policy.model.vlm_with_expert.config.text_config.hidden_size)
 		self.end_head = EndStepHead(
@@ -422,12 +433,18 @@ class SmolVLAWithEndHead(_BaseVLAWrapper):
 			hidden_dim=self.end_head_hidden_dim,
 			dropout=self.end_head_dropout,
 		)
+		# Continuing from an Armigo checkpoint (e.g. S11 DAgger fine-tuning) must keep the trained End-Step Head;
+		# only a fresh upstream backbone gets a newly initialised head. Normalizer / class-weight buffers are NOT
+		# restored here: the trainer passes statistics fitted on the current training split (same as ACT).
+		if pending_end_head_sd:
+			self.end_head.load_state_dict(pending_end_head_sd, strict=True)
 		self._token_cache: dict[str, tuple[Tensor, Tensor]] = {}
 		self._captured_prefix_pad_masks: Tensor | None = None
 		self._captured_prefix_out: Tensor | None = None
 		self._register_prefix_hooks()
 
-	def _load_pretrained_backbone(self, init_from: str, *, local_files_only: bool = False) -> None:
+	def _load_pretrained_backbone(self, init_from: str, *, local_files_only: bool = False) -> dict[str, Any] | None:
+		"""Load backbone weights; return the ``end_head.*`` sub-state of an Armigo checkpoint (None otherwise)."""
 		from huggingface_hub import hf_hub_download
 		from safetensors.torch import load_file
 
@@ -443,9 +460,13 @@ class SmolVLAWithEndHead(_BaseVLAWrapper):
 		if any(k.startswith("policy.") for k in sd):
 			sub_sd = {k.removeprefix("policy."): v for k, v in sd.items() if k.startswith("policy.")}
 			self.policy.load_state_dict(sub_sd, strict=True)
-		else:
-			adapted = _adapt_smolvla_base_state_dict(sd, self.policy)
-			self.policy.load_state_dict(adapted, strict=True)
+			end_sd = {k.removeprefix("end_head."): v for k, v in sd.items() if k.startswith("end_head.")}
+			if not end_sd:
+				raise KeyError(f"Armigo checkpoint {sf_path} has policy.* weights but no end_head.* weights")
+			return end_sd
+		adapted = _adapt_smolvla_base_state_dict(sd, self.policy)
+		self.policy.load_state_dict(adapted, strict=True)
+		return None
 
 	def _register_prefix_hooks(self) -> None:
 		orig_embed_prefix = self.policy.model.embed_prefix
@@ -916,15 +937,29 @@ class ACTWithEndHead(_BaseVLAWrapper):
 		*,
 		weight_decay: float = 1e-4,
 		backbone_lr: float | None = None,
+		end_head_lr: float | None = None,
 	) -> list[dict[str, Any]]:
+		"""Backbone, End-Step Head and the rest of ACT as separate groups.
+
+		The End-Step Head is initialised from scratch, so the ACT default LR (1e-5, tuned for 100k+ steps) leaves it
+		near its initial prior within a 20k-step budget; ``end_head_lr`` lets it train at its own rate."""
 		bb_lr = float(backbone_lr) if backbone_lr is not None else float(lr)
-		non_bb = [
-			p for n, p in self.named_parameters() if not n.startswith("policy.model.backbone.") and p.requires_grad
-		]
-		bb = [p for n, p in self.named_parameters() if n.startswith("policy.model.backbone.") and p.requires_grad]
-		groups = [{"params": non_bb, "lr": float(lr), "weight_decay": float(weight_decay)}]
+		head_lr = float(end_head_lr) if end_head_lr is not None else float(lr)
+		rest, bb, head = [], [], []
+		for n, p in self.named_parameters():
+			if not p.requires_grad:
+				continue
+			if n.startswith("policy.model.backbone."):
+				bb.append(p)
+			elif n.startswith("end_head."):
+				head.append(p)
+			else:
+				rest.append(p)
+		groups = [{"params": rest, "lr": float(lr), "weight_decay": float(weight_decay)}]
 		if bb:
 			groups.append({"params": bb, "lr": bb_lr, "weight_decay": float(weight_decay)})
+		if head:
+			groups.append({"params": head, "lr": head_lr, "weight_decay": float(weight_decay)})
 		return groups
 
 	@classmethod

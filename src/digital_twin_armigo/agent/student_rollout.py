@@ -111,6 +111,16 @@ def _rounded(values, digits=6):
 	return [round(float(v), digits) for v in values]
 
 
+def roll_deg(roll_rad: float) -> float:
+	"""A segment's ``roll_deg`` param: the controller's wrist roll in degrees, rounded to 0.1."""
+	return round(math.degrees(float(roll_rad)), 1)
+
+
+def with_grasp_roll(seg: Segment, roll_rad: float) -> Segment:
+	"""``seg`` (a ``grasp`` segment) with the planned grasp roll as its ``roll_deg`` param."""
+	return Segment(seg.kind, {**seg.params, "roll_deg": roll_deg(roll_rad)})
+
+
 class _SegmentMixin:
 	"""Segment bookkeeping and the generator -> segment mapping shared by the expert tracer and the student."""
 
@@ -194,12 +204,14 @@ class _SegmentMixin:
 				"faces": [f for f in range(5) if cand.faces_px[f] >= WRIST_MIN_PX],
 				"target_q": _rounded(cand.q),
 				"via_poses": len(path) - 1,
+				"roll_deg": roll_deg(cand.q[4]),
 			}
 			return "simple", Segment("scan_view", params)
 		if name == "look" and "candidate" in local:  # TwinMujoco._bottom
 			cand = local["candidate"]
 			return "simple", Segment(
-				"present_bottom", {"target_q": _rounded(cand.q), "bottom_px": int(cand.faces_px[5])}
+				"present_bottom",
+				{"target_q": _rounded(cand.q), "bottom_px": int(cand.faces_px[5]), "roll_deg": roll_deg(cand.q[4])},
 			)
 		if name in _PARTS:
 			segs = {}
@@ -251,7 +263,11 @@ class ExpertTracer(_SegmentMixin, TwinMujoco):
 					if current >= 0:
 						self._segment_end("done")
 					current = nxt
-					self._segment_begin(segs[parts[nxt][0]])
+					seg = segs[parts[nxt][0]]
+					if seg.kind == "grasp":
+						# ClosedLoopExpert._approach_and_descend has planned the grasp before its first frame.
+						seg = with_grasp_roll(seg, ex.grasp_info["roll"])
+					self._segment_begin(seg)
 				yield target, phase
 		finally:
 			generator.close()
@@ -423,9 +439,10 @@ class StudentTwin(_SegmentMixin, TwinMujoco):
 	def _student_grasp_and_lift(self, segs):
 		"""TwinMujoco._grasp's grasp_and_lift: grasp, clamp check, carried-brick belief at the grasp, lift."""
 		ex = self.expert
+		seg = with_grasp_roll(segs["grasp"], self._planned_grasp_roll())
 		self._belief_obs = True
 		try:
-			error = self.run_segment(segs["grasp"])
+			error = self.run_segment(seg)
 		finally:
 			self._belief_obs = False
 		if error:
@@ -443,6 +460,31 @@ class StudentTwin(_SegmentMixin, TwinMujoco):
 		self.held = (ex.last.copy(), float(ex.last[4]))
 		self.lift_poses.append(ex.last.copy())
 		return None
+
+	def _planned_grasp_roll(self) -> float:
+		"""The wrist roll ``ClosedLoopExpert._grasp_plan`` picks for the perceived brick, as the expert's grasp would
+		plan it at its first frame. Leaves the expert's state as it was (the student, not the expert, moves next)."""
+		ex = self.expert
+		obs = dict(ex.obs)
+		if self.realistic:
+			belief = self._brick_belief()
+			if belief is not None:
+				obs["brick_pos"], obs["brick_quat"] = belief
+		elif self.brick_est is not None:  # TwinMujoco._grasp plans on the perceived pose (``_belief_obs``)
+			obs["brick_pos"], obs["brick_quat"] = self.brick_est.pos.copy(), self.brick_est.quat_xyzw()
+		saved = (ex.obs, ex._active_open_g, dict(ex.grasp_info), ex.kin.data.qpos.copy())
+		z_saved = vars(ex).get("z_grasp")
+		try:
+			ex.obs = obs
+			_, roll, _ = ex._grasp_plan(open_g=ex._active_open_g)
+		finally:
+			ex.obs, ex._active_open_g, ex.grasp_info, qpos = saved
+			ex.kin.data.qpos[:] = qpos
+			if z_saved is None:
+				vars(ex).pop("z_grasp", None)
+			else:
+				ex.z_grasp = z_saved
+		return float(roll)
 
 	def _student_park(self, segs):
 		"""TwinMujoco._park_held's park: back to the lift pose, put down at the park spot, ready pose."""

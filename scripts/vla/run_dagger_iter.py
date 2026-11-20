@@ -30,6 +30,8 @@ from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
+import numpy as np
+
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT / "src") not in sys.path:
 	sys.path.insert(0, str(ROOT / "src"))
@@ -119,6 +121,7 @@ def _default_rollout(
 	mode: str,
 	video: bool,
 	server_url: str | None = None,
+	replan_interval: int | None = None,
 ) -> list[dict[str, Any]]:
 	from digital_twin_armigo.inspection_scorer import default_sup_scorer
 	from digital_twin_armigo.vla.client_policy import ChunkClientPolicy, RemoteChunkPredictor
@@ -163,7 +166,7 @@ def _default_rollout(
 		raw_dir.mkdir(parents=True, exist_ok=True)
 		for i, case in enumerate(iter_cases):
 			ep_dir = raw_dir / f"case-{i:04d}"
-			policy = ChunkClientPolicy(predictor, mode=resolved_mode)
+			policy = ChunkClientPolicy(predictor, mode=resolved_mode, replan_interval=replan_interval)
 			try:
 				run = run_takeover_episode(
 					case,
@@ -237,6 +240,27 @@ def _default_merge(
 	return d_union_dir
 
 
+def count_correction_frames(ep_dir: Path) -> int:
+	"""Expert-correction frames an S11 episode adds to action distillation: rows of the active branch that are
+	takeover frames with action supervision and not blind. A student-only success has none (its own frames are never
+	supervised), so grading it as passed adds no new expert signal."""
+	ep_dir = Path(ep_dir)
+	manifest = ep_dir / "episode.json"
+	branch = 0
+	if manifest.exists():
+		branch = int(json.loads(manifest.read_text(encoding="utf-8")).get("result", {}).get("active_branch", 0) or 0)
+	npz = ep_dir / f"branch-{branch}" / "actions.npz"
+	if not npz.exists():
+		return 0
+	with np.load(npz) as z:
+		if not {"is_takeover", "supervise_action"} <= set(z.files):
+			return 0
+		mask = np.asarray(z["is_takeover"], bool) & np.asarray(z["supervise_action"], bool)
+		if "is_blind" in z.files:
+			mask &= ~np.asarray(z["is_blind"], bool)
+	return int(mask.sum())
+
+
 def _default_train(
 	iter_idx: int,
 	d_union_dir: Path,
@@ -252,6 +276,7 @@ def _default_train(
 	batch_size: int,
 	lr: float | None,
 	num_workers: int,
+	augment: bool = False,
 ) -> Path:
 	del iter_idx
 	env = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
@@ -281,6 +306,8 @@ def _default_train(
 		cmd.extend(["--val-dataset", str(val_dataset)])
 	if lr is not None:
 		cmd.extend(["--lr", str(lr)])
+	if not augment:  # the S9 baselines train without image augmentation; keep iterations comparable to them
+		cmd.append("--no-augment")
 	subprocess.run(cmd, env=env, check=True)
 	best = ckpt_out_dir / "best"
 	return best if best.exists() else (ckpt_out_dir / "last")
@@ -295,6 +322,8 @@ def _default_eval(
 	detector: Path,
 	mode: str,
 	max_episodes: int | None,
+	replan_interval: int | None = None,
+	grader_ref: Path | None = None,
 ) -> dict[str, Any]:
 	del iter_idx
 	_assert_val_not_sealed(val_suite)
@@ -317,6 +346,10 @@ def _default_eval(
 	]
 	if max_episodes is not None:
 		cmd.extend(["--max-episodes", str(max_episodes)])
+	if replan_interval is not None:  # S10 and S11 rollouts must execute chunks the same way
+		cmd.extend(["--replan-interval", str(replan_interval)])
+	if grader_ref is not None:
+		cmd.extend(["--grader-ref", str(grader_ref)])
 	subprocess.run(cmd, env=env, check=True)
 	# eval_closed_loop.py (S10) writes eval_summary.json = {"summary": {...}, ...}; also accept a flat summary.json.
 	summary_path = eval_out_dir / "eval_summary.json"
@@ -375,12 +408,16 @@ def run_dagger_loop(
 	keep_raw: bool = False,
 	video: bool = True,
 	dry_run: bool = False,
+	augment: bool = False,
+	replan_interval: int | None = None,
+	smoothness_rows: str = "all",
 	rollout_fn: RolloutFn | None = None,
 	grade_fn: GradeFn | None = None,
 	export_fn: ExportFn | None = None,
 	merge_fn: MergeFn | None = None,
 	train_fn: TrainFn | None = None,
 	eval_fn: EvalFn | None = None,
+	count_fn: Callable[[Path], int] | None = None,
 ) -> dict[str, Any]:
 	"""Execute the S11 5-step iterative Takeover HG-DAgger loop with train-only guard & early stopping."""
 	if iters < 1:
@@ -473,9 +510,10 @@ def run_dagger_loop(
 				lerobot_python=lerobot_py,
 				mode=mode,
 				video=video,
+				replan_interval=replan_interval,
 			)
 		)
-		grade_cb = grade_fn or (lambda ep: grade(ep, reference=reference))
+		grade_cb = grade_fn or (lambda ep: grade(ep, reference=reference, smoothness_rows=smoothness_rows))
 		export_cb = export_fn or (
 			lambda it, eps, d_to: _default_export(it, eps, d_to, lerobot_python=lerobot_py, repo_id=repo_id)
 		)
@@ -497,14 +535,24 @@ def run_dagger_loop(
 				batch_size=batch_size,
 				lr=lr,
 				num_workers=num_workers,
+				augment=augment,
 			)
 		)
 		eval_cb = eval_fn or (
 			lambda it, ckpt, vs, eout: _default_eval(
-				it, ckpt, vs, eout, detector=detector, mode=mode, max_episodes=eval_max_episodes
+				it,
+				ckpt,
+				vs,
+				eout,
+				detector=detector,
+				mode=mode,
+				max_episodes=eval_max_episodes,
+				replan_interval=replan_interval,
+				grader_ref=grader_ref_path,
 			)
 		)
 
+	count_cb = count_fn or ((lambda ep: 1) if dry_run else count_correction_frames)
 	prev_ckpt: Path | None = Path(init_ckpt) if init_ckpt is not None else None
 	shards: list[Path] = [base_ds_path]
 	current_union: Path = base_ds_path
@@ -539,12 +587,33 @@ def run_dagger_loop(
 		# Step 3: Grade & export D_takeover.
 		grades = [grade_cb(ep) for ep in eligible_eps]
 		passing_eps = [Path(g["episode"]) for g in grades if g.get("passed")]
+		# Only episodes that carry expert corrections are new supervision; a student-only pass adds nothing.
+		corrections = {ep: int(count_cb(ep)) for ep in passing_eps}
+		correction_frames = sum(corrections.values())
+		passing_eps = [ep for ep in passing_eps if corrections[ep] > 0]
 		d_takeover_path: Path | None = None
 		if passing_eps:
 			d_takeover_path = export_cb(it, passing_eps, d_takeover_dir)
 			shards.append(d_takeover_path)
 			if not keep_raw and not dry_run:
 				_delete_raw_videos(raw_dir)
+		else:
+			# No new takeover data: fine-tuning now would be plain continued training on D_base, and its val change
+			# would be credited to DAgger. Log the iteration, keep the checkpoint, and move on to the next cases.
+			iterations_log.append(
+				{
+					"iter": it,
+					"cases": len(iter_cases),
+					"rolled_out": len(rollout_rows),
+					"takeovers_triggered": takeover_triggered_count,
+					"eligible_episodes": len(eligible_eps),
+					"graded_passed_episodes": len(corrections),
+					"correction_frames": 0,
+					"skipped": "no new expert correction frames",
+					"checkpoint": str(prev_ckpt) if prev_ckpt is not None else None,
+				}
+			)
+			continue
 
 		# Step 4: Aggregate D_union = D_base U D_takeover and fine-tune from prev_ckpt with 2x takeover weight.
 		if len(shards) > 1:
@@ -566,7 +635,9 @@ def run_dagger_loop(
 			"rolled_out": len(rollout_rows),
 			"takeovers_triggered": takeover_triggered_count,
 			"eligible_episodes": len(eligible_eps),
-			"graded_passed_episodes": len(passing_eps),
+			"graded_passed_episodes": len(corrections),
+			"corrected_episodes": len(passing_eps),
+			"correction_frames": correction_frames,
 			"d_takeover": str(d_takeover_path) if d_takeover_path is not None else None,
 			"d_union": str(current_union),
 			"init_from": str(prev_ckpt) if prev_ckpt is not None else None,
@@ -655,6 +726,30 @@ def build_parser() -> argparse.ArgumentParser:
 	p.add_argument("--keep-raw", action="store_true")
 	p.add_argument("--no-video", action="store_true")
 	p.add_argument("--dry-run", action="store_true", help="Run deterministic CPU dry-run without GPU/MuJoCo")
+	p.add_argument("--augment", action="store_true", help="Train with image augmentation (S9 baselines do not)")
+	p.add_argument(
+		"--deviation-exempt-kinds",
+		default="",
+		help="Comma-separated segment kinds with no joint-deviation gate (e.g. prepare,return_ready)",
+	)
+	p.add_argument("--grasp-deviation-thresh-rad", type=float, default=None, help="Joint-deviation gate in grasp")
+	p.add_argument(
+		"--takeover-on-no-clamp", action="store_true", help="Expert takes over a student grasp that ends unclamped"
+	)
+	p.add_argument(
+		"--expert-from-last-command",
+		action="store_true",
+		help="Expert starts from the student's last command, not the measured joints",
+	)
+	p.add_argument(
+		"--smoothness-rows",
+		choices=("all", "takeover"),
+		default="all",
+		help="Rows the S6 smoothness check scores when filtering S11 episodes",
+	)
+	p.add_argument(
+		"--replan-interval", type=int, default=None, help="Sync replan every N frames in rollouts and val eval"
+	)
 	return p
 
 
@@ -665,6 +760,10 @@ def main(argv: Sequence[str] | None = None) -> int:
 		soft_deviation_thresh_rad=args.soft_deviation_thresh_rad,
 		stall_frames=args.stall_frames,
 		stall_eps_rad=args.stall_eps_rad,
+		deviation_exempt_kinds=tuple(k for k in args.deviation_exempt_kinds.split(",") if k),
+		grasp_deviation_thresh_rad=args.grasp_deviation_thresh_rad,
+		takeover_on_no_clamp=args.takeover_on_no_clamp,
+		expert_from_last_command=args.expert_from_last_command,
 	)
 	summary = run_dagger_loop(
 		train_suite=args.train_suite,
@@ -694,6 +793,9 @@ def main(argv: Sequence[str] | None = None) -> int:
 		keep_raw=args.keep_raw,
 		video=not args.no_video,
 		dry_run=args.dry_run,
+		augment=args.augment,
+		replan_interval=args.replan_interval,
+		smoothness_rows=args.smoothness_rows,
 	)
 	print(json.dumps(summary, indent=2))
 	return 0

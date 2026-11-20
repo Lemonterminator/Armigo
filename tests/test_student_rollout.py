@@ -54,7 +54,18 @@ def test_policy_inputs_hide_planner_diagnostics():
 	)
 	task = policy_inputs(seg)
 	assert tuple(task) == POLICY_FIELDS
-	assert task == {"kind": "scan_view", "instruction": seg.instruction, "view": 2, "views": 5, "bowl": None}
+	assert task == {
+		"kind": "scan_view",
+		"instruction": seg.instruction,
+		"view": 2,
+		"views": 5,
+		"bowl": None,
+		"roll_deg": None,
+	}
+	# The controller's chosen wrist roll is a segment-level decision: visible, and spelled out in the instruction.
+	rolled = policy_inputs(Segment("grasp", {"roll_deg": -81.6}))
+	assert rolled["roll_deg"] == -81.6
+	assert rolled["instruction"] == "Grasp the brick on the table. Use a wrist roll of -81.6 degrees."
 	assert set(seg.diagnostics) == {"mode", "faces", "target_q", "via_poses"}
 	for diag in (seg, Segment("present_bottom", {"target_q": [0.0] * 6, "bottom_px": 900})):
 		assert not set(policy_inputs(diag)) & set(DIAGNOSTICS)
@@ -72,7 +83,7 @@ def test_policy_inputs_hide_planner_diagnostics():
 
 def _splitter(name):
 	"""ExpertTracer._split on a stub twin: returns the (kind, start, end) segments a frame stream produces."""
-	ex = SimpleNamespace(_frame_idx=0, _carry_frame=-1)
+	ex = SimpleNamespace(_frame_idx=0, _carry_frame=-1, grasp_info={"roll": -0.5})
 	log = []
 	stub = SimpleNamespace(expert=ex)
 	stub._segment_begin = lambda seg: log.append([seg.kind, ex._frame_idx, None])
@@ -147,6 +158,7 @@ def test_motion_mapping_by_generator():
 	assert form == "simple" and seg.kind == "scan_view"
 	assert seg.params["view"] == 2 and seg.params["views"] == 2 and seg.params["faces"] == [0, 2]
 	assert seg.params["via_poses"] == 1
+	assert seg.params["roll_deg"] == 229.2  # the planned view pose's wrist roll, cand.q[4] = 4 rad
 	assert _SegmentMixin._motion(stub, ready())[1].kind == "prepare"
 	with pytest.raises(SegmentMappingError):
 		_SegmentMixin._motion(stub, mystery())

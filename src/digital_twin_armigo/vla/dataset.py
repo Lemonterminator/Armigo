@@ -13,6 +13,7 @@ import numpy as np
 from .contract import (
 	ACTION_DIM,
 	BOWL_VOCAB,
+	IGNORE_INDEX,
 	INITIAL_Q,
 	SEGMENT_KINDS_ORDER,
 	STATE_DIM,
@@ -30,6 +31,53 @@ try:
 except ImportError:  # pragma: no cover - repo .venv lacks torch
 	torch = None
 	_BaseDataset = object
+
+
+_PYAV_CACHE_SIZE = 16  # open containers kept per process (3 student cameras x a few chunk files)
+_pyav_containers: dict[str, Any] = {}  # per process: each DataLoader worker builds its own
+
+
+def _decode_frame_pyav_cached(video_path: str, ts: float, tolerance_s: float) -> Any:
+	"""One RGB frame at ``ts`` as float32 CHW in [0, 1], decoded like LeRobot's ``decode_video_frames_pyav``.
+
+	Same seek (nearest keyframe at or before ``ts`` with a one-frame margin), decode-forward and nearest-frame
+	tolerance rule, but the container stays open between calls. LeRobot opens the chunk file (~180 MB, many
+	episodes) for every frame, which made the training loader CPU-bound (S9 ACT run 03).
+
+	Only DataLoader worker processes keep containers open (their handles go away with the worker); in the main
+	process the file is opened per call, so nothing holds a lock on it (Windows) after the dataset is used."""
+	import av
+	from torch.utils.data import get_worker_info
+
+	if get_worker_info() is None:
+		with av.open(video_path) as container:
+			return _decode_nearest(container, container.streams.video[0], video_path, ts, tolerance_s)
+	entry = _pyav_containers.pop(video_path, None)
+	if entry is None:
+		container = av.open(video_path)
+		entry = (container, container.streams.video[0])
+		while len(_pyav_containers) >= _PYAV_CACHE_SIZE:
+			_pyav_containers.pop(next(iter(_pyav_containers)))[0].close()
+	_pyav_containers[video_path] = entry  # most recently used last
+	return _decode_nearest(*entry, video_path, ts, tolerance_s)
+
+
+def _decode_nearest(container: Any, stream: Any, video_path: str, ts: float, tolerance_s: float) -> Any:
+	container.seek(round(ts / stream.time_base) - 1, backward=True, any_frame=False, stream=stream)
+	best, best_dist = None, float("inf")
+	for frame in container.decode(stream):
+		if frame.pts is None:
+			continue
+		cur = float(frame.pts * stream.time_base)
+		dist = abs(cur - ts)
+		if dist < best_dist:
+			best, best_dist = frame, dist
+		if cur >= ts:
+			break
+	if best is None or not best_dist < tolerance_s:
+		raise RuntimeError(f"no frame within {tolerance_s}s of t={ts:.4f} in {video_path} (closest {best_dist:.4f}s)")
+	arr = best.to_ndarray(format="rgb24")
+	return torch.from_numpy(arr).permute(2, 0, 1).to(dtype=torch.float32).div_(255.0).contiguous()
 
 
 def _to_float_chw(img: Any) -> np.ndarray:
@@ -158,6 +206,24 @@ class StudentImageAugmentor:
 			else:
 				out[key] = self._augment_numpy(np.asarray(img, dtype=np.float32), is_depth=is_depth)
 		return out
+
+
+def _segment_roll_rows(ep: _EpisodeData) -> tuple[list[float | None], list[str]]:
+	"""Per-row segment ``roll_deg`` (None without one) and instruction, from ``meta/segments.json``'s params.
+
+	The roll is a segment param (not a per-frame column), so rows take it from their segment (``segment.index`` =
+	the segment row's ``id``). A row whose segment carries a roll gets the instruction formatted with it."""
+	params_by_id = {int(m["id"]): dict(m.get("params") or {}) for m in ep.segments_meta if "id" in m}
+	rolls: list[float | None] = []
+	tasks: list[str] = []
+	for t in range(ep.length):
+		params = params_by_id.get(int(ep.segment_index[t]), {})
+		roll = params.get("roll_deg")
+		rolls.append(None if roll is None else float(roll))
+		tasks.append(
+			ep.task[t] if roll is None else policy_inputs_from_segment_dict(ep.segment_kind[t], params)["instruction"]
+		)
+	return rolls, tasks
 
 
 @dataclass
@@ -523,6 +589,7 @@ class SegmentChunkDataset(_BaseDataset):
 		h = self.horizon
 		for ep_pos, ep in enumerate(self._episodes):
 			n = ep.length
+			roll_rows, task_rows = _segment_roll_rows(ep)
 			# q_{t-1}: frame 0 repeats q_0; frame t > 0 uses previous frame in the SAME episode.
 			q_prev = np.empty_like(ep.state)
 			q_prev[0] = ep.state[0]
@@ -542,7 +609,16 @@ class SegmentChunkDataset(_BaseDataset):
 						takeover_cutoff = d
 						break
 
-				valid_action_horizon = min(seg_rem, takeover_cutoff)
+				# Stop before the first FUTURE frame whose action may not be supervised (blind or
+				# supervise_action=False). Checking only the anchor would let a chunk that starts before a
+				# perturbation put blind-zone actions into the loss of an earlier prediction.
+				unsup_cutoff = seg_rem
+				for d in range(1, seg_rem):
+					if bool(ep.is_blind[t + d]) or not bool(ep.supervise_action[t + d]):
+						unsup_cutoff = d
+						break
+
+				valid_action_horizon = min(seg_rem, takeover_cutoff, unsup_cutoff)
 				supervised_here = bool(ep.supervise_action[t]) and (not bool(ep.is_blind[t]))
 				num_unmasked = min(h, valid_action_horizon) if supervised_here else 0
 
@@ -565,6 +641,11 @@ class SegmentChunkDataset(_BaseDataset):
 					supervise_action=bool(ep.supervise_action[t]),
 					is_zero_frame=False,
 				)
+				# If an unsupervisable frame lies inside this chunk window before the segment end, the segment's
+				# end timing reflects what happened in that zone (e.g. a perturbation the anchor cannot see):
+				# conservatively drop the end-step label rather than teach it.
+				if unsup_cutoff < min(h, seg_rem):
+					end_target = IGNORE_INDEX
 				state_vec = encode_state(
 					q_t=ep.state[t],
 					q_prev=q_prev[t],
@@ -575,6 +656,7 @@ class SegmentChunkDataset(_BaseDataset):
 					view=int(ep.view[t]),
 					views=int(ep.views[t]),
 					segment_frame=int(ep.segment_frame[t]),
+					roll_deg=roll_rows[t],
 				)
 				weight = self.takeover_weight if bool(ep.is_takeover[t]) else 1.0
 				self._samples.append(
@@ -586,7 +668,7 @@ class SegmentChunkDataset(_BaseDataset):
 						action_mask=action_mask,
 						end_step_target=end_target,
 						sample_weight=float(weight),
-						task=ep.task[t],
+						task=task_rows[t],
 						segment_kind=ep.segment_kind[t],
 						is_synthesized_zero_frame=False,
 					)
@@ -648,8 +730,11 @@ class SegmentChunkDataset(_BaseDataset):
 			for cam in STUDENT_CAMERAS:
 				if self._is_video_camera.get(cam, False):
 					video_path, from_ts = self._video_lookup[(ep.episode_index, cam)]
-					frame = decode_video_frames(video_path, [from_ts + ts], self._tolerance_s, self.video_backend)
-					images[cam] = frame.squeeze(0).to(dtype=torch.float32)
+					if self.video_backend == "pyav":
+						images[cam] = _decode_frame_pyav_cached(video_path, from_ts + ts, self._tolerance_s)
+					else:
+						frame = decode_video_frames(video_path, [from_ts + ts], self._tolerance_s, self.video_backend)
+						images[cam] = frame.squeeze(0).to(dtype=torch.float32)
 				else:
 					if raw_row is None:
 						raw_row = self._lerobot_ds.hf_dataset[rel_row]

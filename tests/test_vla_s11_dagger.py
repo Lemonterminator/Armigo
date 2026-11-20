@@ -289,6 +289,54 @@ def test_takeover_gate_unit_conditions():
 	assert stalled[trig_idx].gate == "budget_or_stall" and stalled[trig_idx].reason == "stalled_non_hold"
 
 
+def test_takeover_gate_per_kind_deviation_thresholds():
+	"""Exempt kinds never take over on joint deviation; grasp uses its own tighter threshold (soft scaled with it)."""
+	cfg = TakeoverConfig(
+		deviation_thresh_rad=0.25,
+		soft_deviation_thresh_rad=0.10,
+		deviation_exempt_kinds=("prepare", "return_ready"),
+		grasp_deviation_thresh_rad=0.08,
+	)
+	assert cfg.deviation_thresholds("prepare") is None
+	assert cfg.deviation_thresholds("lift") == (0.25, 0.10)
+	assert cfg.deviation_thresholds("grasp") == pytest.approx((0.08, 0.032))
+	with pytest.raises(ValueError):
+		TakeoverConfig(grasp_deviation_thresh_rad=0.0)
+
+	q0 = np.zeros(6, dtype=np.float64)
+	targets = [q0.copy() for _ in range(40)]
+	obs0 = {"q": q0.copy(), "tcp": np.zeros(3), "jaw_normal": np.zeros(2), "gripper_cmd": 0.0}
+	far = {**obs0, "q": np.array([0.5, 0, 0, 0, 0, 0])}
+	gate = TakeoverGate(cfg)
+	gate.start_segment(Segment("prepare"), obs=obs0, realistic_state={}, shadow_targets=targets)
+	assert not any(gate.evaluate(frame=f, segment_frame=f, obs=far).trigger for f in range(5))
+
+	gate.start_segment(Segment("grasp"), obs=obs0, realistic_state={}, segment_start_frame=100, shadow_targets=targets)
+	assert not gate.evaluate(frame=100, segment_frame=0, obs={**obs0, "q": np.array([0.05, 0, 0, 0, 0, 0])}).trigger
+	assert gate.deviation_onset_frame == 100  # above the scaled soft threshold 0.032
+	dec = gate.evaluate(frame=101, segment_frame=1, obs={**obs0, "q": np.array([0.09, 0, 0, 0, 0, 0])})
+	assert dec.trigger and dec.gate == "joint_deviation" and dec.metrics["threshold"] == 0.08
+	assert dec.blind_start_frame == 100
+
+
+def test_phase_jerk_takeover_rows_skip_student_frames_and_handover():
+	"""S11 smoothness scope: only expert-takeover rows count, and no difference spans the hand-over."""
+	from digital_twin_armigo.agent.vla_grader import phase_jerk
+
+	n, t_to = 40, 20
+	action = np.zeros((n, 6))
+	action[:t_to:2, 0] = 0.3  # a jerky student before the takeover
+	action[t_to:, 0] = np.linspace(0.0, 0.1, n - t_to)  # a smooth (constant-velocity) expert after it
+	arrays = {"action": action, "state": action.copy(), "phase": np.array(["approach"] * n)}
+	everything = phase_jerk(Path("."), {}, [({}, arrays)])
+	assert everything["approach"][1] > 1.0
+	assert phase_jerk(Path("."), {}, [({}, arrays)], rows="takeover") == {}  # no is_takeover column: nothing
+	arrays["is_takeover"] = np.arange(n) >= t_to
+	scoped = phase_jerk(Path("."), {}, [({}, arrays)], rows="takeover")
+	assert scoped["approach"][0] == n - t_to - 3
+	assert scoped["approach"][1] == pytest.approx(0.0, abs=1e-6)
+
+
 # -----------------------------------------------------------------------------------------------------------
 # 3. Real MuJoCo TakeoverTwin rollouts + zero back-fill + SegmentChunkDataset
 # -----------------------------------------------------------------------------------------------------------
@@ -327,6 +375,7 @@ def test_mujoco_replay_policy_has_zero_false_takeovers(tmp_path: Path, case: tup
 		assert not rows["is_takeover"].any()
 		assert not rows["is_blind"].any()
 		assert not rows["supervise_action"].any()  # student frames never get expert supervision
+	assert run_dagger_iter.count_correction_frames(takeover_dir) == 0  # a student-only pass is no new supervision
 
 
 def test_mujoco_takeover_joint_deviation_no_backfill_and_dataset(tmp_path: Path):
@@ -385,6 +434,7 @@ def test_mujoco_takeover_joint_deviation_no_backfill_and_dataset(tmp_path: Path)
 		assert not is_blind[:t_dev].any()
 		assert is_blind[t_dev:t_to].all()
 		assert not is_blind[t_to:].any()
+	assert run_dagger_iter.count_correction_frames(ep_dir) == n - t_to
 
 	# S7 segment_labels validates cleanly across the student-to-expert handoff.
 	labels = segment_labels(ep_dir)
@@ -545,6 +595,7 @@ def test_run_dagger_loop_5step_orchestration_and_stopping(tmp_path: Path):
 		merge_fn=fake_merge,
 		train_fn=fake_train,
 		eval_fn=fake_eval,
+		count_fn=lambda ep: 5,
 	)
 
 	# 0.60 -> 0.65 (+0.05) -> 0.66 (+0.01) -> 0.665 (+0.005): stops automatically at iter 4!
@@ -574,6 +625,87 @@ def test_run_dagger_loop_5step_orchestration_and_stopping(tmp_path: Path):
 			out_dir=tmp_path / "bad_val",
 			dry_run=True,
 		)
+
+
+def test_run_dagger_loop_trains_only_on_new_expert_corrections(tmp_path: Path, monkeypatch):
+	"""No expert-correction frame among the graded-passing episodes: no fine-tune. Covers nothing passing and a
+	student-only success passing (both would be plain continued training credited to DAgger)."""
+	base_ds = tmp_path / "d_base"
+	base_ds.mkdir()
+	init_ckpt = tmp_path / "init_ckpt"
+	init_ckpt.mkdir()
+	calls: list[str] = []
+
+	def fake_rollout(it, ckpt, cases, raw_dir, cfg):
+		# Iteration 1: nothing passes grading. Iteration 2: a student-only success passes, with no takeover frame.
+		ep = raw_dir / "case-0000"
+		(ep / "branch-0").mkdir(parents=True)
+		(ep / "episode.json").write_text(json.dumps({"result": {"active_branch": 0}}), encoding="utf-8")
+		n = 20
+		np.savez(
+			ep / "branch-0" / "actions.npz",
+			is_takeover=np.zeros(n, bool),
+			supervise_action=np.zeros(n, bool),
+			is_blind=np.zeros(n, bool),
+		)
+		return [{"episode": ep, "result": {"verdict": "SUCCESS", "student_eligible": True}, "takeover": {}}]
+
+	def never(name):
+		def fn(*args, **kwargs):
+			calls.append(name)
+			raise AssertionError(f"{name} must not run without new takeover data")
+
+		return fn
+
+	summary = run_dagger_iter.run_dagger_loop(
+		train_suite=ROOT / "config/vla/train.json",
+		val_suite=ROOT / "config/vla/val.json",
+		out_dir=tmp_path / "out",
+		init_ckpt=init_ckpt,
+		base_dataset=base_ds,
+		iters=2,
+		episodes_per_iter=1,
+		rollout_fn=fake_rollout,
+		grade_fn=lambda ep: {"episode": str(ep), "passed": "iter-02" in str(ep)},
+		export_fn=never("export"),
+		merge_fn=never("merge"),
+		train_fn=never("train"),
+		eval_fn=never("eval"),
+	)
+	assert calls == []
+	assert [it["skipped"] for it in summary["iterations"]] == ["no new expert correction frames"] * 2
+	assert [it["graded_passed_episodes"] for it in summary["iterations"]] == [0, 1]
+	assert summary["final_checkpoint"] == str(init_ckpt)
+
+	# Correction frames: takeover AND supervised AND not blind, on the active branch.
+	ep = tmp_path / "counted"
+	(ep / "branch-1").mkdir(parents=True)
+	(ep / "episode.json").write_text(json.dumps({"result": {"active_branch": 1}}), encoding="utf-8")
+	np.savez(
+		ep / "branch-1" / "actions.npz",
+		is_takeover=np.array([0, 1, 1, 1, 1], bool),
+		supervise_action=np.array([0, 1, 1, 0, 1], bool),
+		is_blind=np.array([0, 0, 1, 0, 0], bool),
+	)
+	assert run_dagger_iter.count_correction_frames(ep) == 2
+
+	# The default trainer matches the S9 baselines: no image augmentation unless asked for.
+	seen: list[list[str]] = []
+	monkeypatch.setattr(run_dagger_iter.subprocess, "run", lambda cmd, **kw: seen.append(cmd))
+	kw = {
+		"lerobot_python": Path("python"),
+		"family": "act",
+		"repo_id": "r",
+		"val_dataset": None,
+		"takeover_weight": 2.0,
+		"steps": 1,
+		"batch_size": 1,
+		"lr": None,
+		"num_workers": 0,
+	}
+	run_dagger_iter._default_train(1, tmp_path, None, tmp_path / "c1", **kw)
+	run_dagger_iter._default_train(1, tmp_path, None, tmp_path / "c2", augment=True, **kw)
+	assert "--no-augment" in seen[0] and "--no-augment" not in seen[1]
 
 
 def test_run_dagger_iter_cli_dry_run(tmp_path: Path):
@@ -615,3 +747,19 @@ def test_default_eval_reads_s10_eval_summary_json(tmp_path: Path, monkeypatch):
 	)
 	assert payload["student_sort_rate"] == pytest.approx(0.8125)
 	assert "--no-teacher" in captured["cmd"]
+	assert "--replan-interval" not in captured["cmd"]  # default: S10's single-chunk-per-segment execution
+
+	payload = run_dagger_iter._default_eval(
+		1,
+		tmp_path / "ckpt",
+		val,
+		tmp_path / "ev2",
+		detector=tmp_path / "det.json",
+		mode="sync",
+		max_episodes=None,
+		replan_interval=50,
+		grader_ref=tmp_path / "ref.json",
+	)
+	cmd = captured["cmd"]
+	assert cmd[cmd.index("--replan-interval") + 1] == "50"  # S11 val eval executes chunks like its rollouts
+	assert cmd[cmd.index("--grader-ref") + 1] == str(tmp_path / "ref.json")

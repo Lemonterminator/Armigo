@@ -418,7 +418,13 @@ SEGMENT_KINDS: dict[str, tuple[str, bool, str, int]] = {
 # Segment params a policy may read: exactly the fields the instruction texts are formatted from (a test checks
 # this). The other params (``mode``, ``faces``, ``target_q``, ``via_poses``, ``bottom_px``, ``xy``) are planner
 # outputs: a real-rig student under the D1 default (docs/vla/STUDENT_INPUTS.md) gets the instruction, not the plan.
-POLICY_PARAMS: tuple[str, ...] = ("view", "views", "bowl")
+#
+# ``roll_deg`` is the wrist roll the controller chose for the segment: for ``grasp`` the candidate whose pinched faces
+# suit the detector's cleared / suspect faces (``choose_grasp``), for ``scan_view`` / ``present_bottom`` the planned
+# view pose's roll. These are segment-level decisions (R3): the student cannot infer them from its observation, so
+# without them the target is multimodal (S10 ACT baseline 02: 0/60, every episode failing its first grasp).
+POLICY_PARAMS: tuple[str, ...] = ("view", "views", "bowl", "roll_deg")
+ROLL_SUFFIX = " Use a wrist roll of {roll_deg} degrees."
 # Keys of policy_inputs(): the one definition shared by the online policy and the offline training export.
 POLICY_FIELDS: tuple[str, ...] = ("kind", "instruction", *POLICY_PARAMS)
 
@@ -435,7 +441,10 @@ class Segment:
 
 	@property
 	def instruction(self) -> str:
-		return SEGMENT_KINDS[self.kind][0].format(**self.params)
+		text = SEGMENT_KINDS[self.kind][0].format(**self.params)
+		if self.params.get("roll_deg") is not None:
+			text += ROLL_SUFFIX.format(roll_deg=self.params["roll_deg"])
+		return text
 
 	@property
 	def held(self) -> bool:

@@ -481,26 +481,44 @@ def check_collisions(path: Path, manifest: dict, result: dict, thresholds: dict)
 	return {"status": _status(ok), "reason": None if ok else "contact above limit", **out}
 
 
-def phase_jerk(path: Path, manifest: dict, branches=None) -> dict[str, tuple[int, float, float]]:
+def _row_runs(mask: np.ndarray) -> list[tuple[int, int]]:
+	"""``[start, end)`` of each run of True in ``mask``."""
+	edges = np.diff(np.concatenate([[0], mask.astype(np.int8), [0]]))
+	return list(zip(np.flatnonzero(edges == 1).tolist(), np.flatnonzero(edges == -1).tolist(), strict=True))
+
+
+def phase_jerk(path: Path, manifest: dict, branches=None, *, rows: str = "all") -> dict[str, tuple[int, float, float]]:
 	"""Per phase over all branches: ``(frames, commanded jerk sum of squares, measured jerk sum of squares)`` of the
-	arm joints (0-4), jerk as the third finite difference of the target and of the joint reading (rad/s^3)."""
+	arm joints (0-4), jerk as the third finite difference of the target and of the joint reading (rad/s^3).
+
+	``rows="takeover"`` keeps only the S11 expert-takeover rows (``is_takeover``; each contiguous run on its own, so
+	no difference spans the hand-over). A branch without that column contributes nothing."""
+	if rows not in ("all", "takeover"):
+		raise ValueError(f"rows must be 'all' or 'takeover', got {rows!r}")
 	acc: dict[str, list] = {}
 	if branches is None:
 		branches, _ = load_branches(path, manifest)
 	for _, z in branches:
 		if not {"action", "state", "phase"} <= z.keys():
 			continue
-		if len(z["action"]) < 4:
-			continue
-		jc = np.diff(z["action"][:, :5].astype(np.float64), 3, axis=0) * FPS**3
-		jm = np.diff(z["state"][:, :5].astype(np.float64), 3, axis=0) * FPS**3
-		phases = np.asarray(z["phase"]).astype(str)[3:]
-		for name in np.unique(phases):
-			m = phases == name
-			row = acc.setdefault(str(name), [0, 0.0, 0.0])
-			row[0] += int(m.sum())
-			row[1] += float(np.sum(np.mean(jc[m] ** 2, axis=1)))
-			row[2] += float(np.sum(np.mean(jm[m] ** 2, axis=1)))
+		if rows == "all":
+			runs = [(0, len(z["action"]))]
+		elif "is_takeover" in z:
+			runs = _row_runs(np.asarray(z["is_takeover"], dtype=bool))
+		else:
+			runs = []
+		for a, b in runs:
+			if b - a < 4:
+				continue
+			jc = np.diff(z["action"][a:b, :5].astype(np.float64), 3, axis=0) * FPS**3
+			jm = np.diff(z["state"][a:b, :5].astype(np.float64), 3, axis=0) * FPS**3
+			phases = np.asarray(z["phase"][a:b]).astype(str)[3:]
+			for name in np.unique(phases):
+				m = phases == name
+				row = acc.setdefault(str(name), [0, 0.0, 0.0])
+				row[0] += int(m.sum())
+				row[1] += float(np.sum(np.mean(jc[m] ** 2, axis=1)))
+				row[2] += float(np.sum(np.mean(jm[m] ** 2, axis=1)))
 	return {k: (n, c, m) for k, (n, c, m) in acc.items()}
 
 
@@ -521,14 +539,14 @@ def smoothness_index(per_phase: dict, medians: dict) -> dict[str, float] | None:
 	return {"jerk_index_cmd": sums[0] / total, "jerk_index_meas": sums[1] / total}
 
 
-def check_smoothness(path: Path, manifest: dict, reference: dict) -> dict:
+def check_smoothness(path: Path, manifest: dict, reference: dict, *, rows: str = "all") -> dict:
 	smooth = reference.get("smoothness")
 	if not smooth:
 		return {"status": "unavailable", "reason": "no expert smoothness reference"}
 	branches, problems = load_branches(path, manifest)
 	if problems:
 		return {"status": "unavailable", "reason": "incomplete action record", "problems": problems}
-	per_phase = phase_jerk(path, manifest, branches)
+	per_phase = phase_jerk(path, manifest, branches, rows=rows)
 	if not per_phase:
 		return {"status": "unavailable", "reason": "no branch with enough frames for a jerk"}
 	index = smoothness_index(per_phase, smooth["phase_median_rms"])
@@ -538,14 +556,25 @@ def check_smoothness(path: Path, manifest: dict, reference: dict) -> dict:
 		return {"status": "unavailable", "reason": "non-finite jerk index"}
 	over = {k: round(v, 4) for k, v in index.items() if v > smooth["p95"][k]}
 	out = {k: round(v, 4) for k, v in index.items()} | {"p95": smooth["p95"]}
-	return {"status": _status(not over), "reason": f"above expert p95: {sorted(over)}" if over else None, **out}
+	scope = {} if rows == "all" else {"rows": rows}
+	return {
+		"status": _status(not over),
+		"reason": f"above expert p95: {sorted(over)}" if over else None,
+		**out,
+		**scope,
+	}
 
 
 # --- entry point -------------------------------------------------------------------------------------------------
 
 
-def grade(episode_dir: str | Path, reference: dict | None = None, *, rebuild_layout: bool = True) -> dict:
-	"""Grade one recorded episode directory (``episode.json``, ``events.jsonl``, ``branch-*/actions.npz``)."""
+def grade(
+	episode_dir: str | Path, reference: dict | None = None, *, rebuild_layout: bool = True, smoothness_rows: str = "all"
+) -> dict:
+	"""Grade one recorded episode directory (``episode.json``, ``events.jsonl``, ``branch-*/actions.npz``).
+
+	``smoothness_rows="takeover"`` (S11 data filtering) scores smoothness on the expert-takeover rows only: the
+	student's own frames carry no action supervision, so their jerk does not affect the labels being kept."""
 	path = Path(episode_dir)
 	reference = load_reference() if reference is None else reference
 	thresholds = {**DEFAULT_THRESHOLDS, **reference.get("thresholds", {})}
@@ -571,7 +600,7 @@ def grade(episode_dir: str | Path, reference: dict | None = None, *, rebuild_lay
 		"decision_crop": check_decision_crop(result, views, truths, alignments, true_label, true_face, thresholds),
 		"belief_error": check_belief_error(views, truths, sensing, thresholds, sensing_inferred=sensing_inferred),
 		"collisions": check_collisions(path, manifest, result, thresholds),
-		"smoothness": check_smoothness(path, manifest, reference),
+		"smoothness": check_smoothness(path, manifest, reference, rows=smoothness_rows),
 	}
 	statuses = [c["status"] for c in checks.values()]
 	return {

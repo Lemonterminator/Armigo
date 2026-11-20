@@ -628,6 +628,30 @@ def test_paired_bootstrap_ci_and_collisions_over_all_attempts(tmp_path):
 	assert sum_clean["student_sort_rate"] == 0.75
 	assert sum_clean["collisions"]["total_collisions"] == 0
 	assert sum_clean["pilot_gate"]["pilot_gate_pass"] is True
+	assert sum_clean["teacher_pairing"]["complete"] is True
+
+	# Partial teacher coverage: rates would be over different layouts -> no gate (audit 2026-11-20 #3).
+	partial = {k: v for k, v in teacher_by_seed.items() if k != 104}
+	sum_partial = eval_closed_loop.summarize_closed_loop(
+		records_clean, grades=grades_clean, teacher_by_seed=partial, n_boot=200
+	)
+	assert sum_partial["teacher_pairing"] == {
+		"students": 4,
+		"paired": 3,
+		"unpaired_seeds": [104],
+		"case_mismatch_seeds": [],
+		"complete": False,
+	}
+	assert sum_partial["pilot_gate"]["pilot_gate_pass"] is None
+	assert sum_partial["pilot_gate"]["sort_rate_gate_pass"] is None
+
+	# A teacher row for the same seed but a different case is not a pair.
+	wrong_case = {**teacher_by_seed, 102: {**teacher_by_seed[102], "case": [102, False, 5]}}
+	sum_wrong = eval_closed_loop.summarize_closed_loop(
+		records_clean, grades=grades_clean, teacher_by_seed=wrong_case, n_boot=200
+	)
+	assert sum_wrong["teacher_pairing"]["case_mismatch_seeds"] == [102]
+	assert sum_wrong["pilot_gate"]["pilot_gate_pass"] is None
 
 
 class _ConstantScorer:
