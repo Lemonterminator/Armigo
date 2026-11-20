@@ -83,7 +83,14 @@ def test_recorded_camera_observation_precedes_its_action_and_rewound_trace_is_re
 	pytest.importorskip("av")
 	pytest.importorskip("cv2")
 	from digital_twin_armigo.agent.twin_graph import TASK
-	from digital_twin_armigo.agent.twin_record import CAMERAS, SegmentLabelError, Video, student_frames
+	from digital_twin_armigo.agent.twin_record import (
+		CAMERAS,
+		INPUT_FEATURES,
+		SEGMENT_FEATURES,
+		SegmentLabelError,
+		Video,
+		student_frames,
+	)
 	from digital_twin_armigo.constants import TOP_FULL
 
 	episode = tmp_path / "episode"
@@ -105,8 +112,10 @@ def test_recorded_camera_observation_precedes_its_action_and_rewound_trace_is_re
 	np.savez(branch / "actions.npz", state=np.zeros((2, 6)), action=action, segment=np.array([0, 1], dtype=np.int32))
 	events = []
 	for sid, (kind, text) in enumerate((("prepare", "Wait at rest."), ("scan_view", "Move the wrist camera."))):
+		# Recorded scan_view segments always carry view / views: policy_inputs() formats the instruction from them.
+		params = {"view": 1, "views": 1} if kind == "scan_view" else {}
 		events += [
-			{"kind": "segment", "frame": sid, "id": sid, "segment_kind": kind, "instruction": text, "params": {}},
+			{"kind": "segment", "frame": sid, "id": sid, "segment_kind": kind, "instruction": text, "params": params},
 			{"kind": "segment_end", "frame": sid + 1, "id": sid, "frames": 1, "reason": "done"},
 		]
 	(episode / "events.jsonl").write_text("".join(json.dumps(e) + "\n" for e in events))
@@ -130,7 +139,7 @@ def test_recorded_camera_observation_precedes_its_action_and_rewound_trace_is_re
 	assert [int(r["segment.chunk_valid_len"][0]) for r in rows] == [1, 1]
 	assert set(rows[0]) == {"task", "action", "observation.state"} | {
 		"observation.images." + x for x in ("front", "wrist", "top_rgb_v2", "top_depth_v2", "top_full")
-	} | {"segment.index", "segment.kind", "segment.done", "segment.chunk_valid_len"}
+	} | set(INPUT_FEATURES) | set(SEGMENT_FEATURES)
 	# A recording without segment labels (segment == -1) is not exportable.
 	np.savez(branch / "actions.npz", state=np.zeros((2, 6)), action=action, segment=np.array([-1, -1], dtype=np.int32))
 	with pytest.raises(SegmentLabelError, match="no segment"):
