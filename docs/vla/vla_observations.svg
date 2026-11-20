@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 586" role="img" aria-labelledby="title description" xml:lang="zh-CN">
+  <title id="title">多模态策略观测</title>
+  <desc id="description">每次推理接收当前帧图像、36 维数值向量和片段文本指令。</desc>
+  <defs>
+  </defs>
+  <style>
+    text { font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif; fill: #162840; }
+    .meta { font-size: 15px; font-weight: 700; fill: #435773; }
+    .title { font-size: 35px; font-weight: 700; }
+    .subtitle { font-size: 18px; fill: #435773; }
+    .section { font-size: 17px; font-weight: 700; fill: #435773; }
+    .label { font-size: 20px; font-weight: 700; }
+    .body { font-size: 17px; fill: #263b55; }
+    .small { font-size: 15px; fill: #435773; }
+    .note { font-size: 16px; fill: #435773; }
+    .link { font-size: 15px; font-weight: 700; fill: #1c528d; }
+    .card-link:hover rect, .card-link:focus rect { stroke: #1c528d; stroke-width: 2; }
+    .return-link:hover text, .return-link:focus text { text-decoration: underline; }
+  </style>
+  <rect x="0" y="0" width="1120" height="586" rx="0" fill="#f7f9fc"/>
+  <text x="48" y="39" class="meta">ARMIGO / 02  策略观测</text>
+  <text x="48" y="83" class="title">多模态策略观测</text>
+  <text x="48" y="113" class="subtitle">每次推理接收当前帧图像、36 维数值向量和片段文本指令。</text>
+  <a href="vla_architecture.svg" class="return-link" aria-label="返回架构总览">
+  <text x="1072" y="39" class="link" text-anchor="end">↖ 返回总览</text>
+  </a>
+  <text x="48" y="152" class="section">三路当前帧图像 · 各 512 × 512</text>
+  <rect x="48" y="167" width="306" height="79" rx="12" fill="#e5f4f6" stroke="#d4dce7"/>
+  <text x="66" y="198" class="label">固定顶视 RGB</text>
+  <text x="66" y="225" class="body">工作台裁剪图</text>
+  <rect x="407" y="167" width="306" height="79" rx="12" fill="#e5f4f6" stroke="#d4dce7"/>
+  <text x="425" y="198" class="label">顶视三通道高度图</text>
+  <text x="425" y="225" class="body">来自含噪深度观测</text>
+  <rect x="766" y="167" width="306" height="79" rx="12" fill="#e5f4f6" stroke="#d4dce7"/>
+  <text x="784" y="198" class="label">腕部 RGB</text>
+  <text x="784" y="225" class="body">用于近距离检测与对准</text>
+  <text x="48" y="285" class="section">36 维数值向量</text>
+  <rect x="48" y="300" width="498" height="112" rx="12" fill="#e5f4f6" stroke="#d4dce7"/>
+  <text x="66" y="331" class="label">机器人状态与控制历史 · 19 维</text>
+  <text x="66" y="358" class="body">当前和上一帧关节角各 6 维</text>
+  <text x="66" y="382" class="body">上一帧关节目标 6 维，滤波后夹爪指令 1 维</text>
+  <rect x="574" y="300" width="498" height="112" rx="12" fill="#e5f4f6" stroke="#d4dce7"/>
+  <text x="592" y="331" class="label">结构化片段条件 · 17 维</text>
+  <text x="592" y="358" class="body">片段类型 12 维，目标料碗 3 维，均为独热编码</text>
+  <text x="592" y="382" class="body">归一化视角序号与片段内帧计数各 1 维</text>
+  <rect x="48" y="434" width="1024" height="77" rx="12" fill="#e5f4f6" stroke="#d4dce7"/>
+  <text x="66" y="465" class="label">片段文本指令</text>
+  <text x="66" y="492" class="body">例如「将夹持的积木移至粉色料碗上方并下放」。</text>
+  <rect x="48" y="528" width="1024" height="47" rx="12" fill="#eff3f7"/>
+  <text x="66" y="556" class="note">信息边界 · 策略输入排除专家规划目标、规划中间位姿、缺陷真值与诊断记录。</text>
+</svg>

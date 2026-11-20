@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 620" role="img" aria-labelledby="title description" xml:lang="zh-CN">
+  <title id="title">离线模仿训练</title>
+  <desc id="description">从专家示范构造片段内监督，联合训练动作生成和片段终止步预测。</desc>
+  <defs>
+    <marker id="training-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#715caf"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif; fill: #162840; }
+    .meta { font-size: 15px; font-weight: 700; fill: #435773; }
+    .title { font-size: 35px; font-weight: 700; }
+    .subtitle { font-size: 18px; fill: #435773; }
+    .section { font-size: 17px; font-weight: 700; fill: #435773; }
+    .label { font-size: 20px; font-weight: 700; }
+    .body { font-size: 17px; fill: #263b55; }
+    .small { font-size: 15px; fill: #435773; }
+    .note { font-size: 16px; fill: #435773; }
+    .link { font-size: 15px; font-weight: 700; fill: #1c528d; }
+    .card-link:hover rect, .card-link:focus rect { stroke: #1c528d; stroke-width: 2; }
+    .return-link:hover text, .return-link:focus text { text-decoration: underline; }
+  </style>
+  <rect x="0" y="0" width="1120" height="620" rx="0" fill="#f7f9fc"/>
+  <text x="48" y="39" class="meta">ARMIGO / 05  离线模仿训练</text>
+  <text x="48" y="83" class="title">离线模仿训练</text>
+  <text x="48" y="113" class="subtitle">从专家示范构造片段内监督，联合训练动作生成和片段终止步预测。</text>
+  <a href="vla_architecture.svg" class="return-link" aria-label="返回架构总览">
+  <text x="1072" y="39" class="link" text-anchor="end">↖ 返回总览</text>
+  </a>
+  <rect x="48" y="150" width="306" height="120" rx="12" fill="#f0edfd" stroke="#d4dce7"/>
+  <text x="66" y="181" class="label">质检与时序对齐</text>
+  <text x="66" y="208" class="body">对齐图像、关节状态与动作</text>
+  <text x="66" y="232" class="body">记录片段编号、指令与终止原因</text>
+  <text x="66" y="256" class="body">为每帧计算片段内剩余步数</text>
+  <rect x="407" y="150" width="306" height="120" rx="12" fill="#f0edfd" stroke="#d4dce7"/>
+  <text x="425" y="181" class="label">动作窗口截断与填充</text>
+  <text x="425" y="208" class="body">在片段边界或接管点截断</text>
+  <text x="425" y="232" class="body">用最后一个有效动作填充越界位置</text>
+  <text x="425" y="256" class="body">掩码排除越界步和盲帧</text>
+  <rect x="766" y="150" width="306" height="120" rx="12" fill="#f0edfd" stroke="#d4dce7"/>
+  <text x="784" y="181" class="label">终止步监督</text>
+  <text x="784" y="208" class="body">按观测所属片段标注剩余步数</text>
+  <text x="784" y="232" class="body">零步终止样本沿用原片段条件</text>
+  <text x="784" y="256" class="body">异常中止和盲帧屏蔽终止损失</text>
+  <path d="M358 210 H403" fill="none" stroke="#715caf" stroke-width="2" stroke-linejoin="round" marker-end="url(#training-arrow)"/>
+  <path d="M717 210 H762" fill="none" stroke="#715caf" stroke-width="2" stroke-linejoin="round" marker-end="url(#training-arrow)"/>
+  <text x="48" y="312" class="section">联合训练目标</text>
+  <rect x="48" y="327" width="498" height="113" rx="12" fill="#f0edfd" stroke="#d4dce7"/>
+  <text x="66" y="358" class="label">动作损失</text>
+  <text x="66" y="385" class="body">SmolVLA · 对有效位置计算流匹配速度场误差</text>
+  <text x="66" y="409" class="body">ACT · 掩码 L1 重建损失，加 10 倍 KL 正则项</text>
+  <rect x="574" y="327" width="498" height="113" rx="12" fill="#f0edfd" stroke="#d4dce7"/>
+  <text x="592" y="358" class="label">终止步损失</text>
+  <text x="592" y="385" class="body">加权交叉熵，提高少见的窗口内终止类别权重</text>
+  <text x="592" y="409" class="body">正常终止超出动作窗口时，目标类别为 H + 1</text>
+  <rect x="48" y="463" width="1024" height="47" rx="12" fill="#f0edfd"/>
+  <text x="66" y="491" class="note">总损失 = 动作损失 + λ × 终止步损失。终止步损失系数 λ 的初始值约为 0.1。</text>
+  <rect x="48" y="530" width="1024" height="70" rx="12" fill="#eff3f7"/>
+  <text x="66" y="558" class="note">交界帧的观测同时对应旧片段的终点和新片段的起点。</text>
+  <text x="66" y="581" class="note">训练标签以片段归属为准，零步终止另建样本，保留原片段指令。</text>
+</svg>

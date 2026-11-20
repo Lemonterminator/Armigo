@@ -2,6 +2,11 @@
 
 ![Armigo VLA 架构图](./vla_architecture.svg)
 
+**模块详图**
+
+- 在线质检与运动控制：[任务决策](./vla_task_decision.svg) · [策略观测](./vla_observations.svg) · [动作策略](./vla_policy_models.svg) · [片段执行](./vla_segment_execution.svg)
+- 离线策略训练与迭代：[模仿训练](./vla_imitation_training.svg) · [专家接管与数据聚合](./vla_expert_takeover.svg)
+
 > 本文档面向 Armigo 项目的算法研发与工程学习，系统拆解 **分层 VLA 蒸馏架构（R3 / D1 / SmolVLA）**、**ACT（Action Chunking with Transformers）** 以及 **Takeover HG-DAgger（S11）** 的数学原理、工程直觉与仓库代码映射。文中所有符号与路径均对应当前仓库（`docs/VLA_DISTILLATION_PLAN.md`、`docs/vla/STUDENT_INPUTS.md`、`src/digital_twin_armigo/agent/student_rollout.py` 与 `twin_record.py`）。
 
 ---

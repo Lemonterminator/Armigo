@@ -1,0 +1,67 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 590" role="img" aria-labelledby="title description" xml:lang="zh-CN">
+  <title id="title">门控接管式数据聚合（HG-DAgger）</title>
+  <desc id="description">专家从学生实际到达的状态重规划，以真实接管轨迹补充离线示范。</desc>
+  <defs>
+    <marker id="takeover-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#a06832"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif; fill: #162840; }
+    .meta { font-size: 15px; font-weight: 700; fill: #435773; }
+    .title { font-size: 35px; font-weight: 700; }
+    .subtitle { font-size: 18px; fill: #435773; }
+    .section { font-size: 17px; font-weight: 700; fill: #435773; }
+    .label { font-size: 20px; font-weight: 700; }
+    .body { font-size: 17px; fill: #263b55; }
+    .small { font-size: 15px; fill: #435773; }
+    .note { font-size: 16px; fill: #435773; }
+    .link { font-size: 15px; font-weight: 700; fill: #1c528d; }
+    .card-link:hover rect, .card-link:focus rect { stroke: #1c528d; stroke-width: 2; }
+    .return-link:hover text, .return-link:focus text { text-decoration: underline; }
+  </style>
+  <rect x="0" y="0" width="1120" height="590" rx="0" fill="#f7f9fc"/>
+  <text x="48" y="39" class="meta">ARMIGO / 06  专家接管与数据聚合</text>
+  <text x="48" y="83" class="title">门控接管式数据聚合（HG-DAgger）</text>
+  <text x="48" y="113" class="subtitle">专家从学生实际到达的状态重规划，以真实接管轨迹补充离线示范。</text>
+  <a href="vla_architecture.svg" class="return-link" aria-label="返回架构总览">
+  <text x="1072" y="39" class="link" text-anchor="end">↖ 返回总览</text>
+  </a>
+  <rect x="48" y="150" width="306" height="126" rx="12" fill="#fbf0df" stroke="#d4dce7"/>
+  <text x="66" y="174" class="meta">01</text>
+  <text x="66" y="201" class="label">闭环采样</text>
+  <text x="66" y="228" class="body">在训练布局运行当前学生策略</text>
+  <text x="66" y="252" class="body">记录学生访问到的状态与偏差</text>
+  <rect x="407" y="150" width="306" height="126" rx="12" fill="#fbf0df" stroke="#d4dce7"/>
+  <text x="425" y="174" class="meta">02</text>
+  <text x="425" y="201" class="label">传感信号门控</text>
+  <text x="425" y="228" class="body">学生关节偏离专家轨迹超过阈值</text>
+  <text x="425" y="252" class="body">或夹爪阻塞、掉落、超时、停滞</text>
+  <rect x="766" y="150" width="306" height="126" rx="12" fill="#fbf0df" stroke="#d4dce7"/>
+  <text x="784" y="174" class="meta">03</text>
+  <text x="784" y="201" class="label">专家现场恢复</text>
+  <text x="784" y="228" class="body">从当前物理状态接管并重规划</text>
+  <text x="784" y="252" class="body">连续执行恢复动作与剩余任务</text>
+  <path d="M358 214 H403" fill="none" stroke="#a06832" stroke-width="2" stroke-linejoin="round" marker-end="url(#takeover-arrow)"/>
+  <path d="M717 214 H762" fill="none" stroke="#a06832" stroke-width="2" stroke-linejoin="round" marker-end="url(#takeover-arrow)"/>
+  <path d="M919 280 V305 H792 V324" fill="none" stroke="#a06832" stroke-width="2" stroke-linejoin="round" marker-end="url(#takeover-arrow)"/>
+  <rect x="279" y="328" width="283" height="135" rx="12" fill="#fbf0df" stroke="#d4dce7"/>
+  <text x="297" y="352" class="meta">05</text>
+  <text x="297" y="379" class="label">数据聚合与微调</text>
+  <text x="297" y="406" class="body">质检后与已有示范合并</text>
+  <text x="297" y="430" class="body">从上一轮权重继续微调</text>
+  <text x="297" y="454" class="body">接管样本初始权重为 2 倍</text>
+  <rect x="616" y="328" width="352" height="135" rx="12" fill="#fbf0df" stroke="#d4dce7"/>
+  <text x="634" y="352" class="meta">04</text>
+  <text x="634" y="379" class="label">接管轨迹标注</text>
+  <text x="634" y="406" class="body">只用实际接管后的专家动作做标签</text>
+  <text x="634" y="430" class="body">接管点截断动作窗口，掩码排除盲帧</text>
+  <text x="634" y="454" class="body">接管前学生帧可保留为观测历史</text>
+  <path d="M612 394 H566" fill="none" stroke="#a06832" stroke-width="2" stroke-linejoin="round" marker-end="url(#takeover-arrow)"/>
+  <path d="M275 394 H153 V280" fill="none" stroke="#a06832" stroke-width="2" stroke-linejoin="round" stroke-dasharray="5 5" marker-end="url(#takeover-arrow)"/>
+  <text x="207" y="382" class="small" text-anchor="middle">更新策略</text>
+  <rect x="48" y="486" width="1024" height="93" rx="12" fill="#fbf0df"/>
+  <text x="66" y="514" class="note">接管门控读取可观测传感信号，并以从同一状态出发的专家规划为偏差基准。</text>
+  <text x="66" y="537" class="note">验证布局用于早停，连续两轮成功率提升均低于 2 个百分点时停止。</text>
+  <text x="66" y="560" class="note">独立测试布局保留至最终评估。</text>
+</svg>

@@ -1,0 +1,62 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 660" role="img" aria-labelledby="title description" xml:lang="zh-CN">
+  <title id="title">片段条件动作策略</title>
+  <desc id="description">两种模型共用图像观测、结构化数值向量与运动片段执行接口。</desc>
+  <defs>
+    <marker id="online-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#507195"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif; fill: #162840; }
+    .meta { font-size: 15px; font-weight: 700; fill: #435773; }
+    .title { font-size: 35px; font-weight: 700; }
+    .subtitle { font-size: 18px; fill: #435773; }
+    .section { font-size: 17px; font-weight: 700; fill: #435773; }
+    .label { font-size: 20px; font-weight: 700; }
+    .body { font-size: 17px; fill: #263b55; }
+    .small { font-size: 15px; fill: #435773; }
+    .note { font-size: 16px; fill: #435773; }
+    .link { font-size: 15px; font-weight: 700; fill: #1c528d; }
+    .card-link:hover rect, .card-link:focus rect { stroke: #1c528d; stroke-width: 2; }
+    .return-link:hover text, .return-link:focus text { text-decoration: underline; }
+  </style>
+  <rect x="0" y="0" width="1120" height="660" rx="0" fill="#f7f9fc"/>
+  <text x="48" y="39" class="meta">ARMIGO / 03  动作策略</text>
+  <text x="48" y="83" class="title">片段条件动作策略</text>
+  <text x="48" y="113" class="subtitle">两种模型共用图像观测、结构化数值向量与运动片段执行接口。</text>
+  <a href="vla_architecture.svg" class="return-link" aria-label="返回架构总览">
+  <text x="1072" y="39" class="link" text-anchor="end">↖ 返回总览</text>
+  </a>
+  <rect x="48" y="150" width="498" height="160" rx="12" fill="#f0edfd" stroke="#d4dce7"/>
+  <text x="66" y="174" class="meta">多模态编码</text>
+  <text x="66" y="201" class="label">SmolVLA · 主策略</text>
+  <text x="66" y="228" class="body">冻结的 SigLIP 将三路图像编码为 192 个视觉词元</text>
+  <text x="66" y="252" class="body">36 维向量投影为 1 个状态词元，与文本词元拼接</text>
+  <text x="66" y="276" class="body">SmolVLM2-500M 骨干融合视觉、语言与状态</text>
+  <text x="66" y="300" class="body">SmolVLA 策略总参数约 4.5 亿</text>
+  <rect x="574" y="150" width="498" height="160" rx="12" fill="#eaf2ff" stroke="#d4dce7"/>
+  <text x="592" y="174" class="meta">视觉与状态编码</text>
+  <text x="592" y="201" class="label">ACT · 对照策略</text>
+  <text x="592" y="228" class="body">每路图像由独立的 ResNet-18 提取空间特征</text>
+  <text x="592" y="252" class="body">融合 36 维数值向量的投影特征</text>
+  <text x="592" y="276" class="body">条件变分自编码器在训练时编码轨迹潜变量</text>
+  <path d="M297 314 V333" fill="none" stroke="#507195" stroke-width="2" stroke-linejoin="round" marker-end="url(#online-arrow)"/>
+  <path d="M823 314 V333" fill="none" stroke="#507195" stroke-width="2" stroke-linejoin="round" marker-end="url(#online-arrow)"/>
+  <rect x="48" y="337" width="498" height="133" rx="12" fill="#f0edfd" stroke="#d4dce7"/>
+  <text x="66" y="368" class="label">条件流匹配网络</text>
+  <text x="66" y="395" class="body">动作序列内部自注意力，观测条件交叉注意力</text>
+  <text x="66" y="419" class="body">从噪声出发，经约 10 步欧拉积分生成关节目标</text>
+  <text x="66" y="443" class="body">预测 50 步动作 · 约 1.67 秒</text>
+  <rect x="574" y="337" width="498" height="133" rx="12" fill="#eaf2ff" stroke="#d4dce7"/>
+  <text x="592" y="368" class="label">Transformer 并行解码器</text>
+  <text x="592" y="395" class="body">推理时将潜变量设为零</text>
+  <text x="592" y="419" class="body">一次前向计算并行生成完整关节动作序列</text>
+  <text x="592" y="443" class="body">预测 100 步动作 · 约 3.33 秒</text>
+  <path d="M297 474 V499" fill="none" stroke="#507195" stroke-width="2" stroke-linejoin="round" marker-end="url(#online-arrow)"/>
+  <path d="M823 474 V499" fill="none" stroke="#507195" stroke-width="2" stroke-linejoin="round" marker-end="url(#online-arrow)"/>
+  <rect x="48" y="503" width="1024" height="125" rx="12" fill="#eff3f7" stroke="#d4dce7"/>
+  <text x="66" y="534" class="label">统一策略输出 · 动作序列与片段终止步</text>
+  <text x="66" y="561" class="body">每个动作包含 6 维绝对关节位置目标（弧度）。预测时域 H 随模型而定。</text>
+  <text x="66" y="585" class="body">并行的终止步预测头对融合特征做池化与分类，共 H + 2 类。</text>
+  <text x="66" y="609" class="body">0 表示立即终止，1 至 H 表示执行指定步数后终止，H + 1 表示本序列内继续执行。</text>
+</svg>

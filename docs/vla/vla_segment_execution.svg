@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 592" role="img" aria-labelledby="title description" xml:lang="zh-CN">
+  <title id="title">运动片段与闭环执行</title>
+  <desc id="description">模型输出一段关节目标，执行器在当前片段内逐步执行并回传结果。</desc>
+  <defs>
+    <marker id="online-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#507195"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif; fill: #162840; }
+    .meta { font-size: 15px; font-weight: 700; fill: #435773; }
+    .title { font-size: 35px; font-weight: 700; }
+    .subtitle { font-size: 18px; fill: #435773; }
+    .section { font-size: 17px; font-weight: 700; fill: #435773; }
+    .label { font-size: 20px; font-weight: 700; }
+    .body { font-size: 17px; fill: #263b55; }
+    .small { font-size: 15px; fill: #435773; }
+    .note { font-size: 16px; fill: #435773; }
+    .link { font-size: 15px; font-weight: 700; fill: #1c528d; }
+    .card-link:hover rect, .card-link:focus rect { stroke: #1c528d; stroke-width: 2; }
+    .return-link:hover text, .return-link:focus text { text-decoration: underline; }
+  </style>
+  <rect x="0" y="0" width="1120" height="592" rx="0" fill="#f7f9fc"/>
+  <text x="48" y="39" class="meta">ARMIGO / 04  片段执行</text>
+  <text x="48" y="83" class="title">运动片段与闭环执行</text>
+  <text x="48" y="113" class="subtitle">模型输出一段关节目标，执行器在当前片段内逐步执行并回传结果。</text>
+  <a href="vla_architecture.svg" class="return-link" aria-label="返回架构总览">
+  <text x="1072" y="39" class="link" text-anchor="end">↖ 返回总览</text>
+  </a>
+  <rect x="48" y="150" width="306" height="115" rx="12" fill="#e7f4ed" stroke="#d4dce7"/>
+  <text x="66" y="181" class="label">生成片段内动作序列</text>
+  <text x="66" y="208" class="body">按当前观测与片段条件推理</text>
+  <text x="66" y="232" class="body">SmolVLA 在后台异步补充队列</text>
+  <text x="66" y="256" class="body">ACT 可同步生成动作序列</text>
+  <rect x="407" y="150" width="306" height="115" rx="12" fill="#e7f4ed" stroke="#d4dce7"/>
+  <text x="425" y="181" class="label">以 30 Hz 执行</text>
+  <text x="425" y="208" class="body">反归一化，应用关节限位及滤波</text>
+  <text x="425" y="232" class="body">逐步跟踪目标，监测夹持与掉落</text>
+  <text x="425" y="256" class="body">到达预测终止步时立即停止</text>
+  <rect x="766" y="150" width="306" height="115" rx="12" fill="#e7f4ed" stroke="#d4dce7"/>
+  <text x="784" y="181" class="label">回传并切换片段</text>
+  <text x="784" y="208" class="body">向任务控制器回报结束或异常</text>
+  <text x="784" y="232" class="body">片段切换时清空旧动作队列</text>
+  <text x="784" y="256" class="body">按新指令请求下一段动作</text>
+  <path d="M358 207 H403" fill="none" stroke="#507195" stroke-width="2" stroke-linejoin="round" marker-end="url(#online-arrow)"/>
+  <path d="M717 207 H762" fill="none" stroke="#507195" stroke-width="2" stroke-linejoin="round" marker-end="url(#online-arrow)"/>
+  <text x="48" y="309" class="section">12 类运动片段 · 括号内为默认最大帧数</text>
+  <rect x="48" y="326" width="306" height="159" rx="12" fill="#eff3f7" stroke="#d4dce7"/>
+  <text x="66" y="357" class="label">准备、扫描与抓取</text>
+  <text x="66" y="384" class="body">初始等待与就位（600）</text>
+  <text x="66" y="408" class="body">腕部视角扫描（900）</text>
+  <text x="66" y="432" class="body">返回预备姿态（600）</text>
+  <text x="66" y="456" class="body">接近并夹紧积木（1500）</text>
+  <rect x="407" y="326" width="306" height="159" rx="12" fill="#eff3f7" stroke="#d4dce7"/>
+  <text x="425" y="357" class="label">持砖检查与桌面放回</text>
+  <text x="425" y="384" class="body">垂直提起（600）</text>
+  <text x="425" y="408" class="body">底面展示与悬停（900）</text>
+  <text x="425" y="432" class="body">返回提举姿态（600）</text>
+  <text x="425" y="456" class="body">下放至检验台（1200）</text>
+  <rect x="766" y="326" width="306" height="159" rx="12" fill="#eff3f7" stroke="#d4dce7"/>
+  <text x="784" y="357" class="label">分拣放置与恢复</text>
+  <text x="784" y="384" class="body">桌面释放（600）</text>
+  <text x="784" y="408" class="body">持砖移至料碗并下放（1200）</text>
+  <text x="784" y="432" class="body">料碗内释放（900）</text>
+  <text x="784" y="456" class="body">故障恢复时原地松爪（300）</text>
+  <rect x="48" y="508" width="1024" height="70" rx="12" fill="#e7f4ed"/>
+  <text x="66" y="536" class="note">掉落监测覆盖提起、底面展示、返回提举姿态、桌面下放和持砖运送。</text>
+  <text x="66" y="559" class="note">动作缓存按片段隔离，时间集成只允许使用同一片段的预测。</text>
+</svg>

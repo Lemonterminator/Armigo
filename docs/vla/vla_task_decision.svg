@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1120 575" role="img" aria-labelledby="title description" xml:lang="zh-CN">
+  <title id="title">高层任务决策</title>
+  <desc id="description">控制器根据传感观测和检测证据，决定执行哪个运动片段。</desc>
+  <defs>
+    <marker id="online-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 Z" fill="#507195"/>
+    </marker>
+  </defs>
+  <style>
+    text { font-family: "Microsoft YaHei", "PingFang SC", "Noto Sans CJK SC", sans-serif; fill: #162840; }
+    .meta { font-size: 15px; font-weight: 700; fill: #435773; }
+    .title { font-size: 35px; font-weight: 700; }
+    .subtitle { font-size: 18px; fill: #435773; }
+    .section { font-size: 17px; font-weight: 700; fill: #435773; }
+    .label { font-size: 20px; font-weight: 700; }
+    .body { font-size: 17px; fill: #263b55; }
+    .small { font-size: 15px; fill: #435773; }
+    .note { font-size: 16px; fill: #435773; }
+    .link { font-size: 15px; font-weight: 700; fill: #1c528d; }
+    .card-link:hover rect, .card-link:focus rect { stroke: #1c528d; stroke-width: 2; }
+    .return-link:hover text, .return-link:focus text { text-decoration: underline; }
+  </style>
+  <rect x="0" y="0" width="1120" height="575" rx="0" fill="#f7f9fc"/>
+  <text x="48" y="39" class="meta">ARMIGO / 01  任务决策</text>
+  <text x="48" y="83" class="title">高层任务决策</text>
+  <text x="48" y="113" class="subtitle">控制器根据传感观测和检测证据，决定执行哪个运动片段。</text>
+  <a href="vla_architecture.svg" class="return-link" aria-label="返回架构总览">
+  <text x="1072" y="39" class="link" text-anchor="end">↖ 返回总览</text>
+  </a>
+  <rect x="48" y="151" width="306" height="130" rx="12" fill="#eaf2ff" stroke="#d4dce7"/>
+  <text x="66" y="182" class="label">场景感知</text>
+  <text x="66" y="209" class="body">顶视深度估计积木位姿与尺寸</text>
+  <text x="66" y="233" class="body">按颜色和三维碗沿拟合定位料碗</text>
+  <text x="66" y="257" class="body">腕部与顶视图像提供缺陷证据</text>
+  <rect x="407" y="151" width="306" height="130" rx="12" fill="#eaf2ff" stroke="#d4dce7"/>
+  <text x="425" y="182" class="label">多视角证据融合</text>
+  <text x="425" y="209" class="body">选择腕部视角，采集局部图像</text>
+  <text x="425" y="233" class="body">必要时翻转积木，补检底面</text>
+  <text x="425" y="257" class="body">逐面累计缺陷评分与覆盖证据</text>
+  <rect x="766" y="151" width="306" height="130" rx="12" fill="#eaf2ff" stroke="#d4dce7"/>
+  <text x="784" y="182" class="label">片段调度</text>
+  <text x="784" y="209" class="body">下发运动类型、文本指令、</text>
+  <text x="784" y="233" class="body">视角序号与总数、目标料碗</text>
+  <text x="784" y="257" class="body">按完成或异常反馈安排后续动作</text>
+  <path d="M358 216 H403" fill="none" stroke="#507195" stroke-width="2" stroke-linejoin="round" marker-end="url(#online-arrow)"/>
+  <path d="M717 216 H762" fill="none" stroke="#507195" stroke-width="2" stroke-linejoin="round" marker-end="url(#online-arrow)"/>
+  <text x="48" y="323" class="section">分拣判定</text>
+  <rect x="48" y="340" width="306" height="91" rx="12" fill="#fbf0df" stroke="#d4dce7"/>
+  <text x="66" y="371" class="label">有缺陷</text>
+  <text x="66" y="398" class="body">任一视角超过阈值，提前停检</text>
+  <text x="66" y="422" class="body">送入粉色料碗</text>
+  <rect x="407" y="340" width="306" height="91" rx="12" fill="#e7f4ed" stroke="#d4dce7"/>
+  <text x="425" y="371" class="label">正常</text>
+  <text x="425" y="398" class="body">六面均有清晰的无缺陷证据</text>
+  <text x="425" y="422" class="body">送入绿色料碗</text>
+  <rect x="766" y="340" width="306" height="91" rx="12" fill="#eff3f7" stroke="#d4dce7"/>
+  <text x="784" y="371" class="label">证据不足</text>
+  <text x="784" y="398" class="body">补检后仍无法判定</text>
+  <text x="784" y="422" class="body">积木留在检验台</text>
+  <rect x="48" y="458" width="1024" height="70" rx="12" fill="#eaf2ff"/>
+  <text x="66" y="486" class="note">片段边界是决策点。此时控制器可采图、验证夹持或更新在手位姿。</text>
+  <text x="66" y="509" class="note">持砖时持续监测掉落，异常时从当前状态启动恢复。</text>
+</svg>
