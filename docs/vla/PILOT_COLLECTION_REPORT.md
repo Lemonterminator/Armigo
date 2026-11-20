@@ -87,7 +87,7 @@ train 每批导出耗时（约 17 条通过/批）：
 ## 7. 已知问题与风险
 
 1. （已修复，见后续提交）`tests/test_twin_agent.py` 的录制轨迹导出测试曾失败：夹具里 `scan_view` 事件缺 `view`/`views` 参数，期望的行字段也落后于 Data Contract v1。生产代码无问题，只改了测试。
-2. 合并后的 main 全量测试：657 通过、5 跳过、2 失败（耗时 11 分钟）。其中 `tests/test_d1_inputs.py::test_realistic_top_depth_v2_uses_independent_d415_rng_and_perception_is_unchanged` 只在全量运行时失败（当时我同时在读大数据目录），之后单独跑 3 次、空闲时跑 `test_[a-d]*.py` 都通过，判断为负载下的偶发失败，原因未查明。该测试单个要跑约 3 分钟。
+2. 合并后的 main 第一次全量测试出现 2 个失败，其中 `tests/test_d1_inputs.py::test_realistic_top_depth_v2_…` 只在那次全量运行时失败（当时我同时在读大数据目录），原始报错没有保存。之后复查：单独跑 3 次、`test_[a-d]*.py` 跑 1 次、32 个满负载进程下跑 2 次（各约 6.5 分钟）、修复 `test_twin_agent` 之后空闲全量重跑 1 次（659 通过、5 跳过、0 失败，11 分钟），全部通过。没有复现，原因未查明，判断为磁盘 IO 或内存压力下的偶发失败；如果再出现，请保存完整输出。该测试单个要跑约 3 分钟。
    ruff 在 `src tests scripts/vla` 上报 10 条，都不在本次改动的文件里（`student_rollout.py` 的未使用导入、`test_d1_inputs.py` 的导入排序、`check_cuda_env.py` 等），合并前的 main 上更多（13 条可自动修复）。
 3. train 评分失败的 52 条被整体丢弃，没有逐条归类失败原因；`belief_error` 与 `smoothness` 各 25 条是最大的两类，若要提高导出率，应从这两项入手。
 4. val 只有 60 条，类别通过率的置信区间很宽；S6 对 val 的结论只能作为粗检。
@@ -97,4 +97,4 @@ train 每批导出耗时（约 17 条通过/批）：
 
 1. 用 `E:\scratch\vla-pilot-train\lerobot` 训练 S9 学生模型，用 val 做离线评估。
 2. 对 S10 闭环评测使用已合入的 S5 扰动与逐类型检测。
-3. 查明 `test_d1_inputs` 在全量运行下偶发失败的原因。
+3. 如果 `test_d1_inputs` 再次偶发失败，保存完整输出后再查。
