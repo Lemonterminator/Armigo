@@ -86,7 +86,7 @@ train 每批导出耗时（约 17 条通过/批）：
 
 ## 7. 已知问题与风险
 
-1. `tests/test_twin_agent.py::test_recorded_camera_observation_precedes_its_action_and_rewound_trace_is_rejected` 失败（`scan_view` 段缺 `view` 参数，`KeyError: 'view'`）。在合并前的 main（`a13c647`）上同样失败，与本次改动无关，未处理。
+1. （已修复，见后续提交）`tests/test_twin_agent.py` 的录制轨迹导出测试曾失败：夹具里 `scan_view` 事件缺 `view`/`views` 参数，期望的行字段也落后于 Data Contract v1。生产代码无问题，只改了测试。
 2. 合并后的 main 全量测试：657 通过、5 跳过、2 失败（耗时 11 分钟）。其中 `tests/test_d1_inputs.py::test_realistic_top_depth_v2_uses_independent_d415_rng_and_perception_is_unchanged` 只在全量运行时失败（当时我同时在读大数据目录），之后单独跑 3 次、空闲时跑 `test_[a-d]*.py` 都通过，判断为负载下的偶发失败，原因未查明。该测试单个要跑约 3 分钟。
    ruff 在 `src tests scripts/vla` 上报 10 条，都不在本次改动的文件里（`student_rollout.py` 的未使用导入、`test_d1_inputs.py` 的导入排序、`check_cuda_env.py` 等），合并前的 main 上更多（13 条可自动修复）。
 3. train 评分失败的 52 条被整体丢弃，没有逐条归类失败原因；`belief_error` 与 `smoothness` 各 25 条是最大的两类，若要提高导出率，应从这两项入手。
@@ -97,4 +97,4 @@ train 每批导出耗时（约 17 条通过/批）：
 
 1. 用 `E:\scratch\vla-pilot-train\lerobot` 训练 S9 学生模型，用 val 做离线评估。
 2. 对 S10 闭环评测使用已合入的 S5 扰动与逐类型检测。
-3. 修复上面的 `scan_view` 旧测试。
+3. 查明 `test_d1_inputs` 在全量运行下偶发失败的原因。
