@@ -103,3 +103,70 @@ def test_calibrate_recovers_pitch_joint_offsets():
 	# the pan offset stays in the solution as a turn of the camera about the pan axis; the roll offset in the card
 	fixed = he.calibrate(k, obs)
 	assert fixed.rms_px > 0.1  # the bias leaves only a small residual, which is why it goes unnoticed
+
+
+def test_card_texture_write_is_atomic_under_concurrent_readers(tmp_path):
+	"""Rollout workers rewrite the shared card PNG while others build cells; readers must never see a partial file."""
+	import threading
+
+	import cv2
+
+	he.write_card_texture(tmp_path)
+	target = tmp_path / he.CARD_TEXTURE
+	good_size = target.stat().st_size
+	stop = threading.Event()
+	bad_reads: list[int] = []
+
+	def reader():
+		while not stop.is_set():
+			try:
+				data = target.read_bytes() if target.exists() else b""
+			except PermissionError:  # Windows: the file is momentarily mid-replace; a reader just retries
+				continue
+			if len(data) != good_size or cv2.imdecode(np.frombuffer(data, np.uint8), cv2.IMREAD_GRAYSCALE) is None:
+				bad_reads.append(len(data))
+
+	readers = [threading.Thread(target=reader) for _ in range(2)]
+	for t in readers:
+		t.start()
+	try:
+		for _ in range(30):
+			he.write_card_texture(tmp_path)
+	finally:
+		stop.set()
+		for t in readers:
+			t.join()
+	assert bad_reads == []
+	assert sorted(p.name for p in tmp_path.iterdir()) == [he.CARD_TEXTURE]
+
+
+def test_marker_textures_survive_parallel_first_writes(tmp_path):
+	"""After the cache is cleared, parallel cell builds all regenerate the marker PNGs; every file must decode."""
+	import threading
+
+	import cv2
+
+	from digital_twin_armigo.mujoco_cell import scene
+
+	ids = {10, 11, 16, 17}
+	errors: list[BaseException] = []
+
+	def build():
+		try:
+			scene.write_marker_textures(tmp_path, ids)
+		except BaseException as exc:  # noqa: BLE001 - surfaced by the assertion below
+			errors.append(exc)
+
+	for _ in range(5):
+		for p in tmp_path.glob("_marker_*.png"):
+			p.unlink()
+		threads = [threading.Thread(target=build) for _ in range(8)]
+		for t in threads:
+			t.start()
+		for t in threads:
+			t.join()
+		assert errors == []
+		for i in ids:
+			img = cv2.imread(str(tmp_path / f"_marker_{i}.png"), cv2.IMREAD_GRAYSCALE)
+			assert img is not None and img.shape == (240, 240)
+		assert sorted(p.name for p in tmp_path.iterdir()) == sorted(f"_marker_{i}.png" for i in ids)

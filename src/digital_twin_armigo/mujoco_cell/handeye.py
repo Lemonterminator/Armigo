@@ -8,6 +8,9 @@ gripper frame; ground truth is used only to score the result.
 
 from __future__ import annotations
 
+import os
+import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -41,12 +44,32 @@ def card_board():
 
 
 def write_card_texture(directory: Path) -> None:
+	"""Write the card PNG atomically so concurrent cells never read a half-written file.
+
+	Many rollout workers build a cell at once from the same asset directory; an in-place ``imwrite`` lets a reader
+	see a truncated PNG. Write a per-process temp file, then ``os.replace`` it over the target (retrying briefly,
+	since Windows refuses to replace a file another process has open).
+	"""
 	cv2 = _cv2()
 	side = round(card_side_m() * CARD_PX_PER_M)
 	margin = round(CARD_MARGIN_M * CARD_PX_PER_M)
 	img = card_board().generateImage((side, side), marginSize=margin, borderBits=1)
-	if not cv2.imwrite(str(directory / CARD_TEXTURE), img):
+	target = directory / CARD_TEXTURE
+	tmp = directory / f"{CARD_TEXTURE}.{os.getpid()}.{threading.get_ident()}.tmp.png"
+	if not cv2.imwrite(str(tmp), img):
 		raise OSError("could not write the calibration card texture")
+	try:
+		for attempt in range(50):
+			try:
+				os.replace(tmp, target)
+				return
+			except PermissionError:
+				if attempt == 49:
+					raise
+				time.sleep(0.05)
+	finally:
+		if tmp.exists():
+			tmp.unlink()
 
 
 def card_xml() -> tuple[str, str]:

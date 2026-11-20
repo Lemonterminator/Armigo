@@ -27,7 +27,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT / "src") not in sys.path:
 	sys.path.insert(0, str(ROOT / "src"))
 
-from digital_twin_armigo.agent.vla_grader import grade, load_reference, summarize  # noqa: E402
+from digital_twin_armigo.agent.vla_grader import grade, load_reference, summarize
 
 LEROBOT_CUDA_PYTHON = Path("E:/il/lerobot-cuda/Scripts/python.exe")
 LEROBOT_CPU_PYTHON = Path("E:/il/lerobot/Scripts/python.exe")
@@ -81,11 +81,7 @@ def evaluate_gates(
 ) -> dict:
 	"""Evaluate S4 (expert success >= 95%) and S6 (min class >= 0.8x mean) gates over ``grades``."""
 	n = len(grades)
-	expert_ok = sum(
-		1
-		for g in grades
-		if g.get("verdict") == "SUCCESS" and g["checks"]["eligible"]["status"] == "pass"
-	)
+	expert_ok = sum(1 for g in grades if g.get("verdict") == "SUCCESS" and g["checks"]["eligible"]["status"] == "pass")
 	expert_rate = (expert_ok / n) if n else 0.0
 	s4_pass = n > 0 and expert_rate >= success_gate
 
@@ -142,9 +138,7 @@ def verify_dataset(root: Path, manifest_path: Path) -> dict:
 
 	ds = LeRobotDataset(repo_id, root=root, video_backend="pyav")
 	if ds.meta.total_episodes != len(expected_eps):
-		raise AssertionError(
-			f"episode count mismatch: expected {len(expected_eps)}, got {ds.meta.total_episodes}"
-		)
+		raise AssertionError(f"episode count mismatch: expected {len(expected_eps)}, got {ds.meta.total_episodes}")
 	expected_frames = sum(int(ep["frames"]) for ep in expected_eps)
 	if len(ds) != expected_frames:
 		raise AssertionError(f"frame count mismatch: expected {expected_frames}, got {len(ds)}")
@@ -171,9 +165,7 @@ def verify_dataset(root: Path, manifest_path: Path) -> dict:
 	for i, ep in enumerate(expected_eps):
 		actual_n = int((ep_idx == i).sum())
 		if actual_n != int(ep["frames"]):
-			raise AssertionError(
-				f"episode {i} frame count mismatch: expected {ep['frames']}, got {actual_n}"
-			)
+			raise AssertionError(f"episode {i} frame count mismatch: expected {ep['frames']}, got {actual_n}")
 
 	seg_meta_path = root / "meta" / "segments.json"
 	if not seg_meta_path.exists():
@@ -267,6 +259,100 @@ def _run_subprocess(cmd: list[str], env: dict[str, str], label: str) -> None:
 	subprocess.run(cmd, env=env, check=True)
 
 
+def split_contiguous(items: list, parts: int) -> list[list]:
+	"""Split ``items`` into at most ``parts`` contiguous, near-equal, non-empty chunks (order preserved)."""
+	parts = max(1, min(parts, len(items)))
+	base, extra = divmod(len(items), parts)
+	chunks, start = [], 0
+	for k in range(parts):
+		end = start + base + (1 if k < extra else 0)
+		chunks.append(items[start:end])
+		start = end
+	return [c for c in chunks if c]
+
+
+def _batch_shard_dirs(batch_dir: Path, done_info: dict) -> list[Path]:
+	"""Shard dirs recorded in a batch's done.json (old single-shard batches have no ``shard_dirs`` key)."""
+	names = done_info.get("shard_dirs")
+	if names is None:
+		names = ["lerobot"] if done_info.get("exported_episodes", 0) > 0 else []
+	return [batch_dir / n for n in names if (batch_dir / n).exists()]
+
+
+def export_batch(
+	*,
+	b_idx: int,
+	batch_dir: Path,
+	raw_dir: Path,
+	passing_eps: list[Path],
+	lerobot_py: Path,
+	repo_id: str,
+	env: dict[str, str],
+	keep_raw: bool,
+	export_jobs: int = 1,
+) -> dict:
+	"""Export passing episodes into one or more LeRobot shards in parallel, verify each, then delete raw mkv.
+
+	With ``export_jobs > 1`` the passing episodes are split into contiguous chunks, each exported by its own
+	LeRobot process into ``lerobot-NN``; concatenating the shards in order reproduces the single-shard
+	episode order, so the final merge and manifest are unchanged. Raw ``*.mkv`` files are deleted only after
+	every shard verified (unless ``keep_raw``).
+	"""
+	from concurrent.futures import ThreadPoolExecutor
+
+	for stale in [batch_dir / "lerobot", *batch_dir.glob("lerobot-*")]:
+		if stale.is_dir():
+			shutil.rmtree(stale)
+	for stale in batch_dir.glob("verify_manifest*.json"):
+		stale.unlink()
+
+	t0 = time.perf_counter()
+	chunks = split_contiguous(passing_eps, export_jobs)
+	single = len(chunks) == 1
+	shard_names = ["lerobot"] if single else [f"lerobot-{k:02d}" for k in range(len(chunks))]
+
+	def export_and_verify(k: int) -> list[dict]:
+		shard_dir = batch_dir / shard_names[k]
+		tag = "" if single else f" shard {k}"
+		_run_subprocess(
+			[
+				str(lerobot_py),
+				"-m",
+				"digital_twin_armigo.agent.twin_record",
+				"--out",
+				str(shard_dir),
+				"--repo-id",
+				repo_id,
+				*[str(p) for p in chunks[k]],
+			],
+			env=env,
+			label=f"batch-{b_idx:04d} export{tag}",
+		)
+		manifest = [{"path": str(ep), "frames": episode_expected_frames(ep)} for ep in chunks[k]]
+		manifest_path = batch_dir / ("verify_manifest.json" if single else f"verify_manifest-{k:02d}.json")
+		_write_json(manifest_path, {"repo_id": repo_id, "episodes": manifest})
+		_run_subprocess(
+			[str(lerobot_py), str(Path(__file__).resolve()), "--verify-dataset", str(shard_dir), str(manifest_path)],
+			env=env,
+			label=f"batch-{b_idx:04d} verify{tag}",
+		)
+		return manifest
+
+	if single:
+		manifests = [export_and_verify(0)]
+	else:
+		with ThreadPoolExecutor(max_workers=len(chunks)) as pool:
+			manifests = list(pool.map(export_and_verify, range(len(chunks))))
+	export_s = time.perf_counter() - t0
+	raw_deleted = 0 if keep_raw else delete_raw_videos(raw_dir)
+	return {
+		"export_s": export_s,
+		"manifest_eps": [m for chunk in manifests for m in chunk],
+		"shard_names": shard_names,
+		"raw_deleted": raw_deleted,
+	}
+
+
 def run_pipeline(
 	suite_path: Path,
 	out_dir: Path,
@@ -280,8 +366,17 @@ def run_pipeline(
 	resume: bool = False,
 	max_episodes: int | None = None,
 	rollout_python: Path | None = None,
+	export_jobs: int = 1,
+	overlap_export: bool = False,
 ) -> dict:
-	"""Execute the batched rollout, grading, and LeRobot export pipeline."""
+	"""Execute the batched rollout, grading, and LeRobot export pipeline.
+
+	``export_jobs`` runs that many LeRobot export processes per batch. ``overlap_export`` exports batch N in
+	the background while batch N+1 rolls out (at most one batch export in flight; batches still finish, and
+	their ``done.json`` is still written, in order).
+	"""
+	from concurrent.futures import Future, ThreadPoolExecutor
+
 	out_dir = out_dir.resolve()
 	if not resume and (out_dir / "batches").exists():
 		raise FileExistsError(f"{out_dir} already contains batches; pass --resume to continue")
@@ -301,136 +396,158 @@ def run_pipeline(
 	batch_timings: list[dict] = []
 	pipeline_t0 = time.perf_counter()
 
-	for b_idx, batch_cases in enumerate(batches):
-		batch_dir = out_dir / "batches" / f"batch-{b_idx:04d}"
-		done_file = batch_dir / "done.json"
-		grades_file = batch_dir / "grades.json"
-		raw_dir = batch_dir / "raw"
-		shard_dir = batch_dir / "lerobot"
-		batch_suite = batch_dir / "suite.json"
+	executor = ThreadPoolExecutor(max_workers=1, thread_name_prefix="export") if overlap_export else None
+	pending: tuple[Future, dict] | None = None
 
-		if resume and done_file.exists():
-			done_info = json.loads(done_file.read_text(encoding="utf-8"))
-			if done_info.get("status") == "done" and grades_file.exists():
-				b_grades = json.loads(grades_file.read_text(encoding="utf-8"))["grades"]
-				all_grades.extend(b_grades)
-				batch_timings.append(done_info["timing"])
-				if done_info.get("exported_episodes", 0) > 0 and shard_dir.exists():
-					shard_dirs.append(shard_dir)
-					exported_manifest_eps.extend(done_info["manifest_episodes"])
-				print(f"[batch-{b_idx:04d}] skipped (already completed on --resume)", flush=True)
-				continue
-
-		if raw_dir.exists():
-			shutil.rmtree(raw_dir)
-		batch_dir.mkdir(parents=True, exist_ok=True)
-		suite_payload = {**suite_meta, "cases": batch_cases, "batch_index": b_idx}
-		_write_json(batch_suite, suite_payload)
-
-		# Step b: rollout with video ON
-		t0 = time.perf_counter()
-		run_cmd = [
-			str(rollout_py),
-			"-m",
-			"digital_twin_armigo.agent.twin_mcp",
-			"run",
-			"--sensing",
-			"realistic",
-			"--suite",
-			str(batch_suite),
-			"--detector",
-			str(detector),
-			"--workers",
-			str(workers),
-			"--out",
-			str(raw_dir),
-		]
-		_run_subprocess(run_cmd, env=env, label=f"batch-{b_idx:04d} rollout")
-		rollout_s = time.perf_counter() - t0
-
-		# Step c: grade all batch episodes
-		t0 = time.perf_counter()
-		episode_dirs = [raw_dir / f"case-{i:04d}" for i in range(len(batch_cases))]
-		b_grades = [grade(ep, reference=reference) for ep in episode_dirs]
-		grade_s = time.perf_counter() - t0
-		_write_json(grades_file, {"grades": b_grades, "summary": summarize(b_grades)})
-		all_grades.extend(b_grades)
-
-		# Step e: export passing episodes & verify readback
-		passing_eps = [Path(g["episode"]) for g in b_grades if g["passed"]]
-		export_s = 0.0
-		manifest_eps: list[dict] = []
-		raw_deleted = 0
-
-		if passing_eps:
-			t0 = time.perf_counter()
-			if shard_dir.exists():
-				shutil.rmtree(shard_dir)
-			export_cmd = [
-				str(lerobot_py),
-				"-m",
-				"digital_twin_armigo.agent.twin_record",
-				"--out",
-				str(shard_dir),
-				"--repo-id",
-				repo_id,
-				*[str(p) for p in passing_eps],
-			]
-			_run_subprocess(export_cmd, env=env, label=f"batch-{b_idx:04d} export")
-
-			manifest_eps = [
-				{"path": str(ep), "frames": episode_expected_frames(ep)}
-				for ep in passing_eps
-			]
-			verify_manifest = batch_dir / "verify_manifest.json"
-			_write_json(verify_manifest, {"repo_id": repo_id, "episodes": manifest_eps})
-			verify_cmd = [
-				str(lerobot_py),
-				str(Path(__file__).resolve()),
-				"--verify-dataset",
-				str(shard_dir),
-				str(verify_manifest),
-			]
-			_run_subprocess(verify_cmd, env=env, label=f"batch-{b_idx:04d} verify")
-			export_s = time.perf_counter() - t0
-
-			shard_dirs.append(shard_dir)
-			exported_manifest_eps.extend(manifest_eps)
-
-			# Step f: delete raw *.mkv only after verified readback (unless --keep-raw)
-			if not keep_raw:
-				raw_deleted = delete_raw_videos(raw_dir)
-		elif not keep_raw:
-			# No passing episodes in this batch; raw *.mkv can still be cleaned up if desired,
-			# only after grading completed cleanly.
-			raw_deleted = delete_raw_videos(raw_dir)
-
+	def finish(job: tuple[Future, dict]) -> None:
+		"""Wait for a batch's export, then record it in order (shards, manifest, done.json, cumulative reports)."""
+		future, ctx = job
+		result = future.result()
+		if result["manifest_eps"]:
+			shard_dirs.extend(ctx["batch_dir"] / n for n in result["shard_names"])
+			exported_manifest_eps.extend(result["manifest_eps"])
 		b_timing = {
-			"batch_index": b_idx,
-			"episodes": len(batch_cases),
-			"passing_episodes": len(passing_eps),
-			"rollout_s": round(rollout_s, 3),
-			"grade_s": round(grade_s, 3),
-			"export_s": round(export_s, 3),
-			"per_episode_mean_s": round((rollout_s + grade_s + export_s) / max(len(batch_cases), 1), 3),
+			"batch_index": ctx["b_idx"],
+			"episodes": ctx["episodes"],
+			"passing_episodes": len(result["manifest_eps"]),
+			"rollout_s": round(ctx["rollout_s"], 3),
+			"grade_s": round(ctx["grade_s"], 3),
+			"export_s": round(result["export_s"], 3),
+			"per_episode_mean_s": round(
+				(ctx["rollout_s"] + ctx["grade_s"] + result["export_s"]) / max(ctx["episodes"], 1), 3
+			),
 		}
 		batch_timings.append(b_timing)
 		_write_json(
-			done_file,
+			ctx["batch_dir"] / "done.json",
 			{
 				"status": "done",
 				"verified": True,
-				"exported_episodes": len(passing_eps),
-				"raw_mkv_deleted": raw_deleted,
-				"manifest_episodes": manifest_eps,
+				"exported_episodes": len(result["manifest_eps"]),
+				"raw_mkv_deleted": result["raw_deleted"],
+				"manifest_episodes": result["manifest_eps"],
+				"shard_dirs": result["shard_names"] if result["manifest_eps"] else [],
 				"timing": b_timing,
 			},
 		)
-
-		# Update cumulative timing & summary after each batch
 		_write_cumulative_reports(
 			out_dir, all_grades, batch_timings, time.perf_counter() - pipeline_t0, len(exported_manifest_eps)
 		)
+
+	def run_export(b_idx: int, batch_dir: Path, raw_dir: Path, passing_eps: list[Path]) -> dict:
+		if not passing_eps:
+			# No passing episodes; raw *.mkv can still be cleaned up, only after grading completed cleanly.
+			return {
+				"export_s": 0.0,
+				"manifest_eps": [],
+				"shard_names": [],
+				"raw_deleted": 0 if keep_raw else delete_raw_videos(raw_dir),
+			}
+		return export_batch(
+			b_idx=b_idx,
+			batch_dir=batch_dir,
+			raw_dir=raw_dir,
+			passing_eps=passing_eps,
+			lerobot_py=lerobot_py,
+			repo_id=repo_id,
+			env=env,
+			keep_raw=keep_raw,
+			export_jobs=export_jobs,
+		)
+
+	try:
+		for b_idx, batch_cases in enumerate(batches):
+			batch_dir = out_dir / "batches" / f"batch-{b_idx:04d}"
+			done_file = batch_dir / "done.json"
+			grades_file = batch_dir / "grades.json"
+			raw_dir = batch_dir / "raw"
+			batch_suite = batch_dir / "suite.json"
+
+			if resume and done_file.exists():
+				done_info = json.loads(done_file.read_text(encoding="utf-8"))
+				if done_info.get("status") == "done" and grades_file.exists():
+					if pending is not None:
+						job, pending = pending, None
+						finish(job)
+					b_grades = json.loads(grades_file.read_text(encoding="utf-8"))["grades"]
+					all_grades.extend(b_grades)
+					batch_timings.append(done_info["timing"])
+					batch_shards = _batch_shard_dirs(batch_dir, done_info)
+					if done_info.get("exported_episodes", 0) > 0 and batch_shards:
+						shard_dirs.extend(batch_shards)
+						exported_manifest_eps.extend(done_info["manifest_episodes"])
+					print(f"[batch-{b_idx:04d}] skipped (already completed on --resume)", flush=True)
+					continue
+
+			if raw_dir.exists():
+				shutil.rmtree(raw_dir)
+			batch_dir.mkdir(parents=True, exist_ok=True)
+			suite_payload = {**suite_meta, "cases": batch_cases, "batch_index": b_idx}
+			_write_json(batch_suite, suite_payload)
+
+			# Step b: rollout with video ON (overlaps the previous batch's export when overlap_export)
+			t0 = time.perf_counter()
+			run_cmd = [
+				str(rollout_py),
+				"-m",
+				"digital_twin_armigo.agent.twin_mcp",
+				"run",
+				"--sensing",
+				"realistic",
+				"--suite",
+				str(batch_suite),
+				"--detector",
+				str(detector),
+				"--workers",
+				str(workers),
+				"--out",
+				str(raw_dir),
+			]
+			_run_subprocess(run_cmd, env=env, label=f"batch-{b_idx:04d} rollout")
+			rollout_s = time.perf_counter() - t0
+
+			# Step c: grade all batch episodes
+			t0 = time.perf_counter()
+			episode_dirs = [raw_dir / f"case-{i:04d}" for i in range(len(batch_cases))]
+			b_grades = [grade(ep, reference=reference) for ep in episode_dirs]
+			grade_s = time.perf_counter() - t0
+			_write_json(grades_file, {"grades": b_grades, "summary": summarize(b_grades)})
+			all_grades.extend(b_grades)
+
+			# Step e/f: export passing episodes, verify readback, then delete raw *.mkv (unless --keep-raw)
+			if pending is not None:
+				job, pending = pending, None
+				finish(job)
+			passing_eps = [Path(g["episode"]) for g in b_grades if g["passed"]]
+			ctx = {
+				"b_idx": b_idx,
+				"batch_dir": batch_dir,
+				"episodes": len(batch_cases),
+				"rollout_s": rollout_s,
+				"grade_s": grade_s,
+			}
+			if executor is not None:
+				pending = (executor.submit(run_export, b_idx, batch_dir, raw_dir, passing_eps), ctx)
+			else:
+				done: Future = Future()
+				done.set_result(run_export(b_idx, batch_dir, raw_dir, passing_eps))
+				finish((done, ctx))
+
+		if pending is not None:
+			job, pending = pending, None
+			finish(job)
+	except BaseException:
+		# Let an in-flight export finish and record its batch so --resume does not redo it; keep the original error.
+		if pending is not None:
+			job, pending = pending, None
+			try:
+				finish(job)
+			except Exception as exc:  # noqa: BLE001
+				print(f"[export] in-flight batch export also failed: {exc!r}", flush=True)
+		raise
+	finally:
+		if executor is not None:
+			executor.shutdown(wait=True)
 
 	# Merge all batch LeRobot shards into unified <out>/lerobot
 	final_lerobot = out_dir / "lerobot"
@@ -517,6 +634,12 @@ def build_parser() -> argparse.ArgumentParser:
 	p.add_argument("--keep-raw", action="store_true", help="Keep raw lossless *.mkv files after verified export.")
 	p.add_argument("--resume", action="store_true", help="Skip already-completed batches in --out.")
 	p.add_argument("--max-episodes", type=int, default=None, help="Optional cap on total episodes.")
+	p.add_argument("--export-jobs", type=int, default=1, help="Parallel LeRobot export processes per batch.")
+	p.add_argument(
+		"--overlap-export",
+		action="store_true",
+		help="Export batch N in the background while batch N+1 rolls out.",
+	)
 	p.add_argument("--verify-dataset", nargs=2, type=Path, metavar=("ROOT", "MANIFEST"), help=argparse.SUPPRESS)
 	p.add_argument("--merge-shards", nargs="+", type=str, help=argparse.SUPPRESS)
 	return p
@@ -552,6 +675,8 @@ def main():
 		keep_raw=a.keep_raw,
 		resume=a.resume,
 		max_episodes=a.max_episodes,
+		export_jobs=a.export_jobs,
+		overlap_export=a.overlap_export,
 	)
 	print(
 		f"Done: {summary['episodes']} episodes, "

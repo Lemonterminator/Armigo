@@ -594,12 +594,36 @@ def scene_xml(
 
 
 def write_marker_textures(directory: Path, ids: set[int]) -> None:
-	"""ArUco 4x4_50 images (black square plus a white margin of a quarter side) for the marker geoms."""
+	"""ArUco 4x4_50 images (black square plus a white margin of a quarter side) for the marker geoms.
+
+	Written atomically (temp file, then ``os.replace``): parallel workers build cells from the same directory, and an
+	in-place write lets another worker see the file exist while it is still empty.
+	"""
+	import os
+	import threading
+	import time
+
 	import cv2
 
 	dictionary = cv2.aruco.getPredefinedDictionary(cv2.aruco.DICT_4X4_50)
 	for i in ids:
 		path = directory / f"_marker_{i}.png"
-		if not path.exists():
-			img = cv2.aruco.generateImageMarker(dictionary, i, 192)
-			cv2.imwrite(str(path), cv2.copyMakeBorder(img, 24, 24, 24, 24, cv2.BORDER_CONSTANT, value=255))
+		if path.exists():
+			continue
+		img = cv2.aruco.generateImageMarker(dictionary, i, 192)
+		img = cv2.copyMakeBorder(img, 24, 24, 24, 24, cv2.BORDER_CONSTANT, value=255)
+		tmp = directory / f"_marker_{i}.{os.getpid()}.{threading.get_ident()}.tmp.png"
+		if not cv2.imwrite(str(tmp), img):
+			raise OSError(f"could not write marker texture {path}")
+		try:
+			for attempt in range(50):
+				try:
+					os.replace(tmp, path)
+					break
+				except PermissionError:
+					if attempt == 49:
+						raise
+					time.sleep(0.05)
+		finally:
+			if tmp.exists():
+				tmp.unlink()

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -14,9 +15,10 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 sys.path.insert(0, str(ROOT / "scripts" / "vla"))
 
-import calibrate_grader  # noqa: E402
-import rollout_and_export  # noqa: E402
-from digital_twin_armigo.agent import vla_grader  # noqa: E402
+import calibrate_grader
+import rollout_and_export
+
+from digital_twin_armigo.agent import vla_grader
 
 
 def _make_synthetic_episode(
@@ -101,9 +103,7 @@ def _make_synthetic_episode(
 			"truth_crop": {"bbox": [0, 0, 256, 256], "size": 256},
 		},
 	]
-	(ep_dir / "events.jsonl").write_text(
-		"\n".join(json.dumps(e) for e in events) + "\n", encoding="utf-8"
-	)
+	(ep_dir / "events.jsonl").write_text("\n".join(json.dumps(e) for e in events) + "\n", encoding="utf-8")
 	return ep_dir
 
 
@@ -149,9 +149,7 @@ def test_s4_and_s6_gate_checks():
 		}
 
 	# 20 episodes, all expert-eligible and all classes >= 0.8x mean -> S4 PASS, S6 PASS
-	grades_ok = [_fake_grade("normal") for _ in range(10)] + [
-		_fake_grade("defect_face_0") for _ in range(10)
-	]
+	grades_ok = [_fake_grade("normal") for _ in range(10)] + [_fake_grade("defect_face_0") for _ in range(10)]
 	res_ok = rollout_and_export.evaluate_gates(grades_ok)
 	assert res_ok["s4_gate_pass"] is True
 	assert res_ok["s6_gate_pass"] is True
@@ -344,3 +342,95 @@ def test_keep_raw_preserves_mkv(tmp_path: Path, monkeypatch: pytest.MonkeyPatch)
 		lerobot_python=Path(sys.executable),
 	)
 	assert len(list((out_dir / "batches/batch-0000/raw").rglob("*.mkv"))) == 2
+
+
+def test_split_contiguous_preserves_order_and_balances():
+	items = list(range(7))
+	chunks = rollout_and_export.split_contiguous(items, 3)
+	assert chunks == [[0, 1, 2], [3, 4], [5, 6]]
+	assert rollout_and_export.split_contiguous(items[:2], 4) == [[0], [1]]
+	assert rollout_and_export.split_contiguous(items, 1) == [items]
+
+
+def test_parallel_overlapped_export_shards_resume_and_merge_order(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+	import threading
+
+	suite_path = tmp_path / "suite.json"
+	suite_path.write_text(json.dumps({"cases": [[4000 + i, False, 5] for i in range(9)]}), encoding="utf-8")
+	out_dir = tmp_path / "par_out"
+	lock = threading.Lock()
+	calls: list[list[str]] = []
+	merged_shards: list[str] = []
+	fail_verify_batch = "batch-0001"
+
+	def fake_subprocess_run(cmd, env=None, check=True):
+		with lock:
+			calls.append(cmd)
+		if "-m" in cmd and "digital_twin_armigo.agent.twin_mcp" in cmd:
+			raw_dir = Path(cmd[cmd.index("--out") + 1])
+			assert not raw_dir.exists()
+			batch_suite = json.loads(Path(cmd[cmd.index("--suite") + 1]).read_text(encoding="utf-8"))
+			for i in range(len(batch_suite["cases"])):
+				_make_synthetic_episode(raw_dir / f"case-{i:04d}", cmd_scale=1.0, meas_scale=1.0, with_mkv=True)
+		elif "-m" in cmd and "digital_twin_armigo.agent.twin_record" in cmd:
+			shard_dir = Path(cmd[cmd.index("--out") + 1])
+			(shard_dir / "meta").mkdir(parents=True, exist_ok=True)
+			eps = cmd[cmd.index("--repo-id") + 2 :]
+			(shard_dir / "eps.json").write_text(json.dumps(eps), encoding="utf-8")
+		elif "--verify-dataset" in cmd:
+			root = cmd[cmd.index("--verify-dataset") + 1]
+			if fail_verify_batch and fail_verify_batch in root:
+				raise subprocess.CalledProcessError(1, cmd)
+		elif "--merge-shards" in cmd:
+			merged_shards[:] = cmd[cmd.index("--merge-shards") + 3 :]
+			(Path(cmd[cmd.index("--merge-shards") + 1]) / "meta").mkdir(parents=True, exist_ok=True)
+		return subprocess.CompletedProcess(cmd, 0)
+
+	monkeypatch.setattr(subprocess, "run", fake_subprocess_run)
+	monkeypatch.setattr(rollout_and_export, "grade", lambda ep, reference=None: _fake_grade_from_ep(ep))
+	kwargs = {
+		"suite_path": suite_path,
+		"out_dir": out_dir,
+		"batch_size": 4,
+		"keep_raw": False,
+		"lerobot_python": Path(sys.executable),
+		"export_jobs": 3,
+		"overlap_export": True,
+	}
+
+	# Batch 1's export fails in the background while batch 2 rolls out: batch 0 is recorded, batch 1 is not,
+	# and batch 1's raw mkv survive.
+	with pytest.raises(subprocess.CalledProcessError):
+		rollout_and_export.run_pipeline(resume=False, **kwargs)
+	b0 = json.loads((out_dir / "batches/batch-0000/done.json").read_text(encoding="utf-8"))
+	assert b0["shard_dirs"] == ["lerobot-00", "lerobot-01", "lerobot-02"]
+	assert [len(json.loads((out_dir / f"batches/batch-0000/{n}/eps.json").read_text())) for n in b0["shard_dirs"]] == [
+		2,
+		1,
+		1,
+	]
+	assert not (out_dir / "batches/batch-0001/done.json").exists()
+	assert len(list((out_dir / "batches/batch-0001/raw").rglob("*.mkv"))) == 8
+
+	# Rewrite batch 0 as an old single-shard done.json (no shard_dirs key) to check backward-compatible resume.
+	for n in b0["shard_dirs"]:
+		shutil.rmtree(out_dir / "batches/batch-0000" / n)
+	(out_dir / "batches/batch-0000/lerobot/meta").mkdir(parents=True)
+	del b0["shard_dirs"]
+	(out_dir / "batches/batch-0000/done.json").write_text(json.dumps(b0), encoding="utf-8")
+
+	calls.clear()
+	fail_verify_batch = None
+	summary = rollout_and_export.run_pipeline(resume=True, **kwargs)
+	assert summary["episodes"] == 9
+	assert summary["exported_episodes"] == 9
+	assert not any("batch-0000" in " ".join(c) and "twin_mcp" in " ".join(c) for c in calls)
+	expected = [str(out_dir.resolve() / "batches/batch-0000/lerobot")]
+	expected += [str(out_dir.resolve() / f"batches/batch-0001/lerobot-{k:02d}") for k in range(3)]
+	expected += [str(out_dir.resolve() / "batches/batch-0002/lerobot")]  # 1 passing episode -> single shard
+	assert merged_shards == expected
+	# Manifest order matches shard concatenation order.
+	manifest = json.loads((out_dir / "verify_manifest.json").read_text(encoding="utf-8"))["episodes"]
+	shard_eps = [json.loads((Path(s) / "eps.json").read_text()) for s in expected[1:]]
+	assert [m["path"] for m in manifest[4:]] == [e for chunk in shard_eps for e in chunk]
+	assert list(out_dir.rglob("*.mkv")) == []
