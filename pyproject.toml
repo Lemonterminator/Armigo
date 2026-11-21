@@ -24,6 +24,8 @@ calibration = [
 	"pyarrow>=15",
 	"scipy>=1.11",
 ]
+# Experiment tracking / model registry (see docs/MLOPS.md). The anomaly venv installs it from scripts/anomaly/requirements.txt.
+tracking = ["mlflow>=3.0"]
 twin = ["mcp>=1.12,<2", "av>=12"]
 # LangGraph inspection agent; the LLM client talks to an OpenAI-compatible server (local vLLM) over httpx.
 agent = [
@@ -34,6 +36,7 @@ agent = [
 
 [project.scripts]
 armigo-data = "digital_twin_armigo.catalog.cli:main"
+armigo-track = "digital_twin_armigo.tracking.cli:main"
 armigo-mcp = "digital_twin_armigo.agent.twin_mcp:main"
 armigo-sim = "digital_twin_armigo.mujoco_cell.cli:main"
 

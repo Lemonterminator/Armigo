@@ -25,6 +25,7 @@ def main(argv=None):
 	i = s.add_parser("show")
 	i.add_argument("id")
 	s.add_parser("summary")
+	s.add_parser("datasets", help="list frozen dataset versions (id is the hash to record in MLflow runs)")
 	i = s.add_parser("backup")
 	i.add_argument("--out", type=Path, required=True)
 	i = s.add_parser("import-snapshot")
@@ -68,6 +69,8 @@ def main(argv=None):
 			result = c.episode(a.id)
 		elif a.command == "summary":
 			result = c.summary()
+		elif a.command == "datasets":
+			result = c.datasets()
 		elif a.command == "backup":
 			result = c.backup(a.out)
 		elif a.command == "import-snapshot":

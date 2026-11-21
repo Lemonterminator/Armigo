@@ -5,6 +5,7 @@
 # torch / torchvision are the CUDA 12.8 builds (RTX 5090, sm_120):
 --extra-index-url https://download.pytorch.org/whl/cu128
 # (pass --index-strategy unsafe-best-match to uv so the +cu128 torch wheels win over PyPI)
+# Experiment tracking (scripts/anomaly/log_mlflow.py) was added afterwards: uv pip install --python E:\venvs\armigo-anomaly\Scripts\python.exe mlflow==3.18.0
 # Full pin of what was installed (uv pip freeze, 2026-11-17):
 aiohappyeyeballs==2.7.1
 aiohttp==3.14.5
