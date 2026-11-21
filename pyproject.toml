@@ -58,6 +58,7 @@ packages = ["src/digital_twin_armigo"]
 "src/digital_twin_armigo/agent/twin_dashboard.html" = "digital_twin_armigo/agent/twin_dashboard.html"
 "src/digital_twin_armigo/catalog/index.html" = "digital_twin_armigo/catalog/index.html"
 "src/digital_twin_armigo/viewer/viewer.html" = "digital_twin_armigo/viewer/viewer.html"
+"src/digital_twin_armigo/viewer/inventory.html" = "digital_twin_armigo/viewer/inventory.html"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

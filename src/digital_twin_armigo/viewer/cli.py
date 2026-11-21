@@ -100,7 +100,7 @@ def cmd_serve(a) -> int:
 	from digital_twin_armigo.viewer import server
 
 	print(f"armigo-view: http://127.0.0.1:{a.port}/  (episodes under {a.root.resolve()})", flush=True)
-	server.serve(a.root, a.port, open_browser=a.open)
+	server.serve(a.root, a.port, open_browser=a.open, inventory=a.inventory)
 	return 0
 
 
@@ -134,6 +134,11 @@ def main(argv: list[str] | None = None) -> int:
 	s = sub.add_parser("serve", help="HTML page: state machine, timing statistics, Rerun launcher")
 	s.add_argument("--root", type=Path, default=Path("data/catalog"), help="directory searched for episodes")
 	s.add_argument("--port", type=int, default=8765)
+	s.add_argument(
+		"--inventory",
+		type=Path,
+		help="directory with inventory.sqlite for the /inventory page (default data/inventory)",
+	)
 	s.add_argument("--open", action="store_true", help="open the page in the default browser")
 	s.set_defaults(func=cmd_serve)
 

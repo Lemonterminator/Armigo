@@ -48,6 +48,7 @@ iframe { width: 100%; height: 640px; border: 0; border-radius: 6px; background: 
 <header>
   <h1>Armigo 状态机 · 阶段耗时</h1>
   <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+    <a href="/inventory" class="muted">轨迹与场景清单 →</a>
     <label>Episode <select id="episodes" aria-label="Episode"></select></label>
     <label><input id="follow" type="checkbox"> 跟随最新</label>
     <button id="open-rerun" type="button">打开 Rerun 回放</button>
@@ -204,7 +205,8 @@ async function loadEpisodes(keep) {
   const sel = $('episodes'); const prev = keep ? sel.value : null;
   sel.replaceChildren();
   list.forEach(e => { const o = document.createElement('option'); o.value = e.id; o.textContent = `${e.kind === 'agent' ? (e.finished ? '' : '● ') : '◇ '}${e.id}`; sel.appendChild(o); });
-  const target = list.find(e => e.id === prev) ? prev : list[0]?.id;
+  const wanted = decodeURIComponent(location.hash.slice(1));  // /#<episode id>, e.g. from the inventory page
+  const target = list.find(e => e.id === prev) ? prev : (list.find(e => e.id === wanted) ? wanted : list[0]?.id);
   if (target) { sel.value = target; if (target !== current) { current = target; poll(); } }
   return list;
 }

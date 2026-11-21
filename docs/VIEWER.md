@@ -14,6 +14,7 @@ armigo-view serve --root data/catalog --open             # http://127.0.0.1:8765
 - **专家阶段条**：整段轨迹按阶段着色，悬停看每段时长。
 - **事件流**与实时画面（`live.jpg`，运行中）。
 - **打开 Rerun 回放**：后台启动一个 Rerun 进程，页内嵌入 Rerun Web Viewer；同时只保留一个会话。启动／关闭需要进程内令牌（和资料库 Web 一致），只接受本机请求。
+- **轨迹与场景清单**（`/inventory`，页头链接）：全部合成轨迹、场景、数据集按来源类别（纯脚本 / 全知 agent / 实时感知 agent / 纯模型 / 模型 + 专家接管）筛选浏览，见 [INVENTORY.md](INVENTORY.md)。从那里点“在状态机页面打开”会跳到 `/#<episode id>`，页面据此直接选中该 episode。
 
 ## 数据来源与时间口径
 

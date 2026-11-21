@@ -22,6 +22,11 @@ import numpy as np
 from digital_twin_armigo.viewer import live
 from digital_twin_armigo.viewer import stats as st
 
+try:  # FastAPI resolves route annotations from module globals, so ``Request`` cannot be imported inside create_app
+	from fastapi import Request
+except ImportError:  # the web extra is optional; create_app imports fastapi itself and fails clearly
+	Request = None
+
 SKIP_DIRS = {"branch-0", "keyframes", "checkpoints", "replay", "__pycache__", ".git", "node_modules"}
 MAX_DEPTH = 4
 LIVE_GRACE_S = 30.0
@@ -170,11 +175,20 @@ def episode_payload(path: Path, cache: dict) -> dict:
 	return payload
 
 
-def create_app(root: Path, *, session: RerunSession | None = None):
-	from fastapi import FastAPI, HTTPException, Request
+def default_inventory_dir() -> Path:
+	from digital_twin_armigo.inventory import store
+
+	return store.project_root() / "data" / "inventory"
+
+
+def create_app(root: Path, *, session: RerunSession | None = None, inventory: Path | None = None):
+	from fastapi import FastAPI, HTTPException
 	from fastapi.responses import FileResponse, JSONResponse
 
+	from digital_twin_armigo.inventory import query as inv
+
 	root = Path(root).resolve()
+	inventory_dir = Path(inventory) if inventory else default_inventory_dir()
 	token = secrets.token_urlsafe(32)
 	rerun = session or RerunSession()
 	cache: dict = {}
@@ -206,6 +220,48 @@ def create_app(root: Path, *, session: RerunSession | None = None):
 	@app.get("/")
 	def index():
 		return FileResponse(Path(__file__).with_name("viewer.html"), media_type="text/html")
+
+	@app.get("/inventory")
+	def inventory_page():
+		return FileResponse(Path(__file__).with_name("inventory.html"), media_type="text/html")
+
+	def inventory_call(fn, *args):
+		try:
+			return fn(inventory_dir, *args)
+		except FileNotFoundError:
+			raise HTTPException(
+				404, f"{inv.db_path(inventory_dir)} not found; run `armigo-inventory scan` first"
+			) from None
+		except KeyError:
+			raise HTTPException(404, "unknown table") from None
+
+	def viewer_id(row: dict) -> str | None:
+		"""The episode id this viewer knows the trajectory by, when it lives under the served root."""
+		if row.get("record_kind") != "agent_episode" or not row.get("path"):
+			return None
+		path = Path(row["path"]).resolve()
+		if path.is_dir() and path.is_relative_to(root):
+			return path.relative_to(root).as_posix() or "."
+		return None
+
+	@app.get("/api/inventory/summary")
+	def inventory_summary():
+		return inventory_call(inv.summary)
+
+	@app.get("/api/inventory/trajectory")
+	def inventory_trajectory(id: str):
+		row = inventory_call(inv.trajectory, id)
+		if row is None:
+			raise HTTPException(404, "unknown trajectory")
+		return {**row, "viewer_id": viewer_id(row)}
+
+	@app.get("/api/inventory/{table}")
+	def inventory_rows(table: str, request: Request):
+		return inventory_call(inv.rows, table, dict(request.query_params))
+
+	@app.get("/api/inventory/{table}/facets")
+	def inventory_facets(table: str, request: Request):
+		return inventory_call(inv.facets, table, dict(request.query_params))
 
 	@app.get("/api/token")
 	def get_token():
@@ -260,11 +316,11 @@ def create_app(root: Path, *, session: RerunSession | None = None):
 	return app
 
 
-def serve(root: Path, port: int = 8765, open_browser: bool = False) -> None:
+def serve(root: Path, port: int = 8765, open_browser: bool = False, inventory: Path | None = None) -> None:
 	import uvicorn
 
 	if open_browser:
 		import webbrowser
 
 		threading.Timer(1.0, lambda: webbrowser.open(f"http://127.0.0.1:{port}/")).start()
-	uvicorn.run(create_app(root), host="127.0.0.1", port=port, log_level="warning")
+	uvicorn.run(create_app(root, inventory=inventory), host="127.0.0.1", port=port, log_level="warning")

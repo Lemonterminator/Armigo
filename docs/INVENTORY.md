@@ -17,6 +17,22 @@ armigo-inventory label --match "*/old-run/*" --category agent_realistic --note "
 | `trajectories.csv` `scenes.csv` `datasets.csv` | 同样内容，带 BOM，Excel 直接打开 |
 | `SUMMARY.md` | 按类别、运行批次、场景、数据集的汇总 |
 
+## 在浏览器里看
+
+清单页是 `armigo-view` 服务的一部分（只读，仅本机回环）：
+
+```powershell
+armigo-inventory scan                              # 先有 data/inventory/inventory.sqlite
+armigo-view serve --root data/catalog --open       # 然后打开 http://127.0.0.1:8765/inventory
+armigo-view serve --inventory E:/some/dir          # 清单不在默认的 data/inventory 时
+```
+
+- 顶部是“类别 × 引擎”矩阵（内容不重复的轨迹数，括号内为 SUCCESS 数），点格子就按它筛选。
+- 轨迹 / 场景 / 数据集三个页签；芯片按类别、引擎、结果、运行批次、分类依据、根目录筛选，每个芯片上的数字是再点它会得到的条数；另有搜索框、“3D 位姿 有/无”、是否隐藏字节重复的拷贝、点表头排序、分页。
+- 点一行打开详情（该行全部字段）；agent 轨迹若在 `--root` 之下，详情里有链接直接跳到状态机页面回放。
+- API（页面用的就是这些，也可直接脚本调用）：`/api/inventory/summary`、`/api/inventory/{trajectories|scenes|datasets}`（`?category=model,model_takeover&engine=mujoco&q=…&sort=-seed&limit=100&offset=0`）、`…/facets`、`/api/inventory/trajectory?id=…`。排序和筛选的列名都来自固定白名单，值走参数绑定。
+- 页面读的是上一次 `scan` 的结果；重新扫描后刷新页面即可，不需要重启服务。
+
 ## 来源类别（`category`）
 
 “谁在驱动机械臂”和“它能看到什么”两个问题合成一个字段：
