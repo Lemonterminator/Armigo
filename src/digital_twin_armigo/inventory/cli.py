@@ -4,6 +4,7 @@ armigo-inventory scan [--root [LABEL=]PATH ...] [--out DIR]   # writes inventory
 armigo-inventory summary [--out DIR]                           # the table in the terminal
 armigo-inventory show <traj_id-or-path-fragment> [--out DIR]
 armigo-inventory label --match GLOB --category CAT [--note TEXT] [--tag T ...]   # operator override, applied on scan
+armigo-inventory rerun [--dry-run] [--limit N] [--run-group TEXT]   # re-run failed agent episodes; originals are kept
 """
 
 from __future__ import annotations
@@ -35,6 +36,9 @@ def cmd_scan(args) -> int:
 	else:
 		base = store.project_root()
 		roots = [(p.name, p) for p in (base / "data" / "catalog", base / "results") if p.is_dir()]
+	reruns = Path(args.out).resolve() / "reruns"  # where `armigo-inventory rerun` writes by default
+	if reruns.is_dir() and not any(reruns == r or r in reruns.parents or reruns in r.parents for _, r in roots):
+		roots.append(("reruns", reruns))
 	if not roots:
 		print("armigo-inventory: no scan roots (pass --root)", file=sys.stderr)
 		return 2
@@ -112,6 +116,43 @@ def cmd_label(args) -> int:
 	return 0
 
 
+def cmd_rerun(args) -> int:
+	from digital_twin_armigo.inventory import rerun
+
+	categories = tuple(args.category.split(",")) if args.category else rerun.RERUNNABLE
+	bad = [c for c in categories if c not in taxonomy.CATEGORIES]
+	if bad:
+		print(f"unknown category {bad}; one of {', '.join(taxonomy.CATEGORIES)}", file=sys.stderr)
+		return 2
+	with _open(args.out):  # fail early when there is no inventory yet
+		pass
+	items, skipped = rerun.plan(
+		Path(args.out), categories=categories, run_group=args.run_group, limit=args.limit, redo=args.redo
+	)
+	out_root = Path(args.out_root) if args.out_root else Path(args.out) / "reruns"
+	detector = Path(args.detector) if args.detector else store.project_root() / "results/anomaly/models-sup/sup.json"
+	print(f"{len(items)} failed episodes to re-run into {out_root}")
+	for why, n in skipped.most_common():
+		print(f"  skipped {n}: {why}")
+	by_group = {}
+	for item in items:
+		by_group[item["run_group"]] = by_group.get(item["run_group"], 0) + 1
+	for group, n in sorted(by_group.items(), key=lambda kv: -kv[1])[:15]:
+		print(f"  {n:4d}  {group}")
+	if args.dry_run or not items:
+		return 0
+	if not detector.is_file():
+		print(f"detector {detector} not found (--detector)", file=sys.stderr)
+		return 2
+	results = rerun.execute(items, out_root, detector)
+	finished = [r for r in results if "verdict" in r]
+	errors = [r for r in results if "error" in r]
+	passed = sum(r["verdict"] == "SUCCESS" for r in finished)
+	print(f"done: {len(finished)} re-run, {passed} now SUCCESS, {len(errors)} crashed")
+	print("run `armigo-inventory scan` to link them to the originals")
+	return 1 if errors else 0
+
+
 def main(argv: list[str] | None = None) -> int:
 	p = argparse.ArgumentParser(
 		prog="armigo-inventory", description=__doc__, formatter_class=argparse.RawTextHelpFormatter
@@ -136,6 +177,15 @@ def main(argv: list[str] | None = None) -> int:
 	lb.add_argument("--tag", action="append")
 	lb.add_argument("--overrides", help="override rules file (default config/inventory_overrides.json)")
 	lb.set_defaults(fn=cmd_label)
+	rr = sub.add_parser("rerun", help="re-run failed agent episodes into new directories (originals are kept)")
+	rr.add_argument("--category", help="comma list; default agent_omniscient,agent_realistic")
+	rr.add_argument("--run-group", help="only run groups containing this text")
+	rr.add_argument("--limit", type=int, help="at most N episodes")
+	rr.add_argument("--redo", action="store_true", help="also originals that already have a re-run (another attempt)")
+	rr.add_argument("--dry-run", action="store_true", help="show what would run")
+	rr.add_argument("--out-root", help="where the new episodes go (default <inventory>/reruns, scanned automatically)")
+	rr.add_argument("--detector", help="detector json (default results/anomaly/models-sup/sup.json)")
+	rr.set_defaults(fn=cmd_rerun)
 	args = p.parse_args(argv)
 	return args.fn(args)
 

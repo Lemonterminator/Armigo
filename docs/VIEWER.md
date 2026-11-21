@@ -60,6 +60,7 @@ $env:ARMIGO_RERUN = "1"
 - 仿真进程内起一个 Rerun gRPC + Web Viewer（每进程一次，端口自动选；`ARMIGO_RERUN_GRPC_PORT`、`ARMIGO_RERUN_WEB_PORT` 固定端口，`ARMIGO_RERUN_MEMORY` 限内存，默认 4GiB）。地址写在 `<episode>/rerun.json`。
 - 回合结束后位姿落盘：`<episode>/live.rrd`（流的完整副本）和 `<episode>/replay/{scene.json,motion.npz}`（资料库的 motion 契约）。之后 `armigo-view rrd <episode>` / `rerun <episode>` 会自动带上 3D 回放，不需要进程还活着。
 - 限制：实时查看器随仿真进程存在，进程退出后页面里的实时入口自动消失，改用上面的回放。当前只支持 MuJoCo；Isaac 回合走资料库录制。
+- `ARMIGO_RERUN=record`：只录位姿，不起 gRPC / Web Viewer，也不写 `live.rrd`、`rerun.json`，只在回合结束时落 `replay/`。批量重跑（[INVENTORY.md](INVENTORY.md) 的“重跑失败回合”）用它：失败的回合不留视频也能在 3D 里重建。每个回合约 20 MB。
 
 ## 验证
 

@@ -23,6 +23,7 @@ TRAJECTORY_COLUMNS = (
 	"takeover_gate", "takeover_frame",
 	"has_actions", "has_events", "has_keyframes", "has_video", "has_motion",
 	"split_hint", "catalog_role", "quality_status", "condition", "alias",
+	"rerun_of", "attempt", "rerun_code", "rerun_info", "superseded_by",
 	"written_at", "episode_sha256", "same_as", "tags",
 )  # fmt: skip
 SCENE_COLUMNS = (
@@ -32,7 +33,7 @@ SCENE_COLUMNS = (
 DATASET_COLUMNS = (
 	"dataset_id", "name", "kind", "root", "path", "engine", "n_scenes", "n_items", "item_unit", "digest", "manifest_commit", "summary",
 )  # fmt: skip
-JSON_COLUMNS = {"brick_size", "layout", "summary", "tags", "categories"}
+JSON_COLUMNS = {"brick_size", "layout", "summary", "tags", "categories", "rerun_info"}
 
 
 def project_root() -> Path:
@@ -80,7 +81,9 @@ def mark_duplicates(rows: list[dict]) -> int:
 	n = 0
 	for row in rows:
 		sha = row.get("episode_sha256")
-		if not sha:
+		if not sha or row.get(
+			"rerun_of"
+		):  # a re-run is a record of its own, even when it reproduced the original exactly
 			continue
 		if sha in first:
 			row["same_as"] = first[sha]
@@ -88,6 +91,31 @@ def mark_duplicates(rows: list[dict]) -> int:
 		else:
 			first[sha] = row["traj_id"]
 	return n
+
+
+def link_reruns(rows: list[dict]) -> int:
+	"""Fill ``superseded_by`` on originals whose latest *superseding* re-run exists, and tag re-runs that reproduced the
+	original byte for byte. Originals are never changed otherwise: the old verdict stays in the table. Returns the number of
+	superseded originals."""
+	by_id = {r["traj_id"]: r for r in rows}
+	latest: dict[str, dict] = {}
+	for row in rows:
+		orig = by_id.get(row.get("rerun_of") or "")
+		if orig is None:
+			continue
+		if row.get("episode_sha256") and row["episode_sha256"] == orig.get("episode_sha256"):
+			row["tags"] = sorted(set(row.get("tags") or []) | {"reproduced"})
+		if not (row.get("rerun_info") or {}).get("supersedes"):
+			continue
+		best = latest.get(orig["traj_id"])
+		if best is None or (row.get("attempt") or 0, row["written_at"]) > (
+			best.get("attempt") or 0,
+			best["written_at"],
+		):
+			latest[orig["traj_id"]] = row
+	for tid, row in latest.items():
+		by_id[tid]["superseded_by"] = row["traj_id"]
+	return len(latest)
 
 
 def collect_scenes(trajectories: list[dict], render_scenes: list[dict]) -> list[dict]:
@@ -219,6 +247,7 @@ def build(
 	rules = load_overrides(overrides)
 	touched = apply_overrides(trajectories, rules)
 	dups = mark_duplicates(trajectories)
+	superseded = link_reruns(trajectories)
 	for row in trajectories:
 		if row.get("sim_frames") and row.get("fps") and row.get("sim_s") is None:
 			row["sim_s"] = round(row["sim_frames"] / row["fps"], 3)
@@ -233,6 +262,7 @@ def build(
 		"overrides_file": str(overrides),
 		"overrides_applied": touched,
 		"duplicates": dups,
+		"superseded": superseded,
 	}
 	_write_sqlite(
 		out / "inventory.sqlite",

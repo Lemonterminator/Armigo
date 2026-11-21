@@ -43,6 +43,24 @@ def test_live_stream_is_off_without_the_environment_switch(tmp_path, monkeypatch
 	assert not (tmp_path / "ep" / "rerun.json").exists()
 
 
+def test_record_mode_saves_the_replay_without_a_viewer(tmp_path, monkeypatch):
+	monkeypatch.setenv(live.ENV, "record")
+	assert live.enabled() and live.record_only()
+	trace = EpisodeTrace(tmp_path / "ep", video=False)
+	backend = TwinMujoco(sample_case(*CASE), FakeScorer(), trace, sensing="truth")
+	try:
+		assert trace.live is not None and trace.live.rec is None
+		assert backend.prepare() is None
+		n = backend.ep.n_frames
+		assert n > 0 and len(trace.live.frames) == n
+	finally:
+		trace.close()
+		backend.close()
+	ep = tmp_path / "ep"
+	assert (ep / "replay" / "scene.json").is_file() and (ep / "replay" / "motion.npz").is_file()
+	assert not (ep / "rerun.json").exists() and not (ep / "live.rrd").exists()  # no gRPC server, no viewer entry
+
+
 def test_real_episode_streams_poses_and_saves_a_replay(tmp_path, monkeypatch):
 	monkeypatch.setenv(live.ENV, "1")
 	trace = EpisodeTrace(tmp_path / "ep", video=False)

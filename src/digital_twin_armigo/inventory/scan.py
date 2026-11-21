@@ -99,6 +99,19 @@ def walk(root: Path) -> Iterator[tuple[Path, list[str], list[str]]]:
 		yield Path(cur), dirs, files
 
 
+LINEAGE_FILE = "lineage.json"  # written next to a re-run episode by ``inventory.rerun``
+LINEAGE_SCHEMA = "armigo-rerun/v1"
+RERUN_INFO_KEYS = (
+	"supersedes",
+	"original_path",
+	"original_verdict",
+	"original_detector_sha256",
+	"detector_sha256",
+	"detector_changed",
+	"ran_at",
+)
+
+
 # -- agent episodes -------------------------------------------------------------------------------------------------------
 def agent_episode(directory: Path, root_label: str, root: Path) -> dict | None:
 	file = directory / "episode.json"
@@ -108,6 +121,8 @@ def agent_episode(directory: Path, root_label: str, root: Path) -> dict | None:
 	prov, result = ep.get("provenance") or {}, ep.get("result") or {}
 	run = _json(directory / "run.json") or {}
 	task = _json(directory / "task.json") or {}
+	lineage = _json(directory / LINEAGE_FILE)
+	lineage = lineage if isinstance(lineage, dict) and lineage.get("schema") == LINEAGE_SCHEMA else {}
 	case = prov.get("case") or run.get("case") or task.get("case")
 	written_at = file.stat().st_mtime
 	actor = taxonomy.classify_provenance(prov, result, written_at=written_at)
@@ -155,6 +170,10 @@ def agent_episode(directory: Path, root_label: str, root: Path) -> dict | None:
 		"has_video": bool(ep.get("video")),
 		"has_motion": (directory / "replay" / "motion.npz").is_file(),
 		"split_hint": split_hint(directory.relative_to(root)),
+		"rerun_of": lineage.get("rerun_of"),
+		"attempt": lineage.get("attempt"),
+		"rerun_code": lineage.get("code_commit"),
+		"rerun_info": {k: lineage[k] for k in RERUN_INFO_KEYS if k in lineage} or None,
 		"written_at": file.stat().st_mtime,
 		"episode_sha256": sha256_file(file),
 	}

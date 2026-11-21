@@ -1,4 +1,4 @@
-"""Live 3D streaming of a running MuJoCo agent episode into Rerun (opt-in with ``ARMIGO_RERUN=1``).
+"""Live 3D streaming of a running MuJoCo agent episode into Rerun (opt-in with ``ARMIGO_RERUN=1``; ``ARMIGO_RERUN=record`` only saves the pose replay, no viewer).
 
 The simulation process hosts a Rerun gRPC server and web viewer (once per process); every episode gets its own Rerun
 recording (id = episode directory name) with
@@ -37,6 +37,12 @@ _hub_lock = threading.Lock()
 
 def enabled() -> bool:
 	return os.environ.get(ENV, "").strip().lower() not in ("", "0", "false", "off", "no")
+
+
+def record_only() -> bool:
+	"""``ARMIGO_RERUN=record``: write ``replay/`` (poses for a later 3D replay) without a viewer, gRPC server or ``live.rrd``.
+	For batch runs (``armigo-inventory rerun``) where nobody watches and hundreds of episodes share one process."""
+	return os.environ.get(ENV, "").strip().lower() == "record"
 
 
 def _free_port() -> int:
@@ -106,11 +112,22 @@ def _pid_alive(pid: int) -> bool:
 class LiveStream:
 	def __init__(self, cell, episode_dir: Path, *, started: float | None = None):
 		from digital_twin_armigo.catalog.capture import MujocoCapture
+
+		self.dir = Path(episode_dir)
+		self.started = time.perf_counter() if started is None else started
+		self.recording_only = record_only()
+		self.capture = MujocoCapture(cell)
+		self.node_ids = [n["id"] for n in self.capture.scene["nodes"]]
+		self.last: np.ndarray | None = None
+		self.frames: list[np.ndarray] = []
+		self.step = 0
+		self.lock = threading.Lock()
+		if self.recording_only:  # poses only: no Rerun stream at all
+			self.rr = self.rec = self.logger = None
+			return
 		from digital_twin_armigo.viewer import rerun_log as rl
 
 		self.rr = rl.import_rerun()
-		self.dir = Path(episode_dir)
-		self.started = time.perf_counter() if started is None else started
 		hub = ensure_hub()
 		self.rec = self.rr.RecordingStream("armigo-live", recording_id=self.dir.name)
 		# One stream, two sinks: the live viewer, and ``live.rrd`` next to the episode for replay after the process is gone.
@@ -120,15 +137,9 @@ class LiveStream:
 			default_blueprint=rl.blueprint(has_scene=True),
 			recording=self.rec,
 		)
-		self.capture = MujocoCapture(cell)
 		rl.log_scene_geometry(self.capture.scene, recording=self.rec)
 		self.logger = rl.EpisodeLogger(self.dir, recording=self.rec)
 		self.logger.log_graph()
-		self.node_ids = [n["id"] for n in self.capture.scene["nodes"]]
-		self.last: np.ndarray | None = None
-		self.frames: list[np.ndarray] = []
-		self.step = 0
-		self.lock = threading.Lock()
 		(self.dir / "rerun.json").write_text(
 			json.dumps(
 				{"url": hub["url"], "web": hub["web"], "grpc": hub["grpc"], "pid": os.getpid(), "finished": False}
@@ -139,6 +150,10 @@ class LiveStream:
 	def on_frame(self, episode) -> None:
 		"""Log the pose of every geom that moved since the previous control frame."""
 		poses = self.capture.poses(episode.cell)
+		if self.recording_only:
+			with self.lock:
+				self.frames.append(poses)
+			return
 		with self.lock:
 			rr, rec = self.rr, self.rec
 			rr.set_time("sim_time", duration=episode.n_frames / FPS, recording=rec)
@@ -163,6 +178,8 @@ class LiveStream:
 	def on_events(self, events: list[dict]) -> None:
 		from digital_twin_armigo.viewer import stats as st
 
+		if self.recording_only:
+			return
 		with self.lock:
 			if not self.logger.log_events(events):
 				return
@@ -196,6 +213,8 @@ class LiveStream:
 					timestamps=(np.arange(len(self.frames)) + 1) / FPS,
 					node_ids=np.array(self.node_ids),
 				)
+			if self.recording_only:
+				return
 			info = json.loads((self.dir / "rerun.json").read_text(encoding="utf-8"))
 			info["finished"] = True
 			(self.dir / "rerun.json").write_text(json.dumps(info), encoding="utf-8")

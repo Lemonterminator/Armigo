@@ -33,6 +33,24 @@ armigo-view serve --inventory E:/some/dir          # 清单不在默认的 data/
 - API（页面用的就是这些，也可直接脚本调用）：`/api/inventory/summary`、`/api/inventory/{trajectories|scenes|datasets}`（`?category=model,model_takeover&engine=mujoco&q=…&sort=-seed&limit=100&offset=0`）、`…/facets`、`/api/inventory/trajectory?id=…`。排序和筛选的列名都来自固定白名单，值走参数绑定。
 - 页面读的是上一次 `scan` 的结果；重新扫描后刷新页面即可，不需要重启服务。
 
+## 重跑失败回合（新增记录，保留原结果）
+
+失败的 agent 回合可以按原案例、原策略、原感知模式整条重跑。原记录一个字节都不改，重跑写成**新记录**；通过了新记录是 `SUCCESS`，没通过也留着 `replay/`（`ARMIGO_RERUN=record`，见 [VIEWER.md](VIEWER.md)），可以直接开 3D 回放，不需要存视频。
+
+```powershell
+armigo-inventory rerun --dry-run                      # 先看会重跑多少、哪些被跳过及原因
+armigo-inventory rerun --limit 5                      # 先试几条
+armigo-inventory rerun --run-group bottom2x4          # 只重跑某个运行批次
+armigo-inventory rerun                                # 全量；中断后再跑会跳过已完成的
+armigo-inventory scan                                 # 把新旧记录连起来
+```
+
+- 范围：`agent_omniscient` / `agent_realistic` 里 `FAILED` / `UNKNOWN` 的回合（`--category` 可改）。没有 `task.json`（无法重建）、用了 LLM（需要模型服务）的回合会跳过，并说明原因。模型 / 接管（`model*`）的失败不在此列：它们测的是某个检查点，换成“重跑到通过”会改变含义，需要另行设计。
+- 输出：`<inventory>/reruns/<运行批次>/<原目录名>-r<次数>/`，里面有 `lineage.json`（重跑了谁、第几次、代码提交、新旧检测器哈希、新旧结果）。下次 `scan` 自动把 `<inventory>/reruns` 当作根目录 `reruns`。
+- 表里新增列：`rerun_of`（指向原记录）、`attempt`、`rerun_code`、`rerun_info`、`superseded_by`（原记录上，指向最新一次重跑）。原记录的 `verdict` 不变；字节完全相同的重跑加标签 `reproduced`；重跑不会被当作 `same_as` 重复。`--redo` 再来一轮，次数加一，最新一次为准。
+- 页面：“重跑”列显示 `重跑 r1` 或 `已被重跑`；“只看最新一次”隐藏已被取代的原记录，“只看重跑 / 只看原记录”下拉；顶部汇总有重跑数、通过数、被取代数。
+- 注意：重跑用**当前**检测器（`--detector`，默认 `results/anomaly/models-sup/sup.json`），早期回合的检测器文件已无法恢复，所以 `rerun_info.detector_changed` 通常是 `true`；仿真本身是确定的，同一案例同一策略多半得到同一个结果。这是“当前代码下的结果”，不是对原结果的修正。
+
 ## 来源类别（`category`）
 
 “谁在驱动机械臂”和“它能看到什么”两个问题合成一个字段：
@@ -80,7 +98,7 @@ armigo-view serve --inventory E:/some/dir          # 清单不在默认的 data/
 ## 验证
 
 ```powershell
-uv run pytest tests/test_inventory.py -q
+uv run pytest tests/test_inventory.py tests/test_inventory_view.py tests/test_inventory_rerun.py -q
 ```
 
-覆盖分类规则（含旧数据推断与显式冻结）、三个适配器、场景聚合、去重、覆盖规则、CSV、CLI、扫描不改被扫描文件。
+覆盖分类规则（含旧数据推断与显式冻结）、三个适配器、场景聚合、去重、覆盖规则、CSV、CLI、扫描不改被扫描文件；重跑的计划与跳过原因、`lineage.json` 链接、最新一次筛选、`--redo` 次数。

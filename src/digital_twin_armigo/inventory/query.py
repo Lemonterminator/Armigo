@@ -82,8 +82,13 @@ def _where(table: str, params: dict[str, str]) -> tuple[str, list]:
 		if raw in ("0", "1"):
 			clauses.append(f"coalesce({col}, 0) = ?")
 			args.append(int(raw))
-	if table == "trajectories" and params.get("distinct", "1") == "1":
-		clauses.append("same_as is null")
+	if table == "trajectories":
+		if params.get("distinct", "1") == "1":
+			clauses.append("same_as is null")
+		if params.get("latest") == "1":  # hide originals that a re-run superseded; the history stays in the table
+			clauses.append("superseded_by is null")
+		if params.get("is_rerun") in ("0", "1"):
+			clauses.append("rerun_of is not null" if params["is_rerun"] == "1" else "rerun_of is null")
 	text = (params.get("q") or "").strip()
 	if text:
 		clauses.append("(" + " or ".join(f"{c} like ? escape '\\'" for c in SEARCH[table]) + ")")
@@ -156,12 +161,23 @@ def summary(inventory_dir: Path) -> dict:
 			t: con.execute(f"select count(*) from {t}").fetchone()[0] for t in ("trajectories", "scenes", "datasets")
 		}
 		duplicates = con.execute("select count(*) from trajectories where same_as is not null").fetchone()[0]
+		reruns = dict(
+			zip(
+				("reruns", "superseded", "rerun_success"),
+				con.execute(
+					"""select count(rerun_of), count(superseded_by), sum(rerun_of is not null and verdict = 'SUCCESS')
+					   from trajectories"""
+				).fetchone(),
+				strict=True,
+			)
+		)
 	return {
 		"meta": meta,
 		"categories": taxonomy.CATEGORIES,
 		"matrix": matrix,
 		"totals": totals,
 		"duplicates": duplicates,
+		"reruns": {k: v or 0 for k, v in reruns.items()},
 	}
 
 
