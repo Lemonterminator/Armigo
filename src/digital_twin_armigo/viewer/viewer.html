@@ -206,6 +206,10 @@ async function loadEpisodes(keep) {
   sel.replaceChildren();
   list.forEach(e => { const o = document.createElement('option'); o.value = e.id; o.textContent = `${e.kind === 'agent' ? (e.finished ? '' : '● ') : '◇ '}${e.id}`; sel.appendChild(o); });
   const wanted = decodeURIComponent(location.hash.slice(1));  // /#<episode id>, e.g. from the inventory page
+  if (wanted.startsWith('inv:') && !list.some(e => e.id === wanted)) {  // outside --root: the server resolves it via the inventory
+    list.unshift({ id: wanted, kind: 'agent', finished: true });
+    const o = document.createElement('option'); o.value = wanted; o.textContent = wanted; sel.prepend(o);
+  }
   const target = list.find(e => e.id === prev) ? prev : (list.find(e => e.id === wanted) ? wanted : list[0]?.id);
   if (target) { sel.value = target; if (target !== current) { current = target; poll(); } }
   return list;

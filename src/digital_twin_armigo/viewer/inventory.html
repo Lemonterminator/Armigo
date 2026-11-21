@@ -252,7 +252,7 @@ function showDetail(row, tr) {
   if (state.tab === 'trajectories') {
     api('/api/inventory/trajectory?id=' + encodeURIComponent(row.traj_id)).then(t => {
       if (t.viewer_id) links.append(h('a', { href: '/#' + encodeURIComponent(t.viewer_id), target: '_blank' }, '在状态机页面打开 →'));
-      else links.append(h('span', { class: 'muted' }, '不在当前服务的 --root 下，无法直接回放'));
+      else links.append(h('span', { class: 'muted' }, '该轨迹目录已不存在（或不是 agent 回合），无法回放'));
     }).catch(() => {});
   }
 }

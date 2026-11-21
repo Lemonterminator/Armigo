@@ -30,6 +30,7 @@ except ImportError:  # the web extra is optional; create_app imports fastapi its
 SKIP_DIRS = {"branch-0", "keyframes", "checkpoints", "replay", "__pycache__", ".git", "node_modules"}
 MAX_DEPTH = 4
 LIVE_GRACE_S = 30.0
+INVENTORY_PREFIX = "inv:"  # episode id for an episode outside root, resolved through the inventory by trajectory id
 
 
 def discover(root: Path) -> list[dict]:
@@ -212,6 +213,14 @@ def create_app(root: Path, *, session: RerunSession | None = None, inventory: Pa
 		return await call_next(request)
 
 	def resolve(ident: str) -> Path:
+		if ident.startswith(INVENTORY_PREFIX):  # an episode outside root that the inventory scan found
+			try:
+				found = inv.agent_episode_path(inventory_dir, ident[len(INVENTORY_PREFIX) :])
+			except FileNotFoundError:
+				found = None
+			if found is None or not found.is_dir():
+				raise HTTPException(404, "unknown episode")
+			return found.resolve()
 		path = (root / ident).resolve()
 		if not path.is_relative_to(root) or not path.is_dir():
 			raise HTTPException(404, "unknown episode")
@@ -240,9 +249,11 @@ def create_app(root: Path, *, session: RerunSession | None = None, inventory: Pa
 		if row.get("record_kind") != "agent_episode" or not row.get("path"):
 			return None
 		path = Path(row["path"]).resolve()
-		if path.is_dir() and path.is_relative_to(root):
+		if not path.is_dir():
+			return None
+		if path.is_relative_to(root):
 			return path.relative_to(root).as_posix() or "."
-		return None
+		return INVENTORY_PREFIX + row["traj_id"]
 
 	@app.get("/api/inventory/summary")
 	def inventory_summary():

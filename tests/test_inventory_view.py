@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import json
+import shutil
+
 import pytest
 
 from digital_twin_armigo.inventory import query, store, taxonomy
@@ -9,6 +12,7 @@ from digital_twin_armigo.inventory import query, store, taxonomy
 fastapi = pytest.importorskip("fastapi")
 from fastapi.testclient import TestClient
 from test_inventory import tree  # noqa: F401  (fixture)
+from test_viewer_app import EDGES, NODES, _events
 
 from digital_twin_armigo.viewer import server
 
@@ -87,6 +91,25 @@ def test_trajectory_detail_links_to_the_viewer_when_under_root(client):
 	hidden = client.get("/api/inventory/trajectories", params={"record_kind": "catalog_episode"}).json()
 	assert hidden["total"] == 9  # record_kind is not a public filter
 	assert client.get("/api/inventory/trajectory", params={"id": "nope"}).status_code == 404
+
+
+def test_episodes_outside_root_replay_through_the_inventory(inv, tree, tmp_path):  # noqa: F811
+	elsewhere = tmp_path / "elsewhere"
+	elsewhere.mkdir()
+	other = TestClient(server.create_app(elsewhere, inventory=inv))  # the served root contains none of the episodes
+	rows = other.get("/api/inventory/trajectories", params={"q": "run-b"}).json()["rows"]
+	detail = other.get("/api/inventory/trajectory", params={"id": rows[0]["traj_id"]}).json()
+	assert detail["viewer_id"] == "inv:" + rows[0]["traj_id"]
+	episode_dir = tree / "agent/run-b/case-0000"
+	assert other.get("/api/episode", params={"id": detail["viewer_id"]}).status_code == 404  # no events.jsonl yet
+	shutil.rmtree(episode_dir / "branch-0", ignore_errors=True)  # the scan fixture's arrays are not viewer arrays
+	(episode_dir / "graph.json").write_text(json.dumps({"nodes": NODES, "edges": EDGES}), encoding="utf-8")
+	(episode_dir / "events.jsonl").write_text("\n".join(json.dumps(e) for e in _events()) + "\n", encoding="utf-8")
+	replay = other.get("/api/episode", params={"id": detail["viewer_id"]})
+	assert replay.status_code == 200 and replay.json()["kind"] == "agent"
+	# only ids the inventory knows are resolved: no client-supplied paths
+	assert other.get("/api/episode", params={"id": "inv:../../etc"}).status_code == 404
+	assert other.get("/api/episode", params={"id": "inv:" + str(episode_dir)}).status_code == 404
 
 
 def test_unknown_table_and_missing_inventory(tree, tmp_path, client):  # noqa: F811

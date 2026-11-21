@@ -172,6 +172,15 @@ def _loads(value):
 		return value
 
 
+def agent_episode_path(inventory_dir: Path, traj_id: str) -> Path | None:
+	"""Directory of an agent episode the inventory knows by ``traj_id`` (never an arbitrary path from the client)."""
+	with connect(inventory_dir) as con:
+		row = con.execute(
+			"select path from trajectories where traj_id = ? and record_kind = 'agent_episode'", (traj_id,)
+		).fetchone()
+	return Path(row["path"]) if row else None
+
+
 def trajectory(inventory_dir: Path, traj_id: str) -> dict | None:
 	with connect(inventory_dir) as con:
 		row = con.execute("select * from trajectories where traj_id = ?", (traj_id,)).fetchone()

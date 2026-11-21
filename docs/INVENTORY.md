@@ -29,7 +29,7 @@ armigo-view serve --inventory E:/some/dir          # 清单不在默认的 data/
 
 - 顶部是“类别 × 引擎”矩阵（内容不重复的轨迹数，括号内为 SUCCESS 数），点格子就按它筛选。
 - 轨迹 / 场景 / 数据集三个页签；芯片按类别、引擎、结果、运行批次、分类依据、根目录筛选，每个芯片上的数字是再点它会得到的条数；另有搜索框、“3D 位姿 有/无”、是否隐藏字节重复的拷贝、点表头排序、分页。
-- 点一行打开详情（该行全部字段）；agent 轨迹若在 `--root` 之下，详情里有链接直接跳到状态机页面回放。
+- 点一行打开详情（该行全部字段）；agent 轨迹（包括 `--root` 之外的 `results/`、`E:/scratch` 里的）详情里有链接直接跳到状态机页面回放；`--root` 之外的用 `inv:<traj_id>` 作 episode id，由服务按清单里记录的路径解析，不接受客户端给的路径。目录被删掉了就不能回放。
 - API（页面用的就是这些，也可直接脚本调用）：`/api/inventory/summary`、`/api/inventory/{trajectories|scenes|datasets}`（`?category=model,model_takeover&engine=mujoco&q=…&sort=-seed&limit=100&offset=0`）、`…/facets`、`/api/inventory/trajectory?id=…`。排序和筛选的列名都来自固定白名单，值走参数绑定。
 - 页面读的是上一次 `scan` 的结果；重新扫描后刷新页面即可，不需要重启服务。
 
