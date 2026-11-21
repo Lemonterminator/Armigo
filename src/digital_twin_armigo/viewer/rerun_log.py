@@ -49,13 +49,12 @@ def _rgba8(color) -> list[int]:
 	return [round(v * 255) for v in c[:4]]
 
 
-def log_scene(scene: dict, poses: np.ndarray, times: np.ndarray, *, prefix: str = "world") -> None:
-	"""Static geometry per node plus its pose over time (``poses`` is ``[T, N, 7]``: xyz + xyzw, metres, Z-up)."""
+def log_scene_geometry(scene: dict, *, prefix: str = "world", recording=None) -> None:
+	"""Static geometry of every scene node (meshes, boxes, spheres, capsules); poses are logged separately."""
 	rr = import_rerun()
-	rr.log(prefix, rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True)
+	rr.log(prefix, rr.ViewCoordinates.RIGHT_HAND_Z_UP, static=True, recording=recording)
 	meshes = scene.get("meshes", {})
-	time_col = rr.TimeColumn("sim_time", duration=np.asarray(times, dtype=float))
-	for i, node in enumerate(scene["nodes"]):
+	for node in scene["nodes"]:
 		path = f"{prefix}/{node['id']}"
 		color = _rgba8(node.get("color", [0.7, 0.7, 0.7, 1]))
 		scale = np.asarray(node.get("scale", [1.0, 1.0, 1.0]), dtype=float)
@@ -71,10 +70,11 @@ def log_scene(scene: dict, poses: np.ndarray, times: np.ndarray, *, prefix: str 
 					albedo_factor=color,
 				),
 				static=True,
+				recording=recording,
 			)
 		elif kind == "sphere":
 			r = float(size[0] * scale[0])
-			rr.log(path, rr.Ellipsoids3D(half_sizes=[[r, r, r]], colors=[color]), static=True)
+			rr.log(path, rr.Ellipsoids3D(half_sizes=[[r, r, r]], colors=[color]), static=True, recording=recording)
 		elif kind in ("cylinder", "capsule"):
 			rr.log(
 				path,
@@ -82,14 +82,25 @@ def log_scene(scene: dict, poses: np.ndarray, times: np.ndarray, *, prefix: str 
 					lengths=[float(2 * size[1] * scale[2])], radii=[float(size[0] * scale[0])], colors=[color]
 				),
 				static=True,
+				recording=recording,
 			)
 		elif kind == "plane":
 			half = [float(size[0]) or 1.0, float(size[1]) or 1.0, 0.001]
-			rr.log(path, rr.Boxes3D(half_sizes=[half], colors=[color]), static=True)
+			rr.log(path, rr.Boxes3D(half_sizes=[half], colors=[color]), static=True, recording=recording)
 		else:  # box, and anything unknown, shown as its bounding box
-			rr.log(path, rr.Boxes3D(half_sizes=[(size * scale).tolist()], colors=[color]), static=True)
+			rr.log(
+				path, rr.Boxes3D(half_sizes=[(size * scale).tolist()], colors=[color]), static=True, recording=recording
+			)
+
+
+def log_scene(scene: dict, poses: np.ndarray, times: np.ndarray, *, prefix: str = "world") -> None:
+	"""Static geometry per node plus its pose over time (``poses`` is ``[T, N, 7]``: xyz + xyzw, metres, Z-up)."""
+	rr = import_rerun()
+	log_scene_geometry(scene, prefix=prefix)
+	time_col = rr.TimeColumn("sim_time", duration=np.asarray(times, dtype=float))
+	for i, node in enumerate(scene["nodes"]):
 		rr.send_columns(
-			path,
+			f"{prefix}/{node['id']}",
 			indexes=[time_col],
 			columns=rr.Transform3D.columns(translation=poses[:, i, :3], quaternion=poses[:, i, 3:]),
 		)
@@ -181,7 +192,7 @@ def _describe(e: dict) -> str:
 class EpisodeLogger:
 	"""Incrementally logs an episode directory; safe to call repeatedly while the episode is being written."""
 
-	def __init__(self, path: Path, *, app_id: str = "armigo-episode", fps: int = st.FPS):
+	def __init__(self, path: Path, *, app_id: str = "armigo-episode", fps: int = st.FPS, recording=None):
 		self.rr = import_rerun()
 		self.path = Path(path)
 		self.fps = fps
@@ -195,15 +206,34 @@ class EpisodeLogger:
 		self.branches_logged: set[int] = set()
 		self.keyframes_logged: set[str] = set()
 		self.visits_logged: set[int] = set()
+		self.step_series: set[str] = set()
 		self._live_mtime = 0.0
-		self.rr.init(app_id, spawn=False)
+		if recording is None:
+			self.rr.init(app_id, spawn=False)
+		self.rec = recording
+
+	def _log(self, path, archetype, **kw):
+		self.rr.log(path, archetype, recording=self.rec, **kw)
+
+	def _send(self, path, **kw):
+		self.rr.send_columns(path, recording=self.rec, **kw)
+
+	def _set_time(self, timeline, **kw):
+		self.rr.set_time(timeline, recording=self.rec, **kw)
+
+	def _step_series(self, path: str) -> None:
+		"""Draw a state signal as exact steps: the viewer's default plot aggregation averages a step into a ramp."""
+		if path in self.step_series:
+			return
+		self.step_series.add(path)
+		self._log(path, self.rr.SeriesLines(aggregation_policy="Off", interpolation_mode="StepAfter"), static=True)
 
 	# -- time ---------------------------------------------------------------------------------------------------------
 	def _at(self, sim: float | None, wall: float | None = None) -> None:
 		if sim is not None:
-			self.rr.set_time("sim_time", duration=float(sim))
+			self._set_time("sim_time", duration=float(sim))
 		if wall is not None:
-			self.rr.set_time("wall_time", duration=float(wall))
+			self._set_time("wall_time", duration=float(wall))
 
 	# -- state machine --------------------------------------------------------------------------------------------------
 	def log_graph(self) -> None:
@@ -216,7 +246,7 @@ class EpisodeLogger:
 			"",
 		]
 		lines += [f"- {a} -> {b}" for a, b in edges]
-		rr.log("state/graph", rr.TextDocument("\n".join(lines), media_type=rr.MediaType.MARKDOWN), static=True)
+		self._log("state/graph", rr.TextDocument("\n".join(lines), media_type=rr.MediaType.MARKDOWN), static=True)
 
 	def log_events(self, events: list[dict]) -> int:
 		"""Log events not logged yet; returns how many were new."""
@@ -225,22 +255,24 @@ class EpisodeLogger:
 		for e in new:
 			sim, wall = e.get("sim_time_s"), e.get("wall_time_s")
 			self._at(sim, wall)
-			rr.log("state/log", rr.TextLog(_describe(e)))
+			self._log("state/log", rr.TextLog(_describe(e)))
 			if e.get("kind") == "node":
 				node = e["node"]
+				self._step_series(f"state/active/{node}")
+				self._step_series("state/node_index")
 				index = float(self.nodes.index(node)) if node in self.nodes else -1.0
 				if self.current is not None and self.current != node:
 					# Plots join samples with straight lines; a sample just before the change makes a step instead of a ramp.
 					self._at(None if sim is None else sim - STEP_EPS_S, None if wall is None else wall - STEP_EPS_S)
-					rr.log(f"state/active/{self.current}", rr.Scalars(1.0))
-					rr.log("state/node_index", rr.Scalars(self.current_index))
+					self._log(f"state/active/{self.current}", rr.Scalars(1.0))
+					self._log("state/node_index", rr.Scalars(self.current_index))
 					self._at(sim, wall)
-					rr.log(f"state/active/{self.current}", rr.Scalars(0.0))
-				rr.log(f"state/active/{node}", rr.Scalars(1.0))
-				rr.log("state/node_index", rr.Scalars(index))
+					self._log(f"state/active/{self.current}", rr.Scalars(0.0))
+				self._log(f"state/active/{node}", rr.Scalars(1.0))
+				self._log("state/node_index", rr.Scalars(index))
 				self.current, self.current_index = node, index
 			elif e.get("kind") == "decision" and e.get("latency_s") is not None:
-				rr.log("state/decision_latency_s", rr.Scalars(float(e["latency_s"])))
+				self._log("state/decision_latency_s", rr.Scalars(float(e["latency_s"])))
 		self.events_logged = len(events)
 		return len(new)
 
@@ -251,10 +283,10 @@ class EpisodeLogger:
 				continue
 			self.visits_logged.add(v["index"])
 			self._at(v["sim0"] + v["sim_s"], v["wall0"] + v["wall_s"])
-			rr.log(f"state/visit_wall_s/{v['node']}", rr.Scalars(v["wall_s"]))
+			self._log(f"state/visit_wall_s/{v['node']}", rr.Scalars(v["wall_s"]))
 
 	def log_stats(self, s: dict) -> None:
-		self.rr.log(
+		self._log(
 			"stats/summary", self.rr.TextDocument(stats_markdown(s), media_type=self.rr.MediaType.MARKDOWN), static=True
 		)
 
@@ -275,10 +307,10 @@ class EpisodeLogger:
 		time_col = rr.TimeColumn("sim_time", duration=times)
 		names = state_names or [f"j{j}" for j in range(state.shape[1])]
 		for j, name in enumerate(names[: state.shape[1]]):
-			rr.send_columns(
+			self._send(
 				f"robot/state/{name}", indexes=[time_col], columns=rr.Scalars.columns(scalars=state[:, j].astype(float))
 			)
-			rr.send_columns(
+			self._send(
 				f"robot/action/{name}",
 				indexes=[time_col],
 				columns=rr.Scalars.columns(scalars=action[:, j].astype(float)),
@@ -287,8 +319,8 @@ class EpisodeLogger:
 			segs = st.phase_segments(phase, fps=self.fps, offset=start_frame)
 			order = {}
 			idx = np.array([order.setdefault(str(p), len(order)) for p in phase], dtype=float)
-			rr.send_columns("phase/index", indexes=[time_col], columns=rr.Scalars.columns(scalars=idx))
-			rr.send_columns(
+			self._send("phase/index", indexes=[time_col], columns=rr.Scalars.columns(scalars=idx))
+			self._send(
 				"phase/log",
 				indexes=[rr.TimeColumn("sim_time", duration=np.array([s["frame0"] / self.fps for s in segs]))],
 				columns=rr.TextLog.columns(text=[f"{s['phase']} ({s['sim_s']:.2f} s sim)" for s in segs]),
@@ -304,7 +336,7 @@ class EpisodeLogger:
 				continue
 			_, frame, camera, kind = m.groups()
 			self._at(int(frame) / self.fps)
-			rr.log(f"camera/{camera}/{kind}", rr.EncodedImage(path=str(p)))
+			self._log(f"camera/{camera}/{kind}", rr.EncodedImage(path=str(p)))
 			self.keyframes_logged.add(p.name)
 
 	def log_live_image(self, sim: float | None) -> None:
@@ -314,7 +346,7 @@ class EpisodeLogger:
 		self._live_mtime = image.stat().st_mtime
 		self._at(sim, None)
 		try:
-			self.rr.log("camera/live", self.rr.EncodedImage(contents=image.read_bytes(), media_type="image/jpeg"))
+			self._log("camera/live", self.rr.EncodedImage(contents=image.read_bytes(), media_type="image/jpeg"))
 		except OSError:
 			pass  # being replaced by the recorder; the next poll gets it
 

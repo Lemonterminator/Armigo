@@ -183,6 +183,8 @@ function render(d) {
     ev.appendChild(div);
   });
   if (stick) ev.scrollTop = ev.scrollHeight;
+  rerunLabel = d.live_rerun ? '打开实时 3D（Rerun）' : d.replay ? '打开 3D 回放（Rerun）' : '打开 Rerun 回放';
+  if (!$('open-rerun').disabled) $('open-rerun').textContent = rerunLabel;
   const img = $('live-img'); img.hidden = !(d.live && d.live_image);
   if (!img.hidden) img.src = '/api/live.jpg?id=' + encodeURIComponent(d.id) + '&t=' + Date.now();
 }
@@ -207,11 +209,16 @@ async function loadEpisodes(keep) {
   return list;
 }
 
+function showRerun(url) {
+  $('rerun-section').hidden = !url; $('close-rerun').hidden = !url;
+  if (url && $('rerun').dataset.url !== url) { $('rerun').src = url; $('rerun').dataset.url = url; }
+  if (!url) { $('rerun').removeAttribute('src'); delete $('rerun').dataset.url; }
+}
 async function rerunStatus() {
   const s = await (await fetch('/api/rerun')).json();
-  $('rerun-section').hidden = !s.running; $('close-rerun').hidden = !s.running;
-  if (s.running && $('rerun').dataset.url !== s.url) { $('rerun').src = s.url; $('rerun').dataset.url = s.url; }
+  if (s.running) showRerun(s.url);
 }
+let rerunLabel = '打开 Rerun 回放';
 
 $('episodes').onchange = e => { current = e.target.value; poll(); };
 $('follow').onchange = () => { if ($('follow').checked) loop(); };
@@ -220,14 +227,15 @@ $('open-rerun').onclick = async () => {
   token ??= (await (await fetch('/api/token')).json()).token;
   $('open-rerun').disabled = true; $('open-rerun').textContent = '启动 Rerun…';
   const r = await fetch('/api/rerun?id=' + encodeURIComponent(current), { method: 'POST', headers: { 'X-Viewer-Token': token } });
-  $('open-rerun').disabled = false; $('open-rerun').textContent = '打开 Rerun 回放';
-  if (!r.ok) { $('bar').textContent = (await r.json()).detail; return; }
-  await rerunStatus(); $('rerun-section').scrollIntoView({ behavior: 'smooth' });
+  $('open-rerun').disabled = false; $('open-rerun').textContent = rerunLabel;
+  const j = await r.json();
+  if (!r.ok) { $('bar').textContent = j.detail; return; }
+  showRerun(j.url); $('rerun-section').scrollIntoView({ behavior: 'smooth' });
 };
 $('close-rerun').onclick = async () => {
   token ??= (await (await fetch('/api/token')).json()).token;
   await fetch('/api/rerun', { method: 'DELETE', headers: { 'X-Viewer-Token': token } });
-  $('rerun').removeAttribute('src'); delete $('rerun').dataset.url; await rerunStatus();
+  showRerun(null);
 };
 async function loop() { if (!$('follow').checked) return; await loadEpisodes(false); setTimeout(loop, 3000); }
 loadEpisodes(false).then(rerunStatus);

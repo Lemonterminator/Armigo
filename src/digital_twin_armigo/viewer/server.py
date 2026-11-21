@@ -19,9 +19,10 @@ from pathlib import Path
 
 import numpy as np
 
+from digital_twin_armigo.viewer import live
 from digital_twin_armigo.viewer import stats as st
 
-SKIP_DIRS = {"branch-0", "keyframes", "checkpoints", "__pycache__", ".git", "node_modules"}
+SKIP_DIRS = {"branch-0", "keyframes", "checkpoints", "replay", "__pycache__", ".git", "node_modules"}
 MAX_DEPTH = 4
 LIVE_GRACE_S = 30.0
 
@@ -163,6 +164,7 @@ def episode_payload(path: Path, cache: dict) -> dict:
 		"result": meta.get("result"),
 		"live": not finished and bool(events) and (time.time() - events_file.stat().st_mtime) < LIVE_GRACE_S,
 		"live_image": (path / "live.jpg").is_file(),
+		"replay": (path / "replay" / "motion.npz").is_file(),
 	}
 	cache[path] = (key, payload)
 	return payload
@@ -217,7 +219,13 @@ def create_app(root: Path, *, session: RerunSession | None = None):
 	def episode(id: str):
 		path = resolve(id)
 		if (path / "events.jsonl").is_file() and (path / "graph.json").is_file():
-			return {"kind": "agent", "id": id, **episode_payload(path, cache)}
+			info = live.live_info(path)
+			return {
+				"kind": "agent",
+				"id": id,
+				**episode_payload(path, cache),
+				"live_rerun": info["url"] if info else None,
+			}
 		if (path / "motion.npz").is_file():
 			return {"kind": "recording", "id": id}
 		raise HTTPException(404, "not an episode directory")
@@ -236,6 +244,9 @@ def create_app(root: Path, *, session: RerunSession | None = None):
 	@app.post("/api/rerun")
 	def rerun_start(id: str):
 		path = resolve(id)
+		info = live.live_info(path)
+		if info:  # the simulation process already serves a viewer with the streamed 3D scene
+			return {"url": info["url"], "live": True}
 		try:
 			return rerun.start(path)
 		except RuntimeError as exc:

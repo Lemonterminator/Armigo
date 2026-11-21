@@ -43,7 +43,22 @@ Rerun 里的实体：`state/active/<节点>`（0/1 阶梯，类似甘特图）�
 
 ## 实时跟随
 
-只要 agent 跑在同一台机器、episode 目录可读，不需要改 agent 代码：查看器读取它已经写的 `events.jsonl`、`live.jpg`，分支结束后读 `actions.npz`。当前限制：运行中的 **3D 位姿不是实时的**（位姿只在资料库录制里）；实时部分是状态机、耗时、事件流和相机缩略图。要实时位姿，需要给仿真的 `frame_observer` 再挂一个写 Rerun 的观察者，目前没做。
+只要 agent 跑在同一台机器、episode 目录可读，不需要改 agent 代码：查看器读取它已经写的 `events.jsonl`、`live.jpg`，分支结束后读 `actions.npz`。这一档是状态机、耗时、事件流和相机缩略图，没有 3D 位姿。
+
+## 实时 3D 位姿（像 Blender 一样自由视角）
+
+给 agent 进程设环境变量 `ARMIGO_RERUN=1`，MuJoCo 回合就会把**完整 3D 场景**实时推给 Rerun：
+
+```powershell
+$env:ARMIGO_RERUN = "1"
+# 然后照常跑 agent；episode 目录里出现 rerun.json，HTML 页面的按钮变成“打开实时 3D（Rerun）”
+```
+
+- 场景几何（所有 geom，含机器人、桌面、物体）只记录一次；每个控制帧只记录**动过的 geom** 的位姿（`world/<geom>`），不影响仿真（只读，任何失败只打一条警告并关闭推流）。
+- 3D 视图是标准 Rerun 视图：左键轨道旋转、右键平移、滚轮缩放、`W/A/S/D` 飞行；时间轴可以在运行中回拨。状态机曲线、事件表、耗时表在同一个窗口。
+- 仿真进程内起一个 Rerun gRPC + Web Viewer（每进程一次，端口自动选；`ARMIGO_RERUN_GRPC_PORT`、`ARMIGO_RERUN_WEB_PORT` 固定端口，`ARMIGO_RERUN_MEMORY` 限内存，默认 4GiB）。地址写在 `<episode>/rerun.json`。
+- 回合结束后位姿落盘：`<episode>/live.rrd`（流的完整副本）和 `<episode>/replay/{scene.json,motion.npz}`（资料库的 motion 契约）。之后 `armigo-view rrd <episode>` / `rerun <episode>` 会自动带上 3D 回放，不需要进程还活着。
+- 限制：实时查看器随仿真进程存在，进程退出后页面里的实时入口自动消失，改用上面的回放。当前只支持 MuJoCo；Isaac 回合走资料库录制。
 
 ## 验证
 

@@ -43,7 +43,12 @@ def build_recording(
 		import rerun as rr
 
 		rr.init(f"armigo-{path.name}", spawn=False)
-	roles = _recording_roles(recording or (None if is_agent else path), catalog_id, root)
+	replay = path / "replay"  # written by viewer.live at the end of an episode run with ARMIGO_RERUN=1
+	roles = _recording_roles(
+		recording or (replay if is_agent and (replay / "motion.npz").is_file() else None if is_agent else path),
+		catalog_id,
+		root,
+	)
 	if roles:
 		scene, poses, times = load_motion(roles)
 		rl.log_scene(scene, poses, times)
