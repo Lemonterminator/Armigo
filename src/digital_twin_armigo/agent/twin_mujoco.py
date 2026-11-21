@@ -1765,6 +1765,7 @@ class TwinMujoco:
 			else "UNKNOWN"
 			if label == "unknown" and not self.execution_error
 			else "FAILED",
+			**self._final_cycle_verdict(ok, health),
 			"label": label,
 			"label_correct": label == expected,
 			"destination": self.actual_destination,
@@ -1793,6 +1794,15 @@ class TwinMujoco:
 			{"true_label": expected, "true_face": self.layout.defect_face if self.layout.defective else None}
 		)
 		return result
+
+	@staticmethod
+	def _final_cycle_verdict(ok: bool, health: dict) -> dict:
+		"""``verdict_final_cycle``: the episode verdict if only the last pick-to-place cycle counted. Present only on
+		unperturbed runs that parked or retried (see ``_health``); the ``verdict`` field itself is unchanged."""
+		cycle = health.get("final_cycle")
+		if not cycle:
+			return {}
+		return {"verdict_final_cycle": "SUCCESS" if ok and cycle.get("verdict") == "SUCCESS" else "FAILED"}
 
 	def _smoothness(self):
 		n = min(len(self.targets), self.ep.n_frames)
@@ -1831,10 +1841,13 @@ class TwinMujoco:
 			timestamps=tel["t"],
 		).to_dict()
 		start = int(getattr(self, "_carry_epoch_start", 0))
-		if not self._s5_active() or start <= 0 or start >= len(self.phases):
+		if start <= 0 or start >= len(self.phases):
 			return full
 		# After an in-place retry or table park-and-rescan, evaluate grasp/slip/settle on the final pick-to-place
 		# cycle [start, N) while still enforcing collisions, stalls, and lag across the full episode [0, N).
+		# On S5 perturbation runs that is the verdict. On unperturbed runs the whole-episode ``full`` verdict stays the
+		# verdict (old results keep it exactly) and the final-cycle one is added beside it as ``final_cycle``: the table
+		# release of a park-and-rescan is not a bowl release, so ``full`` can fail a brick that ended in the bowl.
 		sub = evaluate_episode_health(
 			q_cmd=tel["q_cmd"][start:],
 			q_act=tel["qpos"][start:],
@@ -1875,7 +1888,9 @@ class TwinMujoco:
 		sub["max_stall_duration_s"] = full["max_stall_duration_s"]
 		sub["max_tracking_lag_duration_s"] = full["max_tracking_lag_duration_s"]
 		sub["max_tracking_error_rad"] = full["max_tracking_error_rad"]
-		return sub
+		if self._s5_active():
+			return sub
+		return {**full, "final_cycle": {**sub, "start_frame": start}}
 
 
 def file_digest(path):

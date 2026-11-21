@@ -19,7 +19,8 @@ TABLES = {
 }
 # columns a user may filter on with an exact match, per table (a comma list means "any of")
 FILTERS = {
-	"trajectories": ("category", "engine", "verdict", "run_group", "category_basis", "control", "sensing", "root", "split_hint"),
+	"trajectories": ("category", "engine", "verdict", "verdict_final_cycle", "failure_mode", "failure_mode_final_cycle",
+		"run_group", "category_basis", "control", "sensing", "root", "split_hint"),
 	"scenes": ("scene_kind", "engine", "split", "dataset_id"),
 	"datasets": ("kind", "engine", "root"),
 }  # fmt: skip
@@ -29,7 +30,16 @@ SEARCH = {
 	"datasets": ("dataset_id", "name", "path"),
 }
 FACETS = {
-	"trajectories": ("category", "engine", "verdict", "run_group", "category_basis", "root"),
+	"trajectories": (
+		"category",
+		"engine",
+		"verdict",
+		"verdict_final_cycle",
+		"failure_mode",
+		"run_group",
+		"category_basis",
+		"root",
+	),
 	"scenes": ("scene_kind", "engine", "split"),
 	"datasets": ("kind", "engine"),
 }

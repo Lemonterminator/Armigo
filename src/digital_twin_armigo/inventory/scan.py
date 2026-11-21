@@ -119,6 +119,8 @@ def agent_episode(directory: Path, root_label: str, root: Path) -> dict | None:
 	if not isinstance(ep, dict) or ep.get("schema") != AGENT_SCHEMA:
 		return None
 	prov, result = ep.get("provenance") or {}, ep.get("result") or {}
+	health = result.get("health") if isinstance(result.get("health"), dict) else {}
+	cycle = health.get("final_cycle") if isinstance(health.get("final_cycle"), dict) else {}
 	run = _json(directory / "run.json") or {}
 	task = _json(directory / "task.json") or {}
 	lineage = _json(directory / LINEAGE_FILE)
@@ -150,6 +152,11 @@ def agent_episode(directory: Path, root_label: str, root: Path) -> dict | None:
 		"defective": bool(case[1]) if case else None,
 		"defect_face": int(case[2]) if case else None,
 		"verdict": result.get("verdict"),
+		"verdict_final_cycle": result.get("verdict_final_cycle"),
+		"failure_mode": health.get("failure_mode") if result.get("verdict") != "SUCCESS" else None,
+		"failure_mode_final_cycle": cycle.get("failure_mode")
+		if result.get("verdict_final_cycle") == "FAILED"
+		else None,
 		"label": result.get("label"),
 		"label_correct": result.get("label_correct"),
 		"sim_frames": frames,

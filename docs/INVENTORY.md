@@ -49,6 +49,7 @@ armigo-inventory scan                                 # 把新旧记录连起来
 - 输出：`<inventory>/reruns/<运行批次>/<原目录名>-r<次数>/`，里面有 `lineage.json`（重跑了谁、第几次、代码提交、新旧检测器哈希、新旧结果）。下次 `scan` 自动把 `<inventory>/reruns` 当作根目录 `reruns`。
 - 表里新增列：`rerun_of`（指向原记录）、`attempt`、`rerun_code`、`rerun_info`、`superseded_by`（原记录上，指向最新一次重跑）。原记录的 `verdict` 不变；字节完全相同的重跑加标签 `reproduced`；重跑不会被当作 `same_as` 重复。`--redo` 再来一轮，次数加一，最新一次为准。
 - 页面：“重跑”列显示 `重跑 r1` 或 `已被重跑`；“只看最新一次”隐藏已被取代的原记录，“只看重跑 / 只看原记录”下拉；顶部汇总有重跑数、通过数、被取代数。
+- 末轮评估（`verdict_final_cycle`）：agent 先把砖放到桌上再扫描、或原地重试过的回合，整条回合的物理健康检查会把“放到桌上”的松爪当成入盆释放，砖明明进了盆也判 `place_miss`。这类回合现在**另外**算一次“只看最后一轮抓放”的健康检查，写进 `result.health.final_cycle` 和 `result.verdict_final_cycle`；原来的 `verdict` 不改（旧结论保持一致，扰动实验本来就用末轮）。清单里 `verdict_final_cycle`（末轮结果）、`failure_mode`（整条回合的失败原因）、`failure_mode_final_cycle` 三列可筛选，页面上两个结果并排显示。只有重跑后的回合带这个字段；旧回合的遥测没存，无法离线补算。
 - 注意：重跑用**当前**检测器（`--detector`，默认 `results/anomaly/models-sup/sup.json`），早期回合的检测器文件已无法恢复，所以 `rerun_info.detector_changed` 通常是 `true`；仿真本身是确定的，同一案例同一策略多半得到同一个结果。这是“当前代码下的结果”，不是对原结果的修正。
 
 ## 来源类别（`category`）

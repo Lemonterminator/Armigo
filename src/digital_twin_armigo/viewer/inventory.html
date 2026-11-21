@@ -94,7 +94,7 @@ let CATS = {};
 // column specs per table: [key, header, kind]; kind drives rendering
 const COLS = {
   trajectories: [
-    ['category', '类别', 'cat'], ['run_group', '批次'], ['engine', '引擎'], ['verdict', '结果', 'verdict'],
+    ['category', '类别', 'cat'], ['run_group', '批次'], ['engine', '引擎'], ['verdict', '结果', 'verdict'], ['verdict_final_cycle', '末轮', 'verdict'], ['failure_mode', '失败原因'],
     ['seed', '种子', 'num'], ['defective', '缺陷', 'defect'], ['sim_s', '仿真 s', 'num1'], ['wall_s', '墙钟 s', 'num1'],
     ['views', '视角', 'num'], ['rerun_of', '重跑', 'rerun'], ['has_motion', '3D', 'flag'], ['has_video', '视频', 'flag'], ['category_basis', '依据', 'basis'],
     ['split_hint', '划分'], ['written_at', '写入时间', 'time'], ['traj_id', 'id'],
@@ -108,7 +108,7 @@ const COLS = {
     ['item_unit', '单位'], ['root', '根'], ['digest', 'digest'], ['path', '路径'],
   ],
 };
-const FACET_LABELS = { category: '类别', engine: '引擎', verdict: '结果', run_group: '批次', category_basis: '依据', root: '根目录', scene_kind: '种类', split: '划分', kind: '种类' };
+const FACET_LABELS = { category: '类别', engine: '引擎', verdict: '结果', verdict_final_cycle: '末轮结果', failure_mode: '失败原因', run_group: '批次', category_basis: '依据', root: '根目录', scene_kind: '种类', split: '划分', kind: '种类' };
 
 const FACET_FOLD = 10;  // chips shown per facet before "展开全部"
 const state = { tab: 'trajectories', expanded: new Set(), filters: {}, q: '', distinct: true, latest: false, is_rerun: '', has_motion: '', sort: '', offset: 0, limit: 100, total: 0 };

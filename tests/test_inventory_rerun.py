@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import os
+from pathlib import Path
 from typing import ClassVar
 
 import pytest
@@ -169,3 +170,38 @@ def test_cli_rerun_dry_run_and_errors(failed, tmp_path, capsys):
 	text = capsys.readouterr().out
 	assert "2" in text and not (inv / "reruns").exists()  # a dry run writes nothing
 	assert cli.main(["--out", str(inv), "rerun", "--category", "nope", "--dry-run"]) != 0
+
+
+def test_scan_keeps_the_old_verdict_and_reads_the_final_cycle_verdict_and_failure_modes(tmp_path):
+	root = tmp_path / "data"
+	cycle_ok = {"verdict": "SUCCESS", "failure_mode": "ok", "start_frame": 1552}
+	cycle_bad = {"verdict": "FAILURE", "failure_mode": "grasp_slip", "start_frame": 1552}
+	for name, final, cycle in (("a", "SUCCESS", cycle_ok), ("b", "FAILED", cycle_bad)):
+		result = {
+			**_result("FAILED"),
+			"verdict_final_cycle": final,
+			"health": {"failure_mode": "place_miss", "final_cycle": cycle},
+		}
+		_episode(root / f"run/{name}", {"engine": "mujoco", "sensing": "truth"}, result, case=(ord(name), False, 1))
+	_episode(root / "run/plain", {"engine": "mujoco", "sensing": "truth"}, _result("SUCCESS"), case=(3, False, 1))
+	inv = tmp_path / "inv"
+	store.build([("d", root)], inv, overrides=tmp_path / "none.json")
+	rows = {Path(r["path"]).name: r for r in query.rows(inv, "trajectories", {})["rows"]}
+	assert rows["a"]["verdict"] == "FAILED" and rows["a"]["verdict_final_cycle"] == "SUCCESS"
+	assert rows["a"]["failure_mode"] == "place_miss" and rows["a"]["failure_mode_final_cycle"] is None
+	assert rows["b"]["failure_mode_final_cycle"] == "grasp_slip"
+	assert rows["plain"]["failure_mode"] is None and rows["plain"]["verdict_final_cycle"] is None  # SUCCESS: no mode
+	only = query.rows(inv, "trajectories", {"verdict": "FAILED", "verdict_final_cycle": "SUCCESS"})
+	assert [Path(r["path"]).name for r in only["rows"]] == ["a"]
+	assert {f["value"] for f in query.facets(inv, "trajectories", {})["failure_mode"]} == {"place_miss"}
+
+
+def test_final_cycle_verdict_needs_a_correct_label_and_a_passing_cycle():
+	pytest.importorskip("mujoco")
+	from digital_twin_armigo.agent.twin_mujoco import TwinMujoco
+
+	f = TwinMujoco._final_cycle_verdict
+	assert f(True, {"final_cycle": {"verdict": "SUCCESS"}}) == {"verdict_final_cycle": "SUCCESS"}
+	assert f(False, {"final_cycle": {"verdict": "SUCCESS"}}) == {"verdict_final_cycle": "FAILED"}  # wrong label or bowl
+	assert f(True, {"final_cycle": {"verdict": "FAILURE"}}) == {"verdict_final_cycle": "FAILED"}
+	assert f(True, {"verdict": "SUCCESS"}) == {}  # no park or retry: nothing to add
