@@ -376,6 +376,11 @@ class EpisodeTrace:
 		self._supervise_action = []
 
 	def finish(self, result, provenance):
+		from digital_twin_armigo.inventory.taxonomy import classify_provenance
+
+		# Freeze who drove this episode (see inventory.taxonomy) so later rule changes never relabel written data.
+		actor = classify_provenance(provenance, result)
+		provenance = {**provenance, "actor": {k: v for k, v in actor.items() if k != "basis"}}
 		self._finish_branch()
 		if self.video and self.images is not None:
 			branch = self.branches[-1]

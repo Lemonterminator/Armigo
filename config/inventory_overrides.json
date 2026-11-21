@@ -1,0 +1,10 @@
+[
+ {
+  "match": "*/agent-bench/step-mcp/runs/bench16-omniscient/*",
+  "set": {"category": "agent_omniscient", "sensing": "truth", "note": "step-MCP profile omniscient (results/agent-bench/step-mcp/REPORT.md); episodes predate the sensing field", "tags": ["step-mcp", "script-client"]}
+ },
+ {
+  "match": "*/agent-bench/step-mcp/runs/bench16-realistic/*",
+  "set": {"category": "agent_realistic", "sensing": "realistic", "note": "step-MCP profile realistic (results/agent-bench/step-mcp/REPORT.md); episodes predate the sensing field", "tags": ["step-mcp", "script-client"]}
+ }
+]

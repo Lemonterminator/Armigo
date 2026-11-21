@@ -40,6 +40,7 @@ agent = [
 armigo-data = "digital_twin_armigo.catalog.cli:main"
 armigo-view = "digital_twin_armigo.viewer.cli:main"
 armigo-track = "digital_twin_armigo.tracking.cli:main"
+armigo-inventory = "digital_twin_armigo.inventory.cli:main"
 armigo-mcp = "digital_twin_armigo.agent.twin_mcp:main"
 armigo-sim = "digital_twin_armigo.mujoco_cell.cli:main"
 
