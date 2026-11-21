@@ -1,0 +1,236 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Armigo · 状态机与阶段耗时</title>
+<style>
+:root { color-scheme: dark; font: 14px system-ui, sans-serif; background: #10171c; color: #e3ecee; }
+body { margin: auto; padding: 18px; max-width: 1700px; }
+header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+h1 { font-size: 22px; margin: .2em 0; } h2 { font-size: 15px; font-weight: 600; margin: 0 0 8px; }
+select, button { font: inherit; color: inherit; background: #1e2d35; border: 1px solid #3a535e; border-radius: 6px; padding: 7px 10px; }
+button { cursor: pointer; } button:hover { background: #28404b; } button:disabled { opacity: .5; cursor: default; }
+label { display: inline-flex; gap: 6px; align-items: center; }
+main { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(320px, 1fr); gap: 16px; margin-top: 14px; }
+section { background: #172229; border-radius: 9px; padding: 14px; margin-bottom: 16px; min-width: 0; }
+#bar { display: flex; flex-wrap: wrap; gap: 18px; color: #a5bbc4; margin-top: 8px; }
+#bar b { color: #e3ecee; font-weight: 600; }
+svg { width: 100%; height: auto; display: block; }
+.edge { stroke: #35505b; stroke-width: 1.5; fill: none; marker-end: url(#arrow); }
+.edge.used { stroke: #6fd3a6; stroke-width: 2.5; marker-end: url(#arrow-used); }
+.node rect { fill: #1e2d35; stroke: #3a535e; stroke-width: 1.5; rx: 9; }
+.node.visited rect { fill: #1f3a33; stroke: #4fae88; }
+.node.current rect { fill: #2c6b57; stroke: #b8ffe0; stroke-width: 3; }
+.node.current { animation: pulse 1.2s ease-in-out infinite; }
+.node.done rect { stroke: #e3ecee; }
+.node text { fill: #e3ecee; font-size: 13px; text-anchor: middle; }
+.node .sub { fill: #a5bbc4; font-size: 11px; }
+@keyframes pulse { 50% { opacity: .72; } }
+table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+th, td { padding: 4px 6px; text-align: right; border-bottom: 1px solid #293a42; }
+th:first-child, td:first-child { text-align: left; }
+th { color: #a5bbc4; font-weight: 500; }
+td .share { display: inline-block; height: 6px; background: #4fae88; border-radius: 3px; vertical-align: middle; margin-left: 6px; }
+#phases { display: flex; height: 26px; border-radius: 5px; overflow: hidden; margin: 6px 0 4px; background: #11191e; }
+#phases div { overflow: hidden; font-size: 10.5px; line-height: 26px; text-align: center; color: #10171c; white-space: nowrap; }
+#events { max-height: 260px; overflow: auto; font: 12px ui-monospace, monospace; color: #a5bbc4; }
+#events div { padding: 2px 0; border-bottom: 1px solid #22323a; }
+#events .node-ev { color: #8de0b8; } #events .fallback { color: #ffc49b; }
+iframe { width: 100%; height: 640px; border: 0; border-radius: 6px; background: #0c1216; }
+#live-img { width: 100%; border-radius: 5px; margin-top: 8px; }
+.muted { color: #a5bbc4; } .tag { background: #2c6b57; border-radius: 4px; padding: 1px 7px; font-size: 12px; }
+.tag.off { background: #3a535e; } [hidden] { display: none !important; }
+@media(max-width: 1000px) { main { grid-template-columns: minmax(0, 1fr); } }
+</style>
+</head>
+<body>
+<header>
+  <h1>Armigo 状态机 · 阶段耗时</h1>
+  <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+    <label>Episode <select id="episodes" aria-label="Episode"></select></label>
+    <label><input id="follow" type="checkbox"> 跟随最新</label>
+    <button id="open-rerun" type="button">打开 Rerun 回放</button>
+    <button id="close-rerun" type="button" hidden>关闭 Rerun</button>
+  </div>
+</header>
+<div id="bar" role="status"></div>
+<main>
+<div>
+  <section>
+    <h2>状态机 <span id="live-tag" class="tag off">已结束</span></h2>
+    <svg id="graph" viewBox="0 0 860 360" role="img" aria-label="状态机图">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#35505b"/></marker>
+        <marker id="arrow-used" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#6fd3a6"/></marker>
+      </defs>
+      <g id="edges"></g><g id="nodes"></g>
+    </svg>
+  </section>
+  <section id="phase-section" hidden>
+    <h2>专家阶段（sim 时间）</h2>
+    <div id="phases"></div>
+    <div id="phase-legend" class="muted"></div>
+  </section>
+  <section id="rerun-section" hidden>
+    <h2>Rerun</h2>
+    <iframe id="rerun" title="Rerun viewer" allow="clipboard-write"></iframe>
+  </section>
+  <section>
+    <h2>事件流</h2>
+    <div id="events"></div>
+    <img id="live-img" alt="实时画面" hidden>
+  </section>
+</div>
+<aside>
+  <section><h2>状态节点耗时（墙钟）</h2><table id="t-node-wall"></table></section>
+  <section><h2>状态节点耗时（sim）</h2><table id="t-node-sim"></table></section>
+  <section id="t-phase-section" hidden><h2>阶段耗时（sim；墙钟为插值）</h2><table id="t-phase"></table></section>
+  <section><h2>决策</h2><div id="decisions" class="muted"></div></section>
+  <section><h2>访问序列</h2><table id="t-visits"></table></section>
+</aside>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+const POS = { prepare: [90, 180], choose_view: [290, 180], scan_wrist: [520, 60], present_bottom: [520, 180],
+  place: [520, 300], recover: [720, 120], evaluate: [760, 270] };
+const PALETTE = ['#7cc7ff', '#ffb86b', '#9be37f', '#e59bff', '#ffe27a', '#ff8f8f', '#6fe0d6', '#c1c1ff', '#d6b58a'];
+let token = null, timer = null, current = null;
+
+const fmt = (v, d = 2) => (v == null || Number.isNaN(v) ? '–' : Number(v).toFixed(d));
+const svg = (tag, attrs, text) => { const e = document.createElementNS('http://www.w3.org/2000/svg', tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); if (text != null) e.textContent = text; return e; };
+
+function layout(nodes) {
+  const out = {}; const unknown = nodes.filter(n => !POS[n]);
+  nodes.forEach(n => { if (POS[n]) out[n] = POS[n]; });
+  unknown.forEach((n, i) => { const a = 2 * Math.PI * i / Math.max(unknown.length, 1); out[n] = [430 + 360 * Math.cos(a), 180 + 150 * Math.sin(a)]; });
+  return out;
+}
+
+function drawGraph(graph, st) {
+  const pos = layout(graph.nodes), W = 120, H = 50;
+  const used = new Set();
+  const byBranch = {};
+  st.visits.forEach(v => { (byBranch[v.branch] ??= []).push(v.node); });
+  Object.values(byBranch).forEach(seq => seq.slice(1).forEach((n, i) => used.add(seq[i] + '>' + n)));
+  const count = {}, wall = {};
+  st.visits.forEach(v => { count[v.node] = (count[v.node] || 0) + 1; wall[v.node] = (wall[v.node] || 0) + v.wall_s; });
+  const edges = $('edges'), nodes = $('nodes'); edges.replaceChildren(); nodes.replaceChildren();
+  graph.edges.forEach(([a, b]) => {
+    if (!pos[a] || !pos[b]) return;
+    const [x1, y1] = pos[a], [x2, y2] = pos[b];
+    const dx = x2 - x1, dy = y2 - y1, len = Math.hypot(dx, dy) || 1;
+    const bend = graph.edges.some(([c, d]) => c === b && d === a) ? 18 : 0; // separate two-way edges
+    const nx = -dy / len * bend, ny = dx / len * bend;
+    const p = svg('path', { class: 'edge' + (used.has(a + '>' + b) ? ' used' : ''),
+      d: `M${x1 + dx * .22 + nx} ${y1 + dy * .22 + ny} Q${(x1 + x2) / 2 + nx * 1.6} ${(y1 + y2) / 2 + ny * 1.6} ${x2 - dx * .22 + nx} ${y2 - dy * .22 + ny}` });
+    edges.appendChild(p);
+  });
+  graph.nodes.forEach(n => {
+    const [x, y] = pos[n];
+    const g = svg('g', { class: 'node' + (count[n] ? ' visited' : '') + (st.state.node === n ? ' current' : '') + (st.state.node === n && st.state.finished ? ' done' : ''), transform: `translate(${x - W / 2},${y - H / 2})` });
+    g.appendChild(svg('rect', { width: W, height: H }));
+    g.appendChild(svg('text', { x: W / 2, y: 21 }, n));
+    g.appendChild(svg('text', { x: W / 2, y: 38, class: 'sub' }, count[n] ? `×${count[n]} · ${fmt(wall[n], 1)} s` : '未访问'));
+    nodes.appendChild(g);
+  });
+}
+
+function table(tbl, rows, key, head) {
+  tbl.replaceChildren();
+  const hr = tbl.insertRow(); head.forEach(h => { const th = document.createElement('th'); th.textContent = h; hr.appendChild(th); });
+  rows.forEach(r => {
+    const tr = tbl.insertRow();
+    [r[key], r.count, fmt(r.total), fmt(r.mean), fmt(r.p50), fmt(r.p95), fmt(r.max)].forEach(v => { tr.insertCell().textContent = v; });
+    const c = tr.insertCell(); c.textContent = (r.share * 100).toFixed(0) + '%';
+    const bar = document.createElement('span'); bar.className = 'share'; bar.style.width = Math.round(r.share * 60) + 'px'; c.appendChild(bar);
+  });
+}
+
+function render(d) {
+  const st = d.stats, t = st.totals, s = st.state;
+  $('bar').replaceChildren();
+  const add = (label, value) => { const sp = document.createElement('span'); sp.append(label + ' '); const b = document.createElement('b'); b.textContent = value; sp.appendChild(b); $('bar').appendChild(sp); };
+  add('当前', s.node ?? '–'); add('墙钟', fmt(t.wall_s, 1) + ' s'); add('仿真', fmt(t.sim_s, 1) + ' s');
+  add('访问次数', t.visits); add('恢复', t.recoveries); add('分支', t.branches);
+  if (d.result) add('结果', d.result.verdict + (d.result.destination ? ' → ' + d.result.destination : ''));
+  $('live-tag').textContent = d.live ? '实时' : (s.finished ? '已结束' : '已停止'); $('live-tag').className = 'tag' + (d.live ? '' : ' off');
+  drawGraph(d.graph, st);
+  const head = ['', '次数', '合计 s', '均值', 'p50', 'p95', '最大', '占比'];
+  table($('t-node-wall'), st.nodes.wall, 'node', ['节点', ...head.slice(1)]);
+  table($('t-node-sim'), st.nodes.sim, 'node', ['节点', ...head.slice(1)]);
+  const hasPhase = st.phase_segments.length > 0;
+  $('phase-section').hidden = $('t-phase-section').hidden = !hasPhase;
+  if (hasPhase) {
+    table($('t-phase'), st.phases.sim, 'phase', ['阶段', ...head.slice(1)]);
+    const total = st.phase_segments.reduce((a, x) => a + x.frames, 0), names = [...new Set(st.phase_segments.map(x => x.phase))];
+    $('phases').replaceChildren();
+    st.phase_segments.forEach(x => { const div = document.createElement('div'); div.style.width = (100 * x.frames / total) + '%'; div.style.background = PALETTE[names.indexOf(x.phase) % PALETTE.length]; div.title = `${x.phase}: ${fmt(x.sim_s)} s sim` + (x.wall_s == null ? '' : `, ~${fmt(x.wall_s)} s wall`); div.textContent = x.phase; $('phases').appendChild(div); });
+    $('phase-legend').textContent = '悬停查看每段时长；颜色按阶段区分。';
+  }
+  const dec = st.decisions;
+  $('decisions').textContent = dec.count ? `${dec.count} 次决策，来源 ${JSON.stringify(dec.sources)}；回退 ${dec.fallbacks}（${(dec.fallback_rate * 100).toFixed(0)}%）；LLM 延迟 均值 ${fmt(dec.latency_mean_s)} s / p95 ${fmt(dec.latency_p95_s)} s / 最大 ${fmt(dec.latency_max_s)} s；尝试 ${dec.attempts}` : '无决策事件';
+  const vt = $('t-visits'); vt.replaceChildren();
+  const hr = vt.insertRow(); ['#', '节点', '分支', '墙钟 s', 'sim s', '决策'].forEach(h => { const th = document.createElement('th'); th.textContent = h; hr.appendChild(th); });
+  st.visits.forEach(v => { const tr = vt.insertRow(); [v.index, v.node + (v.open ? ' ▶' : ''), v.branch, fmt(v.wall_s), fmt(v.sim_s), v.decisions || ''].forEach(x => { tr.insertCell().textContent = x; }); });
+  const ev = $('events'); const stick = ev.scrollTop + ev.clientHeight >= ev.scrollHeight - 8;
+  ev.replaceChildren();
+  d.events.forEach(e => {
+    const div = document.createElement('div');
+    const extra = e.kind === 'decision' ? ` → ${e.choice} [${e.source}]${e.latency_s != null ? ' ' + fmt(e.latency_s) + 's' : ''}${e.fallback_reason ? ' 回退: ' + e.fallback_reason : ''}` : '';
+    div.textContent = `${fmt(e.wall_time_s, 2).padStart(7)}s  f${e.frame}  ${e.node}  ${e.kind}${extra}`;
+    if (e.kind === 'node') div.className = 'node-ev'; if (e.fallback_reason) div.className = 'fallback';
+    ev.appendChild(div);
+  });
+  if (stick) ev.scrollTop = ev.scrollHeight;
+  const img = $('live-img'); img.hidden = !(d.live && d.live_image);
+  if (!img.hidden) img.src = '/api/live.jpg?id=' + encodeURIComponent(d.id) + '&t=' + Date.now();
+}
+
+async function poll() {
+  clearTimeout(timer);
+  if (!current) return;
+  try {
+    const d = await (await fetch('/api/episode?id=' + encodeURIComponent(current), { cache: 'no-store' })).json();
+    if (d.kind === 'agent') { render(d); timer = setTimeout(poll, d.live ? 700 : 4000); }
+    else { $('bar').textContent = '这是 3D 录制（无状态机）；用“打开 Rerun 回放”查看轨迹。'; }
+  } catch (e) { $('bar').textContent = '读取失败：' + e; timer = setTimeout(poll, 3000); }
+}
+
+async function loadEpisodes(keep) {
+  const list = await (await fetch('/api/episodes', { cache: 'no-store' })).json();
+  const sel = $('episodes'); const prev = keep ? sel.value : null;
+  sel.replaceChildren();
+  list.forEach(e => { const o = document.createElement('option'); o.value = e.id; o.textContent = `${e.kind === 'agent' ? (e.finished ? '' : '● ') : '◇ '}${e.id}`; sel.appendChild(o); });
+  const target = list.find(e => e.id === prev) ? prev : list[0]?.id;
+  if (target) { sel.value = target; if (target !== current) { current = target; poll(); } }
+  return list;
+}
+
+async function rerunStatus() {
+  const s = await (await fetch('/api/rerun')).json();
+  $('rerun-section').hidden = !s.running; $('close-rerun').hidden = !s.running;
+  if (s.running && $('rerun').dataset.url !== s.url) { $('rerun').src = s.url; $('rerun').dataset.url = s.url; }
+}
+
+$('episodes').onchange = e => { current = e.target.value; poll(); };
+$('follow').onchange = () => { if ($('follow').checked) loop(); };
+$('open-rerun').onclick = async () => {
+  if (!current) return;
+  token ??= (await (await fetch('/api/token')).json()).token;
+  $('open-rerun').disabled = true; $('open-rerun').textContent = '启动 Rerun…';
+  const r = await fetch('/api/rerun?id=' + encodeURIComponent(current), { method: 'POST', headers: { 'X-Viewer-Token': token } });
+  $('open-rerun').disabled = false; $('open-rerun').textContent = '打开 Rerun 回放';
+  if (!r.ok) { $('bar').textContent = (await r.json()).detail; return; }
+  await rerunStatus(); $('rerun-section').scrollIntoView({ behavior: 'smooth' });
+};
+$('close-rerun').onclick = async () => {
+  token ??= (await (await fetch('/api/token')).json()).token;
+  await fetch('/api/rerun', { method: 'DELETE', headers: { 'X-Viewer-Token': token } });
+  $('rerun').removeAttribute('src'); delete $('rerun').dataset.url; await rerunStatus();
+};
+async function loop() { if (!$('follow').checked) return; await loadEpisodes(false); setTimeout(loop, 3000); }
+loadEpisodes(false).then(rerunStatus);
+</script>
+</body>
+</html>

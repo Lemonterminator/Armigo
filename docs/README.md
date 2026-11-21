@@ -3,6 +3,7 @@
 | 主题 | 文档 |
 | --- | --- |
 | 数据与模型版本治理（MLflow、数据清单） | [MLOPS.md](MLOPS.md) |
+| Rerun 回放、状态机实时显示与阶段耗时统计（`armigo-view`） | [VIEWER.md](VIEWER.md) |
 | 本地实验资料库 `armigo-data` | [CATALOG.md](CATALOG.md) |
 | 六面检查 agent、MCP 与本地 LLM | [ARMIGO_AGENT.md](ARMIGO_AGENT.md)（架构图 [agent_architecture.svg](agent_architecture.svg)） |
 | 检查、扫描区与桌面重放置 | [INSPECTION_AND_RELOCATION.md](INSPECTION_AND_RELOCATION.md) |
