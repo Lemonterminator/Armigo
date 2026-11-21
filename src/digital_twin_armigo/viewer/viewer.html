@@ -12,11 +12,11 @@ h1 { font-size: 22px; margin: .2em 0; } h2 { font-size: 15px; font-weight: 600; 
 select, button { font: inherit; color: inherit; background: #1e2d35; border: 1px solid #3a535e; border-radius: 6px; padding: 7px 10px; }
 button { cursor: pointer; } button:hover { background: #28404b; } button:disabled { opacity: .5; cursor: default; }
 label { display: inline-flex; gap: 6px; align-items: center; }
-main { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(320px, 1fr); gap: 16px; margin-top: 14px; }
+main { margin-top: 14px; }
 section { background: #172229; border-radius: 9px; padding: 14px; margin-bottom: 16px; min-width: 0; }
 #bar { display: flex; flex-wrap: wrap; gap: 18px; color: #a5bbc4; margin-top: 8px; }
 #bar b { color: #e3ecee; font-weight: 600; }
-svg { width: 100%; height: auto; display: block; }
+svg { width: 100%; height: auto; max-height: 440px; display: block; }
 .edge { stroke: #35505b; stroke-width: 1.5; fill: none; marker-end: url(#arrow); }
 .edge.used { stroke: #6fd3a6; stroke-width: 2.5; marker-end: url(#arrow-used); }
 .node rect { fill: #1e2d35; stroke: #3a535e; stroke-width: 1.5; rx: 9; }
@@ -41,7 +41,6 @@ iframe { width: 100%; height: 640px; border: 0; border-radius: 6px; background: 
 #live-img { width: 100%; border-radius: 5px; margin-top: 8px; }
 .muted { color: #a5bbc4; } .tag { background: #2c6b57; border-radius: 4px; padding: 1px 7px; font-size: 12px; }
 .tag.off { background: #3a535e; } [hidden] { display: none !important; }
-@media(max-width: 1000px) { main { grid-template-columns: minmax(0, 1fr); } }
 </style>
 </head>
 <body>
@@ -57,17 +56,6 @@ iframe { width: 100%; height: 640px; border: 0; border-radius: 6px; background: 
 </header>
 <div id="bar" role="status"></div>
 <main>
-<div>
-  <section>
-    <h2>状态机 <span id="live-tag" class="tag off">已结束</span></h2>
-    <svg id="graph" viewBox="0 0 860 360" role="img" aria-label="状态机图">
-      <defs>
-        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#35505b"/></marker>
-        <marker id="arrow-used" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#6fd3a6"/></marker>
-      </defs>
-      <g id="edges"></g><g id="nodes"></g>
-    </svg>
-  </section>
   <section id="phase-section" hidden>
     <h2>专家阶段（sim 时间）</h2>
     <div id="phases"></div>
@@ -78,18 +66,25 @@ iframe { width: 100%; height: 640px; border: 0; border-radius: 6px; background: 
     <iframe id="rerun" title="Rerun viewer" allow="clipboard-write"></iframe>
   </section>
   <section>
+    <h2>状态机 <span id="live-tag" class="tag off">已结束</span></h2>
+    <svg id="graph" viewBox="0 0 860 360" role="img" aria-label="状态机图">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#35505b"/></marker>
+        <marker id="arrow-used" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#6fd3a6"/></marker>
+      </defs>
+      <g id="edges"></g><g id="nodes"></g>
+    </svg>
+  </section>
+  <section>
     <h2>事件流</h2>
     <div id="events"></div>
     <img id="live-img" alt="实时画面" hidden>
   </section>
-</div>
-<aside>
   <section><h2>状态节点耗时（墙钟）</h2><table id="t-node-wall"></table></section>
   <section><h2>状态节点耗时（sim）</h2><table id="t-node-sim"></table></section>
   <section id="t-phase-section" hidden><h2>阶段耗时（sim；墙钟为插值）</h2><table id="t-phase"></table></section>
   <section><h2>决策</h2><div id="decisions" class="muted"></div></section>
   <section><h2>访问序列</h2><table id="t-visits"></table></section>
-</aside>
 </main>
 <script>
 const $ = id => document.getElementById(id);
