@@ -32,6 +32,7 @@ DEFAULT_NODES = ("prepare", "choose_view", "scan_wrist", "present_bottom", "reco
 KEYFRAME = re.compile(r"(\d+)-(\d+)-([A-Za-z_]+)-(frame|crop)\.png")
 MAX_TELEMETRY_COLUMNS = 8
 STEP_EPS_S = 1e-3
+DEFECT_MIN_HALF_T_M = 0.0008  # visual half thickness of a defect stroke (the simulated one is 0.1 mm)
 
 
 def import_rerun():
@@ -47,6 +48,17 @@ def _rgba8(color) -> list[int]:
 	if c.size == 3:
 		c = np.append(c, 1.0)
 	return [round(v * 255) for v in c[:4]]
+
+
+def box_half_sizes(node: dict) -> list[float]:
+	"""Half sizes of a box node. The defect strokes are 0.2 mm thick and 0.3 mm off the brick face: at viewer depth
+	precision they z-fight with the brick and vanish, so they are drawn thick enough to stand clear of the face."""
+	size = np.asarray(node.get("size", [0.01, 0.01, 0.01]), dtype=float)
+	scale = np.asarray(node.get("scale", [1.0, 1.0, 1.0]), dtype=float)
+	half = (size * scale).tolist()
+	if str(node.get("name", "")).startswith("defect_"):
+		half[2] = max(half[2], DEFECT_MIN_HALF_T_M)
+	return half
 
 
 def log_scene_geometry(scene: dict, *, prefix: str = "world", recording=None) -> None:
@@ -89,7 +101,7 @@ def log_scene_geometry(scene: dict, *, prefix: str = "world", recording=None) ->
 			rr.log(path, rr.Boxes3D(half_sizes=[half], colors=[color]), static=True, recording=recording)
 		else:  # box, and anything unknown, shown as its bounding box
 			rr.log(
-				path, rr.Boxes3D(half_sizes=[(size * scale).tolist()], colors=[color]), static=True, recording=recording
+				path, rr.Boxes3D(half_sizes=[box_half_sizes(node)], colors=[color]), static=True, recording=recording
 			)
 
 

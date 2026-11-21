@@ -123,3 +123,12 @@ def test_read_events_tolerates_a_half_written_last_line(tmp_path):
 	p.write_text(json.dumps(EVENTS[0]) + "\n" + json.dumps(EVENTS[1]) + '\n{"seq": 2, "ki', encoding="utf-8")
 	assert len(stats.read_events(p)) == 2
 	assert stats.read_events(tmp_path / "missing.jsonl") == []
+
+
+def test_defect_strokes_are_drawn_thick_enough_to_be_seen():
+	from digital_twin_armigo.viewer import rerun_log
+
+	stroke = {"name": "defect_0", "type": "box", "size": [0.0075, 0.0012, 0.0001]}
+	assert rerun_log.box_half_sizes(stroke) == [0.0075, 0.0012, rerun_log.DEFECT_MIN_HALF_T_M]
+	other = {"name": "brick", "type": "box", "size": [0.01, 0.01, 0.0001], "scale": [1, 1, 2]}
+	assert rerun_log.box_half_sizes(other) == [0.01, 0.01, 0.0002]  # only the defect strokes are changed
