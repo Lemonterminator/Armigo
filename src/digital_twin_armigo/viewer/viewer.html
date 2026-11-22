@@ -1,0 +1,405 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Armigo · 状态机与阶段耗时</title>
+<style>
+:root { color-scheme: dark; font: 14px system-ui, sans-serif; background: #10171c; color: #e3ecee; }
+body { margin: auto; padding: 18px; max-width: 1700px; }
+header { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; justify-content: space-between; }
+h1 { font-size: 22px; margin: .2em 0; } h2 { font-size: 15px; font-weight: 600; margin: 0 0 8px; }
+select, button { font: inherit; color: inherit; background: #1e2d35; border: 1px solid #3a535e; border-radius: 6px; padding: 7px 10px; }
+button { cursor: pointer; } button:hover { background: #28404b; } button:disabled { opacity: .5; cursor: default; }
+label { display: inline-flex; gap: 6px; align-items: center; }
+main { margin-top: 14px; }
+section { background: #172229; border-radius: 9px; padding: 14px; margin-bottom: 16px; min-width: 0; }
+#bar { display: flex; flex-wrap: wrap; gap: 18px; color: #a5bbc4; margin-top: 8px; }
+#bar b { color: #e3ecee; font-weight: 600; }
+svg { width: 100%; height: auto; max-height: 440px; display: block; }
+.edge { stroke: #35505b; stroke-width: 1.5; fill: none; marker-end: url(#arrow); }
+.edge.used { stroke: #6fd3a6; stroke-width: 2.5; marker-end: url(#arrow-used); }
+.edge.now { stroke: #d9fff0; stroke-width: 3.2; stroke-dasharray: 9 5; animation: flow .7s linear infinite; marker-end: url(#arrow-now); }
+@keyframes flow { to { stroke-dashoffset: -14; } }
+.node .seq { fill: #7fb9a0; font-size: 10px; }
+.node.future rect { opacity: .55; }
+#tl { margin-top: 10px; }
+.tl-ctl { display: flex; gap: 8px; align-items: center; }
+.tl-ctl input[type=range] { flex: 1; accent-color: #6fd3a6; }
+.tl-ctl button { padding: 4px 10px; }
+#tl-bar { position: relative; height: 46px; margin-top: 8px; background: #11191e; border-radius: 6px; overflow: hidden; cursor: pointer; }
+#tl-bar .seg { position: absolute; top: 18px; height: 22px; border-radius: 3px; font-size: 10.5px; line-height: 22px; color: #10171c; overflow: hidden; white-space: nowrap; text-align: center; opacity: .9; }
+#tl-bar .seg.future { opacity: .22; } #tl-bar .seg.now { outline: 2px solid #e3ecee; z-index: 2; }
+#tl-bar .mark { position: absolute; top: 3px; width: 11px; height: 11px; margin-left: -5px; transform: rotate(45deg); background: #8aa0aa; z-index: 3; }
+#tl-bar .mark.alarm { background: #ff8f8f; } #tl-bar .mark.future { opacity: .3; }
+#tl-head { position: absolute; top: 0; bottom: 0; width: 2px; background: #e3ecee; z-index: 4; pointer-events: none; }
+.sig-card { display: flex; gap: 14px; padding: 10px; margin-bottom: 8px; background: #11191e; border: 1px solid #293a42; border-radius: 8px; }
+.sig-card.now { border-color: #b8ffe0; } .sig-card.future { opacity: .35; }
+.sig-card img { width: 124px; height: 124px; object-fit: contain; background: #0c1216; border-radius: 6px; flex: none; }
+.sig-body { flex: 1; min-width: 0; }
+.sig-row { display: flex; align-items: center; gap: 8px; margin: 3px 0; font-size: 12.5px; }
+.sig-row .lab { width: 44px; color: #a5bbc4; } .sig-row .val { width: 52px; text-align: right; font-variant-numeric: tabular-nums; }
+.chip { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; background: #2a3d46; margin-right: 6px; }
+.chip.bad { background: #6b2f2f; } .chip.good { background: #24543f; } .chip.warn { background: #6b5a24; }
+.node rect { fill: #1e2d35; stroke: #3a535e; stroke-width: 1.5; rx: 9; }
+.node.visited rect { fill: #1f3a33; stroke: #4fae88; }
+.node.current rect { fill: #2c6b57; stroke: #b8ffe0; stroke-width: 3; }
+.node.current { animation: pulse 1.2s ease-in-out infinite; }
+.node.done rect { stroke: #e3ecee; }
+.node text { fill: #e3ecee; font-size: 13px; text-anchor: middle; }
+.node .sub { fill: #a5bbc4; font-size: 11px; }
+@keyframes pulse { 50% { opacity: .72; } }
+table { width: 100%; border-collapse: collapse; font-size: 12.5px; }
+th, td { padding: 4px 6px; text-align: right; border-bottom: 1px solid #293a42; }
+th:first-child, td:first-child { text-align: left; }
+th { color: #a5bbc4; font-weight: 500; }
+td .share { display: inline-block; height: 6px; background: #4fae88; border-radius: 3px; vertical-align: middle; margin-left: 6px; }
+#phases { display: flex; height: 26px; border-radius: 5px; overflow: hidden; margin: 6px 0 4px; background: #11191e; }
+#phases div { overflow: hidden; font-size: 10.5px; line-height: 26px; text-align: center; color: #10171c; white-space: nowrap; }
+#events { max-height: 260px; overflow: auto; font: 12px ui-monospace, monospace; color: #a5bbc4; }
+#events div { padding: 2px 0; border-bottom: 1px solid #22323a; }
+#events .node-ev { color: #8de0b8; } #events .fallback { color: #ffc49b; }
+iframe { width: 100%; height: 640px; border: 0; border-radius: 6px; background: #0c1216; }
+#live-img { width: 100%; border-radius: 5px; margin-top: 8px; }
+.muted { color: #a5bbc4; } .tag { background: #2c6b57; border-radius: 4px; padding: 1px 7px; font-size: 12px; }
+.tag.off { background: #3a535e; } [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Armigo 状态机 · 阶段耗时</h1>
+  <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+    <a href="/inventory" class="muted">轨迹与场景清单 →</a>
+    <label>Episode <select id="episodes" aria-label="Episode"></select></label>
+    <label><input id="follow" type="checkbox"> 跟随最新</label>
+    <button id="open-rerun" type="button">打开 Rerun 回放</button>
+    <button id="close-rerun" type="button" hidden>关闭 Rerun</button>
+  </div>
+</header>
+<div id="bar" role="status"></div>
+<main>
+  <section id="phase-section" hidden>
+    <h2>专家阶段（sim 时间）</h2>
+    <div id="phases"></div>
+    <div id="phase-legend" class="muted"></div>
+  </section>
+  <section id="rerun-section" hidden>
+    <h2>Rerun</h2>
+    <iframe id="rerun" title="Rerun viewer" allow="clipboard-write"></iframe>
+  </section>
+  <section>
+    <h2>状态机 <span id="live-tag" class="tag off">已结束</span></h2>
+    <svg id="graph" viewBox="0 0 860 400" role="img" aria-label="状态机图">
+      <defs>
+        <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#35505b"/></marker>
+        <marker id="arrow-used" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#6fd3a6"/></marker>
+        <marker id="arrow-now" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="#d9fff0"/></marker>
+      </defs>
+      <g id="edges"></g><g id="nodes"></g>
+    </svg>
+    <div id="tl" hidden>
+      <div class="tl-ctl">
+        <button id="tl-prev" type="button" title="上一步">◀</button>
+        <button id="tl-play" type="button">▶ 播放</button>
+        <button id="tl-next" type="button" title="下一步">▶</button>
+        <input id="tl-range" type="range" min="0" max="0" step="1" aria-label="状态机时间轴">
+        <span id="tl-label" class="muted"></span>
+      </div>
+      <div id="tl-bar" title="横轴为 sim 时间；点一段或一个菱形（检测器视图）跳到那里"></div>
+    </div>
+  </section>
+  <section id="sig-section" hidden>
+    <h2>检测头信号</h2>
+    <div class="muted" style="margin-bottom:8px">cls＝整张裁剪图的分类头，seg＝局部分割头（取最大的一格）；两者都已校准，0 就是报警阈值，融合分数取较大的一个。随上面的时间轴点亮。</div>
+    <div id="sig"></div>
+  </section>
+  <section>
+    <h2>事件流</h2>
+    <div id="events"></div>
+    <img id="live-img" alt="实时画面" hidden>
+  </section>
+  <section><h2>状态节点耗时（墙钟）</h2><table id="t-node-wall"></table></section>
+  <section><h2>状态节点耗时（sim）</h2><table id="t-node-sim"></table></section>
+  <section id="t-phase-section" hidden><h2>阶段耗时（sim；墙钟为插值）</h2><table id="t-phase"></table></section>
+  <section><h2>决策</h2><div id="decisions" class="muted"></div></section>
+  <section><h2>访问序列</h2><table id="t-visits"></table></section>
+</main>
+<script>
+const $ = id => document.getElementById(id);
+// Left to right: set-up, the view decision, the three things it can pick, then recovery / evaluation.
+const POS = { prepare: [80, 200], choose_view: [290, 200], scan_wrist: [520, 70], present_bottom: [520, 200],
+  place: [520, 330], recover: [770, 200], evaluate: [770, 330] };
+const NW = 124, NH = 58;
+const PALETTE = ['#7cc7ff', '#ffb86b', '#9be37f', '#e59bff', '#ffe27a', '#ff8f8f', '#6fe0d6', '#c1c1ff', '#d6b58a'];
+let token = null, timer = null, current = null;
+let step = null, playTimer = null, lastData = null;  // step: visit index shown by the time axis, null = the latest
+
+const fmt = (v, d = 2) => (v == null || Number.isNaN(v) ? '–' : Number(v).toFixed(d));
+const svg = (tag, attrs, text) => { const e = document.createElementNS('http://www.w3.org/2000/svg', tag); for (const [k, v] of Object.entries(attrs)) e.setAttribute(k, v); if (text != null) e.textContent = text; return e; };
+
+function layout(nodes) {
+  const out = {}; const unknown = nodes.filter(n => !POS[n]);
+  nodes.forEach(n => { if (POS[n]) out[n] = POS[n]; });
+  unknown.forEach((n, i) => { const a = 2 * Math.PI * i / Math.max(unknown.length, 1); out[n] = [430 + 360 * Math.cos(a), 180 + 150 * Math.sin(a)]; });
+  return out;
+}
+
+// Edge geometry: a box-border to box-border curve that stays clear of the other boxes; the two directions of a pair
+// bow to opposite sides, forward edges try the upper side first and backward ones the lower side.
+function clip(c, toward) {
+  const dx = toward[0] - c[0], dy = toward[1] - c[1];
+  const s = Math.min((NW / 2 + 3) / (Math.abs(dx) || 1e-9), (NH / 2 + 3) / (Math.abs(dy) || 1e-9));
+  return [c[0] + dx * s, c[1] + dy * s];
+}
+function edgePath(a, b, pos, twoWay, forward) {
+  const A = pos[a], B = pos[b];
+  const dx = B[0] - A[0], dy = B[1] - A[1], len = Math.hypot(dx, dy) || 1, nx = -dy / len, ny = dx / len;
+  const others = Object.entries(pos).filter(([n]) => n !== a && n !== b).map(([, [x, y]]) => [x - NW / 2 - 8, y - NH / 2 - 8, x + NW / 2 + 8, y + NH / 2 + 8]);
+  const shift = twoWay ? 8 : 0, order = forward ? [-1, 1] : [1, -1];
+  let best = null;
+  for (const mag of [0, 45, 90, 140, 200]) {
+    for (const sgn of (mag ? order : [1])) {
+      const off = mag * sgn + shift, c = [(A[0] + B[0]) / 2 + nx * off * 2, (A[1] + B[1]) / 2 + ny * off * 2];
+      const p0 = clip(A, c), p2 = clip(B, c);
+      const clear = Array.from({ length: 11 }, (_, i) => { const t = (i + 1) / 12, u = 1 - t; return [u * u * p0[0] + 2 * u * t * c[0] + t * t * p2[0], u * u * p0[1] + 2 * u * t * c[1] + t * t * p2[1]]; })
+        .every(([x, y]) => !others.some(r => x > r[0] && x < r[2] && y > r[1] && y < r[3]));
+      best ??= { p0, c, p2 };
+      if (clear) return `M${p0[0]} ${p0[1]} Q${c[0]} ${c[1]} ${p2[0]} ${p2[1]}`;
+    }
+  }
+  return `M${best.p0[0]} ${best.p0[1]} Q${best.c[0]} ${best.c[1]} ${best.p2[0]} ${best.p2[1]}`;
+}
+
+// Everything the picture shows is "as of visit k": nodes and edges light up in the order the run took them.
+const upto = d => { const n = d.stats.visits.length; return n ? (step == null ? n - 1 : Math.min(step, n - 1)) : -1; };
+
+function drawGraph(d) {
+  const { graph, stats: st } = d, k = upto(d), pos = layout(graph.nodes);
+  const seen = st.visits.slice(0, k + 1), litAt = {}, prev = {};
+  seen.forEach((v, i) => { const p = prev[v.branch]; if (p) litAt[p.node + '>' + v.node] = i; prev[v.branch] = v; });
+  const count = {}, sim = {}, order = {};
+  seen.forEach((v, i) => { count[v.node] = (count[v.node] || 0) + 1; sim[v.node] = (sim[v.node] || 0) + (v.sim_s || 0); (order[v.node] ??= []).push(i + 1); });
+  const cur = k >= 0 ? seen[k].node : null, finished = st.state.finished && step == null;
+  const edges = $('edges'), nodes = $('nodes'); edges.replaceChildren(); nodes.replaceChildren();
+  const index = Object.fromEntries(graph.nodes.map((n, i) => [n, i]));
+  graph.edges.forEach(([a, b]) => {
+    if (!pos[a] || !pos[b]) return;
+    const key = a + '>' + b, twoWay = graph.edges.some(([c, e]) => c === b && e === a);
+    const cls = 'edge' + (litAt[key] === k && k > 0 ? ' now' : key in litAt ? ' used' : '');
+    edges.appendChild(svg('path', { class: cls, d: edgePath(a, b, pos, twoWay, index[a] < index[b]) }));
+  });
+  graph.nodes.forEach(n => {
+    const [x, y] = pos[n], seenNode = !!count[n];
+    const g = svg('g', { class: 'node' + (seenNode ? ' visited' : '') + (cur === n ? ' current' : '') + (cur === n && finished ? ' done' : ''), transform: `translate(${x - NW / 2},${y - NH / 2})` });
+    g.appendChild(svg('rect', { width: NW, height: NH }));
+    g.appendChild(svg('text', { x: NW / 2, y: 20 }, n));
+    g.appendChild(svg('text', { x: NW / 2, y: 36, class: 'sub' }, seenNode ? `×${count[n]} · ${fmt(sim[n], 1)} s sim` : '未访问'));
+    if (seenNode) g.appendChild(svg('text', { x: NW / 2, y: 50, class: 'seq' }, order[n].slice(-5).map(i => '#' + i).join(' ')));
+    nodes.appendChild(g);
+  });
+}
+
+// --- time axis: one segment per visit (width = sim time), diamonds = detector views, red = alarm ---
+function viewVisit(d, s) {
+  const vs = d.stats.visits;
+  let i = vs.findIndex(v => v.node === s.node && v.branch === s.branch && s.frame >= v.frame0 && s.frame <= v.frame1);
+  if (i < 0) i = vs.findIndex(v => v.node === s.node && v.sim0 <= (s.sim_s ?? 0) + 1e-6);
+  return i;
+}
+function setStep(i, d) {
+  const n = d.stats.visits.length; step = i >= n - 1 ? null : i; redraw();
+}
+function drawTimeline(d) {
+  const vs = d.stats.visits, k = upto(d); $('tl').hidden = !vs.length; if (!vs.length) return;
+  const total = Math.max(...vs.map(v => v.sim0 + (v.sim_s || 0)), 1e-6), pct = x => 100 * x / total;
+  $('tl-range').max = vs.length - 1; $('tl-range').value = k;
+  const v = vs[k]; $('tl-label').textContent = `第 ${k + 1}/${vs.length} 步 · ${v.node} · sim ${fmt(v.sim0, 1)} → ${fmt(v.sim0 + (v.sim_s || 0), 1)} s`;
+  const bar = $('tl-bar'); bar.replaceChildren();
+  vs.forEach((x, i) => {
+    const w = Math.max(pct(x.sim_s || 0), 0.45), seg = document.createElement('div');
+    seg.className = 'seg' + (i === k ? ' now' : i > k ? ' future' : '');
+    seg.style.left = pct(x.sim0) + '%'; seg.style.width = w + '%'; seg.style.background = PALETTE[d.graph.nodes.indexOf(x.node) % PALETTE.length];
+    seg.title = `#${i + 1} ${x.node}: sim ${fmt(x.sim0, 1)} + ${fmt(x.sim_s, 1)} s, 墙钟 ${fmt(x.wall_s, 2)} s`;
+    if (w > 7) seg.textContent = x.node;
+    seg.onclick = () => setStep(i, d); bar.appendChild(seg);
+  });
+  (d.signals || []).forEach(s => {
+    const i = viewVisit(d, s), m = document.createElement('div');
+    m.className = 'mark' + (s.score > s.threshold ? ' alarm' : '') + (i > k ? ' future' : '');
+    m.style.left = pct(s.sim_s ?? 0) + '%'; m.title = `${s.camera} 视图 · 分数 ${fmt(s.score)}`;
+    m.onclick = e => { e.stopPropagation(); setStep(i, d); }; bar.appendChild(m);
+  });
+  const head = document.createElement('div'); head.id = 'tl-head'; head.style.left = `calc(${pct(v.sim0 + (v.sim_s || 0))}% - 1px)`; bar.appendChild(head);
+}
+function stopPlay() { clearInterval(playTimer); playTimer = null; $('tl-play').textContent = '▶ 播放'; }
+function resetTimeline() { stopPlay(); step = null; }
+
+// --- head signals: what each view's two heads said, next to what the simulator knows ---
+function sigBar(v) {
+  const LO = -1.5, HI = 3, w = 230, x = a => (Math.min(Math.max(a, LO), HI) - LO) / (HI - LO) * w, z = x(0);
+  const el = svg('svg', { viewBox: `0 0 ${w} 14`, width: w, height: 14, style: 'width:230px;height:14px;max-height:none;flex:none' });
+  el.appendChild(svg('rect', { x: 0, y: 3, width: w, height: 8, rx: 3, fill: '#1e2d35' }));
+  if (v != null) el.appendChild(svg('rect', { x: Math.min(z, x(v)), y: 3, width: Math.abs(x(v) - z), height: 8, rx: 3, fill: v > 0 ? '#ff8f8f' : '#4fae88' }));
+  el.appendChild(svg('rect', { x: z - 1, y: 0, width: 2, height: 14, fill: '#e3ecee' }));
+  return el;
+}
+function drawSignals(d) {
+  const sigs = d.signals || []; $('sig-section').hidden = !sigs.length; if (!sigs.length) return;
+  const k = upto(d), box = $('sig'); box.replaceChildren();
+  const defective = d.case ? !!d.case[1] : null, face = d.case ? d.case[2] : null;
+  sigs.forEach((s, n) => {
+    const at = viewVisit(d, s), card = document.createElement('div');
+    card.className = 'sig-card' + (at === k ? ' now' : at > k ? ' future' : '');
+    if (s.crop) { const img = document.createElement('img'); img.alt = '检测器输入'; img.src = `/api/keyframe?id=${encodeURIComponent(d.id)}&name=${encodeURIComponent(s.crop)}`; card.appendChild(img); }
+    const body = document.createElement('div'); body.className = 'sig-body'; card.appendChild(body);
+    const t = document.createElement('div'); t.innerHTML = '<b></b> <span class="muted"></span>';
+    t.firstChild.textContent = `视图 ${n + 1} · ${s.camera}`; t.lastChild.textContent = `帧 ${s.frame} · sim ${fmt(s.sim_s, 1)} s · 可见面 ${(s.faces || []).join(' ')}`; body.appendChild(t);
+    [['cls', s.cls], ['seg', s.seg], ['融合', s.score]].forEach(([lab, v]) => {
+      const row = document.createElement('div'); row.className = 'sig-row';
+      const l = document.createElement('span'); l.className = 'lab'; l.textContent = lab; row.appendChild(l); row.appendChild(sigBar(v));
+      const val = document.createElement('span'); val.className = 'val'; val.textContent = v == null ? '–' : (v > 0 ? '+' : '') + fmt(v); if (v > 0) val.style.color = '#ff8f8f'; row.appendChild(val);
+      body.appendChild(row);
+    });
+    const chips = document.createElement('div'); chips.style.marginTop = '6px';
+    const chip = (text, cls) => { const c = document.createElement('span'); c.className = 'chip ' + (cls || ''); c.textContent = text; chips.appendChild(c); };
+    const alarm = s.score != null && s.score > s.threshold, heads = ['cls', 'seg'].filter(h => s[h] != null && s[h] > 0);
+    chip(alarm ? '报警 ← ' + (heads.join(' + ') || '融合') : '未报警', alarm ? 'warn' : '');
+    if (defective != null) {
+      chip(defective ? '真值：缺陷（面 ' + face + '）' : '真值：良品');
+      const seen = defective ? (s.faces || []).includes(face) : null;
+      if (alarm) chip(defective ? '命中' : '误报', defective ? 'good' : 'bad');
+      else chip(defective && seen ? '漏报' : '正确放过' + (defective ? '（叉不在可见面）' : ''), defective && seen ? 'bad' : 'good');
+      if (defective && s.cross_px != null) chip('框内叉像素 ' + s.cross_px);
+      if (!defective) chip('良品：叉不绘制');
+    }
+    body.appendChild(chips); box.appendChild(card);
+  });
+}
+function redraw() { if (!lastData) return; drawGraph(lastData); drawTimeline(lastData); drawSignals(lastData); }
+
+function table(tbl, rows, key, head) {
+  tbl.replaceChildren();
+  const hr = tbl.insertRow(); head.forEach(h => { const th = document.createElement('th'); th.textContent = h; hr.appendChild(th); });
+  rows.forEach(r => {
+    const tr = tbl.insertRow();
+    [r[key], r.count, fmt(r.total), fmt(r.mean), fmt(r.p50), fmt(r.p95), fmt(r.max)].forEach(v => { tr.insertCell().textContent = v; });
+    const c = tr.insertCell(); c.textContent = (r.share * 100).toFixed(0) + '%';
+    const bar = document.createElement('span'); bar.className = 'share'; bar.style.width = Math.round(r.share * 60) + 'px'; c.appendChild(bar);
+  });
+}
+
+function render(d) {
+  const st = d.stats, t = st.totals, s = st.state;
+  $('bar').replaceChildren();
+  const add = (label, value) => { const sp = document.createElement('span'); sp.append(label + ' '); const b = document.createElement('b'); b.textContent = value; sp.appendChild(b); $('bar').appendChild(sp); };
+  add('当前', s.node ?? '–'); add('墙钟', fmt(t.wall_s, 1) + ' s'); add('仿真', fmt(t.sim_s, 1) + ' s');
+  add('访问次数', t.visits); add('恢复', t.recoveries); add('分支', t.branches);
+  if (d.result) add('结果', d.result.verdict + (d.result.destination ? ' → ' + d.result.destination : ''));
+  $('live-tag').textContent = d.live ? '实时' : (s.finished ? '已结束' : '已停止'); $('live-tag').className = 'tag' + (d.live ? '' : ' off');
+  lastData = d; redraw();
+  const head = ['', '次数', '合计 s', '均值', 'p50', 'p95', '最大', '占比'];
+  table($('t-node-wall'), st.nodes.wall, 'node', ['节点', ...head.slice(1)]);
+  table($('t-node-sim'), st.nodes.sim, 'node', ['节点', ...head.slice(1)]);
+  const hasPhase = st.phase_segments.length > 0;
+  $('phase-section').hidden = $('t-phase-section').hidden = !hasPhase;
+  if (hasPhase) {
+    table($('t-phase'), st.phases.sim, 'phase', ['阶段', ...head.slice(1)]);
+    const total = st.phase_segments.reduce((a, x) => a + x.frames, 0), names = [...new Set(st.phase_segments.map(x => x.phase))];
+    $('phases').replaceChildren();
+    st.phase_segments.forEach(x => { const div = document.createElement('div'); div.style.width = (100 * x.frames / total) + '%'; div.style.background = PALETTE[names.indexOf(x.phase) % PALETTE.length]; div.title = `${x.phase}: ${fmt(x.sim_s)} s sim` + (x.wall_s == null ? '' : `, ~${fmt(x.wall_s)} s wall`); div.textContent = x.phase; $('phases').appendChild(div); });
+    $('phase-legend').textContent = '悬停查看每段时长；颜色按阶段区分。';
+  }
+  const dec = st.decisions;
+  $('decisions').textContent = dec.count ? `${dec.count} 次决策，来源 ${JSON.stringify(dec.sources)}；回退 ${dec.fallbacks}（${(dec.fallback_rate * 100).toFixed(0)}%）；LLM 延迟 均值 ${fmt(dec.latency_mean_s)} s / p95 ${fmt(dec.latency_p95_s)} s / 最大 ${fmt(dec.latency_max_s)} s；尝试 ${dec.attempts}` : '无决策事件';
+  const vt = $('t-visits'); vt.replaceChildren();
+  const hr = vt.insertRow(); ['#', '节点', '分支', '墙钟 s', 'sim s', '决策'].forEach(h => { const th = document.createElement('th'); th.textContent = h; hr.appendChild(th); });
+  st.visits.forEach(v => { const tr = vt.insertRow(); [v.index, v.node + (v.open ? ' ▶' : ''), v.branch, fmt(v.wall_s), fmt(v.sim_s), v.decisions || ''].forEach(x => { tr.insertCell().textContent = x; }); });
+  const ev = $('events'); const stick = ev.scrollTop + ev.clientHeight >= ev.scrollHeight - 8;
+  ev.replaceChildren();
+  d.events.forEach(e => {
+    const div = document.createElement('div');
+    const extra = e.kind === 'decision' ? ` → ${e.choice} [${e.source}]${e.latency_s != null ? ' ' + fmt(e.latency_s) + 's' : ''}${e.fallback_reason ? ' 回退: ' + e.fallback_reason : ''}` : '';
+    div.textContent = `${fmt(e.wall_time_s, 2).padStart(7)}s  f${e.frame}  ${e.node}  ${e.kind}${extra}`;
+    if (e.kind === 'node') div.className = 'node-ev'; if (e.fallback_reason) div.className = 'fallback';
+    ev.appendChild(div);
+  });
+  if (stick) ev.scrollTop = ev.scrollHeight;
+  rerunLabel = d.live_rerun ? '打开实时 3D（Rerun）' : d.replay ? '打开 3D 回放（Rerun）' : '打开 Rerun 回放';
+  if (!$('open-rerun').disabled) $('open-rerun').textContent = rerunLabel;
+  const img = $('live-img'); img.hidden = !(d.live && d.live_image);
+  if (!img.hidden) img.src = '/api/live.jpg?id=' + encodeURIComponent(d.id) + '&t=' + Date.now();
+}
+
+async function poll() {
+  clearTimeout(timer);
+  if (!current) return;
+  try {
+    const d = await (await fetch('/api/episode?id=' + encodeURIComponent(current), { cache: 'no-store' })).json();
+    if (d.kind === 'agent') {
+      // a finished episode that has not changed is not redrawn: it would only reset the images and the time axis
+      if (!(lastData && lastData.id === d.id && d.stats.state.finished && lastData.event_count === d.event_count)) render(d);
+      timer = setTimeout(poll, d.live ? 700 : 4000);
+    }
+    else { $('bar').textContent = '这是 3D 录制（无状态机）；用“打开 Rerun 回放”查看轨迹。'; }
+  } catch (e) { $('bar').textContent = '读取失败：' + e; timer = setTimeout(poll, 3000); }
+}
+
+async function loadEpisodes(keep) {
+  const list = await (await fetch('/api/episodes', { cache: 'no-store' })).json();
+  const sel = $('episodes'); const prev = keep ? sel.value : null;
+  sel.replaceChildren();
+  list.forEach(e => { const o = document.createElement('option'); o.value = e.id; o.textContent = `${e.kind === 'agent' ? (e.finished ? '' : '● ') : '◇ '}${e.id}`; sel.appendChild(o); });
+  const wanted = decodeURIComponent(location.hash.slice(1));  // /#<episode id>, e.g. from the inventory page
+  if (wanted.startsWith('inv:') && !list.some(e => e.id === wanted)) {  // outside --root: the server resolves it via the inventory
+    list.unshift({ id: wanted, kind: 'agent', finished: true });
+    const o = document.createElement('option'); o.value = wanted; o.textContent = wanted; sel.prepend(o);
+  }
+  const target = list.find(e => e.id === prev) ? prev : (list.find(e => e.id === wanted) ? wanted : list[0]?.id);
+  if (target) { sel.value = target; if (target !== current) { current = target; resetTimeline(); lastData = null; showRerun(null); poll(); rerunStatus(); } }
+  return list;
+}
+
+function showRerun(url) {
+  $('rerun-section').hidden = !url; $('close-rerun').hidden = !url;
+  if (url && $('rerun').dataset.url !== url) { $('rerun').src = url; $('rerun').dataset.url = url; }
+  if (!url) { $('rerun').removeAttribute('src'); delete $('rerun').dataset.url; }
+}
+async function rerunStatus() {
+  // Only show a running viewer that belongs to the episode on screen; another episode's 3D scene would sit under this one's state machine.
+  const s = await (await fetch('/api/rerun')).json();
+  showRerun(s.running && s.id === current ? s.url : null);
+}
+let rerunLabel = '打开 Rerun 回放';
+
+$('episodes').onchange = e => { current = e.target.value; resetTimeline(); lastData = null; showRerun(null); poll(); rerunStatus(); };
+$('tl-range').oninput = e => { stopPlay(); if (lastData) setStep(+e.target.value, lastData); };
+$('tl-prev').onclick = () => { stopPlay(); if (lastData) setStep(Math.max(upto(lastData) - 1, 0), lastData); };
+$('tl-next').onclick = () => { stopPlay(); if (lastData) setStep(Math.min(upto(lastData) + 1, lastData.stats.visits.length - 1), lastData); };
+$('tl-play').onclick = () => {
+  if (playTimer) return stopPlay();
+  if (!lastData) return;
+  if (upto(lastData) >= lastData.stats.visits.length - 1) { step = 0; redraw(); }  // replay from the start
+  $('tl-play').textContent = '⏸ 暂停';
+  playTimer = setInterval(() => { if (!lastData) return stopPlay(); const i = upto(lastData); if (i >= lastData.stats.visits.length - 1) return stopPlay(); setStep(i + 1, lastData); }, 700);
+};
+$('follow').onchange = () => { if ($('follow').checked) loop(); };
+$('open-rerun').onclick = async () => {
+  if (!current) return;
+  token ??= (await (await fetch('/api/token')).json()).token;
+  $('open-rerun').disabled = true; $('open-rerun').textContent = '启动 Rerun…';
+  const r = await fetch('/api/rerun?id=' + encodeURIComponent(current), { method: 'POST', headers: { 'X-Viewer-Token': token } });
+  $('open-rerun').disabled = false; $('open-rerun').textContent = rerunLabel;
+  const j = await r.json();
+  if (!r.ok) { $('bar').textContent = j.detail; return; }
+  showRerun(j.url); $('rerun-section').scrollIntoView({ behavior: 'smooth' });
+};
+$('close-rerun').onclick = async () => {
+  token ??= (await (await fetch('/api/token')).json()).token;
+  await fetch('/api/rerun', { method: 'DELETE', headers: { 'X-Viewer-Token': token } });
+  showRerun(null);
+};
+async function loop() { if (!$('follow').checked) return; await loadEpisodes(false); setTimeout(loop, 3000); }
+loadEpisodes(false).then(rerunStatus);
+</script>
+</body>
+</html>

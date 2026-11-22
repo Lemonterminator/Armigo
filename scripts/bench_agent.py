@@ -26,6 +26,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT / "src") not in sys.path:
+	sys.path.insert(0, str(ROOT / "src"))
 
 
 def _emit(result: dict, path: Path | None) -> None:
@@ -194,6 +196,9 @@ def cmd_context(a) -> dict:
 def main() -> None:
 	p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 	p.add_argument("--json", type=Path)
+	p.add_argument("--mlflow", action="store_true", help="Record this benchmark in MLflow")
+	p.add_argument("--mlflow-experiment", default="agent-bench")
+	p.add_argument("--run-name", default=None)
 	sub = p.add_subparsers(dest="cmd", required=True)
 	ep = sub.add_parser("episodes")
 	ep.add_argument("--suite", type=Path, required=True)
@@ -218,6 +223,18 @@ def main() -> None:
 	else:
 		result = cmd_vllm(a) if a.cmd == "vllm" else cmd_context(a)
 	_emit(result, a.json)
+	from digital_twin_armigo.tracking.runs import tracked_run
+
+	with tracked_run(
+		a.mlflow_experiment,
+		a.run_name or (a.json.stem if a.json else a.cmd),
+		enabled=a.mlflow,
+		params={k: v for k, v in vars(a).items() if not k.startswith("mlflow") and k != "json"} | {"passthrough": rest},
+		tags={"task": "agent_bench", "subcommand": a.cmd},
+	) as run:
+		run.log_report(result)
+		if a.json:
+			run.log_artifact(a.json)
 
 
 if __name__ == "__main__":

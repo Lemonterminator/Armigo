@@ -529,6 +529,21 @@ class Catalog:
 			)
 		return {"id": ident, **manifest}
 
+	def datasets(self) -> dict:
+		"""Frozen dataset versions: id (content hash of the manifest), name, seed and per-split member counts."""
+		with self.connect() as db:
+			rows = db.execute("SELECT id,name,seed,created_at FROM datasets ORDER BY created_at,name").fetchall()
+			counts = {
+				(r["dataset_id"], r["split"]): r["n"]
+				for r in db.execute("SELECT dataset_id,split,COUNT(*) AS n FROM memberships GROUP BY dataset_id,split")
+			}
+		return {
+			"datasets": [
+				{**dict(r), "splits": {s: counts.get((r["id"], s), 0) for s in ("train", "validation", "test")}}
+				for r in rows
+			]
+		}
+
 	def memberships(self, episode: str) -> list[dict]:
 		with self.connect() as db:
 			return [dict(r) for r in db.execute("SELECT * FROM memberships WHERE episode_id=?", (episode,))]

@@ -32,6 +32,8 @@ from digital_twin_armigo.agent.student_rollout import run_episode
 from digital_twin_armigo.agent.twin_mujoco import load_suite
 from digital_twin_armigo.agent.vla_grader import find_episodes, grade, load_reference
 from digital_twin_armigo.agent.vla_grader import summarize as summarize_grades
+from digital_twin_armigo.runtime.canonical import sha256_file
+from digital_twin_armigo.tracking.runs import tracked_run
 from digital_twin_armigo.vla.client_policy import ChunkClientPolicy, RemoteChunkPredictor
 from digital_twin_armigo.vla.server import ChunkPredictor
 
@@ -674,6 +676,9 @@ def build_parser() -> argparse.ArgumentParser:
 	p.add_argument("--allow-download", action="store_true")
 	p.add_argument("--timeout-s", type=float, default=30.0)
 	p.add_argument("--n-boot", type=int, default=10_000)
+	p.add_argument("--mlflow", action="store_true", help="Record this evaluation in MLflow")
+	p.add_argument("--mlflow-experiment", default="vla-eval")
+	p.add_argument("--run-name", default=None, help="MLflow run name (default: output directory name)")
 	return p
 
 
@@ -723,6 +728,26 @@ def main(argv: list[str] | None = None) -> int:
 			scorer.close()
 
 	s = report["summary"]
+	with tracked_run(
+		args.mlflow_experiment,
+		args.run_name or args.out.name,
+		enabled=args.mlflow,
+		params={
+			"ckpt": args.ckpt,
+			"server_url": args.server_url,
+			"suite": args.suite,
+			"mode": report["mode_resolved"],
+			"episodes": len(cases),
+			"replan_interval": args.replan_interval,
+			"end_threshold": args.end_threshold,
+			"n_boot": args.n_boot,
+			"detector": args.detector,
+		},
+		tags={"task": "vla_eval", "suite.sha256": sha256_file(args.suite)},
+	) as run:
+		run.log_report({k: v for k, v in s.items() if k != "s6_checks"})
+		for name in ("eval_summary.json", "grades.json"):
+			run.log_artifact(args.out / name)
 	pg = s["pilot_gate"]
 	print(
 		f"Closed-loop eval ({report['mode_resolved']}): {s['sort_successes']}/{s['episodes']} sorted "

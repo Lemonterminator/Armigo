@@ -24,6 +24,7 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT / "src") not in sys.path:
 	sys.path.insert(0, str(ROOT / "src"))
 
+from digital_twin_armigo.tracking.runs import tracked_run
 from digital_twin_armigo.vla.contract import (
 	CONTRACT_VERSION,
 	DEFAULT_HORIZON,
@@ -419,6 +420,10 @@ def main(argv: list[str] | None = None) -> int:
 	p.add_argument("--val-max-batches", type=int, default=None)
 	p.add_argument("--local-files-only", action="store_true")
 	p.add_argument("--tiny-for-test", action="store_true", help="Use tiny in-memory backbone for fast smoke tests")
+	p.add_argument("--mlflow", action="store_true", help="Record this run (params, metrics, data digests) in MLflow")
+	p.add_argument("--mlflow-experiment", default="vla-train")
+	p.add_argument("--run-name", default=None, help="MLflow run name (default: output directory name)")
+	p.add_argument("--register-model", default=None, metavar="NAME", help="Register the final checkpoint in MLflow")
 	args = p.parse_args(argv)
 
 	horizon = int(args.horizon if args.horizon is not None else DEFAULT_HORIZON[args.family])
@@ -443,32 +448,49 @@ def main(argv: list[str] | None = None) -> int:
 		else None
 	)
 
-	summary = run_training(
-		family=args.family,
-		train_ds=train_ds,
-		val_ds=val_ds,
-		out_dir=args.out,
-		init_from=args.init_from,
-		lambda_done=args.lambda_done,
-		steps=total_steps,
-		batch_size=args.batch_size,
-		lr=args.lr,
-		backbone_lr=args.backbone_lr,
-		end_head_lr=args.end_head_lr,
-		weight_decay=args.weight_decay,
-		warmup_steps=args.warmup_steps,
-		grad_clip=args.grad_clip,
-		eval_every=args.eval_every,
-		save_every=args.save_every,
-		log_every=args.log_every,
-		num_workers=args.num_workers,
-		seed=args.seed,
-		device=args.device,
-		use_amp=not args.no_amp,
-		val_max_batches=args.val_max_batches,
-		tiny_for_test=args.tiny_for_test,
-		local_files_only=args.local_files_only,
-	)
+	datasets = {"train": args.dataset, **({"val": args.val_dataset} if args.val_dataset else {})}
+	with tracked_run(
+		args.mlflow_experiment,
+		args.run_name or args.out.name,
+		enabled=args.mlflow,
+		params={k: v for k, v in vars(args).items() if not k.startswith("mlflow")} | {"horizon_resolved": horizon},
+		tags={"task": "vla_train", "family": args.family},
+		datasets=datasets,
+	) as run:
+		summary = run_training(
+			family=args.family,
+			train_ds=train_ds,
+			val_ds=val_ds,
+			out_dir=args.out,
+			init_from=args.init_from,
+			lambda_done=args.lambda_done,
+			steps=total_steps,
+			batch_size=args.batch_size,
+			lr=args.lr,
+			backbone_lr=args.backbone_lr,
+			end_head_lr=args.end_head_lr,
+			weight_decay=args.weight_decay,
+			warmup_steps=args.warmup_steps,
+			grad_clip=args.grad_clip,
+			eval_every=args.eval_every,
+			save_every=args.save_every,
+			log_every=args.log_every,
+			num_workers=args.num_workers,
+			seed=args.seed,
+			device=args.device,
+			use_amp=not args.no_amp,
+			val_max_batches=args.val_max_batches,
+			tiny_for_test=args.tiny_for_test,
+			local_files_only=args.local_files_only,
+		)
+		run.log_report(summary["final_val_metrics"] or {}, "val")
+		run.log_metrics({"best_end_step_f1": summary["best_end_step_f1"]})
+		run.set_tags({"s9_gate_pass": summary["s9_gate_pass"]})
+		for f in (*args.out.glob("*summary.json"), *args.out.glob("*.jsonl")):
+			run.log_artifact(f)
+		if args.register_model:
+			run.log_artifact(Path(summary["best_checkpoint"] or summary["last_checkpoint"]), "model")
+			run.register_model(args.register_model, "model", "candidate")
 	print(json.dumps(summary, indent=2))
 	return 0
 

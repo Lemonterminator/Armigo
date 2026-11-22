@@ -24,6 +24,10 @@ calibration = [
 	"pyarrow>=15",
 	"scipy>=1.11",
 ]
+# Experiment tracking / model registry (see docs/MLOPS.md). The anomaly venv installs it from scripts/anomaly/requirements.txt.
+tracking = ["mlflow>=3.0"]
+# Rerun replay + live state-machine viewer (see docs/VIEWER.md); the HTML page is served with the catalog extra's FastAPI.
+viewer = ["rerun-sdk>=0.24", "fastapi>=0.115", "uvicorn>=0.30"]
 twin = ["mcp>=1.12,<2", "av>=12"]
 # LangGraph inspection agent; the LLM client talks to an OpenAI-compatible server (local vLLM) over httpx.
 agent = [
@@ -34,6 +38,9 @@ agent = [
 
 [project.scripts]
 armigo-data = "digital_twin_armigo.catalog.cli:main"
+armigo-view = "digital_twin_armigo.viewer.cli:main"
+armigo-track = "digital_twin_armigo.tracking.cli:main"
+armigo-inventory = "digital_twin_armigo.inventory.cli:main"
 armigo-mcp = "digital_twin_armigo.agent.twin_mcp:main"
 armigo-sim = "digital_twin_armigo.mujoco_cell.cli:main"
 
@@ -50,6 +57,8 @@ packages = ["src/digital_twin_armigo"]
 [tool.hatch.build.targets.wheel.force-include]
 "src/digital_twin_armigo/agent/twin_dashboard.html" = "digital_twin_armigo/agent/twin_dashboard.html"
 "src/digital_twin_armigo/catalog/index.html" = "digital_twin_armigo/catalog/index.html"
+"src/digital_twin_armigo/viewer/viewer.html" = "digital_twin_armigo/viewer/viewer.html"
+"src/digital_twin_armigo/viewer/inventory.html" = "digital_twin_armigo/viewer/inventory.html"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

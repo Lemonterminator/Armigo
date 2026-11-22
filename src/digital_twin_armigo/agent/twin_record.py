@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import sys
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -83,6 +84,25 @@ class EpisodeTrace:
 		self.checkpoints = self.path / "checkpoints"
 		self.checkpoints.mkdir()
 		self.event_log = (self.path / "events.jsonl").open("w", encoding="utf-8")
+		self.live = None  # viewer.live.LiveStream when ARMIGO_RERUN is set (see docs/VIEWER.md)
+
+	def _live(self, call, *args):
+		"""Run a live-viewer hook; a failure turns the stream off instead of interrupting the episode."""
+		if self.live is None:
+			return
+		try:
+			call(*args)
+		except Exception as exc:  # noqa: BLE001 - optional streaming must never stop an episode
+			print(f"armigo: live Rerun stream stopped ({exc})", file=sys.stderr)
+			self.live = None
+
+	def _end_live(self):
+		live, self.live = self.live, None
+		if live is not None:
+			try:
+				live.finish(self.events)
+			except Exception as exc:  # noqa: BLE001 - optional streaming must never stop an episode
+				print(f"armigo: live Rerun stream not finalised ({exc})", file=sys.stderr)
 
 	def start(self, cell):
 		write_json(self.path / "graph.json", {"nodes": NODES, "edges": EDGES})
@@ -104,9 +124,14 @@ class EpisodeTrace:
 			if prior_frame is not None:
 				prior_frame(episode)
 			self._frame_contact(episode)
+			if self.live is not None:
+				self._live(self.live.on_frame, episode)
 
 		cell.substep_observer = substep
 		cell.frame_observer = frame
+		from digital_twin_armigo.viewer import live
+
+		self.live = live.maybe_start(cell, self.path, started=self.started)
 
 	def _substep_contact(self, cell):
 		from ..mujoco_cell.episode import jaw_env_contact_force
@@ -351,6 +376,11 @@ class EpisodeTrace:
 		self._supervise_action = []
 
 	def finish(self, result, provenance):
+		from digital_twin_armigo.inventory.taxonomy import classify_provenance
+
+		# Freeze who drove this episode (see inventory.taxonomy) so later rule changes never relabel written data.
+		actor = classify_provenance(provenance, result)
+		provenance = {**provenance, "actor": {k: v for k, v in actor.items() if k != "basis"}}
 		self._finish_branch()
 		if self.video and self.images is not None:
 			branch = self.branches[-1]
@@ -367,10 +397,12 @@ class EpisodeTrace:
 		}
 		write_json(self.path / "episode.json", manifest)
 		self.event_log.close()
+		self._end_live()
 
 	def close(self):
 		self._finish_branch()
 		self.event_log.close()
+		self._end_live()
 
 
 # kind -> (instruction template, held: the brick is carried (lost-brick monitor on), default phase, frame budget)
