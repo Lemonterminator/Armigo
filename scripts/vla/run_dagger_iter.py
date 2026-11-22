@@ -122,6 +122,7 @@ def _default_rollout(
 	video: bool,
 	server_url: str | None = None,
 	replan_interval: int | None = None,
+	workers: int = 1,
 ) -> list[dict[str, Any]]:
 	from digital_twin_armigo.inspection_scorer import default_sup_scorer
 	from digital_twin_armigo.vla.client_policy import ChunkClientPolicy, RemoteChunkPredictor
@@ -154,13 +155,29 @@ def _default_rollout(
 			proc.wait(timeout=10)
 			raise
 
-	scorer = default_sup_scorer(detector)
-	predictor = RemoteChunkPredictor(url)
 	resolved_mode = "sync" if mode == "auto" else mode
 	if mode == "auto" and ckpt_path is not None and (ckpt_path / "vla_config.json").is_file():
 		cfg = json.loads((ckpt_path / "vla_config.json").read_text(encoding="utf-8"))
 		resolved_mode = "async" if cfg.get("family") == "smolvla" else "sync"
 
+	if workers > 1:
+		try:
+			return _parallel_rollout(
+				url,
+				iter_cases,
+				raw_dir,
+				takeover_cfg,
+				detector=detector,
+				mode=resolved_mode,
+				video=video,
+				replan_interval=replan_interval,
+				workers=workers,
+			)
+		finally:
+			_stop_server(proc)
+
+	scorer = default_sup_scorer(detector)
+	predictor = RemoteChunkPredictor(url)
 	results: list[dict[str, Any]] = []
 	try:
 		raw_dir.mkdir(parents=True, exist_ok=True)
@@ -183,13 +200,122 @@ def _default_rollout(
 	finally:
 		if hasattr(scorer, "close"):
 			scorer.close()
-		if proc is not None:
-			proc.terminate()
-			try:
-				proc.wait(timeout=10)
-			except subprocess.TimeoutExpired:
-				proc.kill()
+		_stop_server(proc)
 	return results
+
+
+def _grade_one(ep: str, reference_path: str | None, smoothness_rows: str) -> dict[str, Any]:
+	reference = load_reference(Path(reference_path)) if reference_path else None
+	return grade(Path(ep), reference=reference, smoothness_rows=smoothness_rows)
+
+
+def _parallel_grade(
+	episodes: list[Path], reference_path: Path | None, smoothness_rows: str, workers: int
+) -> list[dict[str, Any]]:
+	"""Grade episodes in ``workers`` processes; order follows ``episodes``."""
+	import multiprocessing as mp
+	from concurrent.futures import ProcessPoolExecutor
+
+	if not episodes:
+		return []
+	ref = str(reference_path) if reference_path is not None else None
+	with ProcessPoolExecutor(max_workers=min(workers, len(episodes)), mp_context=mp.get_context("spawn")) as pool:
+		futures = [pool.submit(_grade_one, str(ep), ref, smoothness_rows) for ep in episodes]
+		return [f.result() for f in futures]
+
+
+def _stop_server(proc: subprocess.Popen | None) -> None:
+	if proc is None:
+		return
+	proc.terminate()
+	try:
+		proc.wait(timeout=10)
+	except subprocess.TimeoutExpired:
+		proc.kill()
+
+
+# Per-process state of a parallel rollout worker: one detector subprocess and one HTTP predictor, reused across cases.
+_WORKER: dict[str, Any] = {}
+
+
+def _rollout_worker_init(url: str, detector: str) -> None:
+	import atexit
+
+	from digital_twin_armigo.inspection_scorer import default_sup_scorer
+	from digital_twin_armigo.vla.client_policy import RemoteChunkPredictor
+
+	_WORKER["scorer"] = default_sup_scorer(Path(detector))
+	_WORKER["predictor"] = RemoteChunkPredictor(url)
+	atexit.register(lambda: getattr(_WORKER.get("scorer"), "close", lambda: None)())
+
+
+def _rollout_worker_case(
+	i: int,
+	case: tuple,
+	raw_dir: str,
+	takeover_cfg: TakeoverConfig,
+	mode: str,
+	video: bool,
+	replan_interval: int | None,
+) -> dict[str, Any]:
+	from digital_twin_armigo.vla.client_policy import ChunkClientPolicy
+
+	ep_dir = Path(raw_dir) / f"case-{i:04d}"
+	policy = ChunkClientPolicy(_WORKER["predictor"], mode=mode, replan_interval=replan_interval)
+	try:
+		run = run_takeover_episode(
+			case,
+			_WORKER["scorer"],
+			ep_dir,
+			policy=policy,
+			takeover_config=takeover_cfg,
+			video=video,
+			enforce_train_only=True,
+		)
+	finally:
+		policy.close()
+	return {"episode": ep_dir, "result": run["result"], "takeover": run["takeover"]}
+
+
+def _parallel_rollout(
+	url: str,
+	iter_cases: list[tuple],
+	raw_dir: Path,
+	takeover_cfg: TakeoverConfig,
+	*,
+	detector: Path,
+	mode: str,
+	video: bool,
+	replan_interval: int | None,
+	workers: int,
+) -> list[dict[str, Any]]:
+	"""Roll out cases in ``workers`` processes that share one (threaded) policy server. Each episode is independent
+	(own MuJoCo env, own trace dir ``case-XXXX``), so results are identical to the serial loop up to ordering, which is
+	restored by case index. MuJoCo stepping and rendering are single-threaded, so this is the only way to use the CPU."""
+	import multiprocessing as mp
+	from concurrent.futures import ProcessPoolExecutor, as_completed
+
+	raw_dir.mkdir(parents=True, exist_ok=True)
+	results: dict[int, dict[str, Any]] = {}
+	ctx = mp.get_context("spawn")
+	with ProcessPoolExecutor(
+		max_workers=min(workers, len(iter_cases)) or 1,
+		mp_context=ctx,
+		initializer=_rollout_worker_init,
+		initargs=(url, str(detector)),
+	) as pool:
+		futures = {
+			pool.submit(_rollout_worker_case, i, case, str(raw_dir), takeover_cfg, mode, video, replan_interval): i
+			for i, case in enumerate(iter_cases)
+		}
+		for n_done, fut in enumerate(as_completed(futures), start=1):
+			i = futures[fut]
+			results[i] = fut.result()
+			print(
+				f"[rollout] {n_done}/{len(iter_cases)} done (case-{i:04d}: {results[i]['result'].get('verdict')})",
+				flush=True,
+			)
+	return [results[i] for i in range(len(iter_cases))]
 
 
 def _default_export(
@@ -216,6 +342,33 @@ def _default_export(
 	]
 	subprocess.run(cmd, env=env, check=True)
 	return d_takeover_dir
+
+
+def _parallel_export(
+	iter_idx: int,
+	episode_dirs: list[Path],
+	d_takeover_dir: Path,
+	*,
+	lerobot_python: Path,
+	repo_id: str,
+	workers: int,
+) -> list[Path]:
+	"""Export ``episode_dirs`` as up to ``workers`` LeRobot shards ``d_takeover/shard-XX`` in parallel twin_record
+	subprocesses (video encoding is the cost: ~80 s per episode serially). The merge step takes any number of shards."""
+	from concurrent.futures import ThreadPoolExecutor
+
+	if d_takeover_dir.exists():
+		shutil.rmtree(d_takeover_dir)
+	d_takeover_dir.mkdir(parents=True)
+	k = max(1, min(workers, len(episode_dirs)))
+	chunks = [episode_dirs[j::k] for j in range(k)]
+	outs = [d_takeover_dir / f"shard-{j:02d}" for j in range(k)]
+	with ThreadPoolExecutor(max_workers=k) as pool:
+		futures = [
+			pool.submit(_default_export, iter_idx, chunk, out, lerobot_python=lerobot_python, repo_id=repo_id)
+			for chunk, out in zip(chunks, outs, strict=True)
+		]
+		return [f.result() for f in futures]
 
 
 def _default_merge(
@@ -277,6 +430,7 @@ def _default_train(
 	lr: float | None,
 	num_workers: int,
 	augment: bool = False,
+	eval_every: int | None = None,
 ) -> Path:
 	del iter_idx
 	env = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
@@ -299,6 +453,10 @@ def _default_train(
 		str(batch_size),
 		"--num-workers",
 		str(num_workers),
+		# A full val pass costs ~7 min (69k chunks); train.py's default of one per 1000 steps tripled a 10k-step
+		# fine-tune. Default to a single pass at the end (best == last then).
+		"--eval-every",
+		str(eval_every if eval_every is not None else steps),
 	]
 	if prev_ckpt is not None:
 		cmd.extend(["--init-from", str(prev_ckpt)])
@@ -411,6 +569,8 @@ def run_dagger_loop(
 	augment: bool = False,
 	replan_interval: int | None = None,
 	smoothness_rows: str = "all",
+	rollout_workers: int = 1,
+	train_eval_every: int | None = None,
 	rollout_fn: RolloutFn | None = None,
 	grade_fn: GradeFn | None = None,
 	export_fn: ExportFn | None = None,
@@ -438,6 +598,11 @@ def run_dagger_loop(
 	takeover_cfg = takeover_config or TakeoverConfig()
 	lerobot_py = lerobot_python or default_lerobot_python()
 	reference = load_reference(grader_ref_path) if grade_fn is None and not dry_run else None
+
+	if rollout_workers < 1:
+		raise ValueError(f"rollout_workers must be >= 1, got {rollout_workers}")
+	grade_many_cb: Callable[[list[Path]], list[dict[str, Any]]] | None = None
+	export_many_cb: Callable[[int, list[Path], Path], list[Path]] | None = None
 
 	# Wire default vs dry-run hooks cleanly.
 	if dry_run:
@@ -511,9 +676,16 @@ def run_dagger_loop(
 				mode=mode,
 				video=video,
 				replan_interval=replan_interval,
+				workers=rollout_workers,
 			)
 		)
 		grade_cb = grade_fn or (lambda ep: grade(ep, reference=reference, smoothness_rows=smoothness_rows))
+		if grade_fn is None and rollout_workers > 1:
+			grade_many_cb = lambda eps: _parallel_grade(eps, grader_ref_path, smoothness_rows, rollout_workers)
+		if export_fn is None and rollout_workers > 1:
+			export_many_cb = lambda it, eps, d_to: _parallel_export(
+				it, eps, d_to, lerobot_python=lerobot_py, repo_id=repo_id, workers=rollout_workers
+			)
 		export_cb = export_fn or (
 			lambda it, eps, d_to: _default_export(it, eps, d_to, lerobot_python=lerobot_py, repo_id=repo_id)
 		)
@@ -536,6 +708,7 @@ def run_dagger_loop(
 				lr=lr,
 				num_workers=num_workers,
 				augment=augment,
+				eval_every=train_eval_every,
 			)
 		)
 		eval_cb = eval_fn or (
@@ -585,7 +758,7 @@ def run_dagger_loop(
 				eligible_eps.append(Path(row["episode"]))
 
 		# Step 3: Grade & export D_takeover.
-		grades = [grade_cb(ep) for ep in eligible_eps]
+		grades = grade_many_cb(eligible_eps) if grade_many_cb is not None else [grade_cb(ep) for ep in eligible_eps]
 		passing_eps = [Path(g["episode"]) for g in grades if g.get("passed")]
 		# Only episodes that carry expert corrections are new supervision; a student-only pass adds nothing.
 		corrections = {ep: int(count_cb(ep)) for ep in passing_eps}
@@ -593,8 +766,12 @@ def run_dagger_loop(
 		passing_eps = [ep for ep in passing_eps if corrections[ep] > 0]
 		d_takeover_path: Path | None = None
 		if passing_eps:
-			d_takeover_path = export_cb(it, passing_eps, d_takeover_dir)
-			shards.append(d_takeover_path)
+			if export_many_cb is not None and len(passing_eps) > 1:
+				shards.extend(export_many_cb(it, passing_eps, d_takeover_dir))
+				d_takeover_path = d_takeover_dir
+			else:
+				d_takeover_path = export_cb(it, passing_eps, d_takeover_dir)
+				shards.append(d_takeover_path)
 			if not keep_raw and not dry_run:
 				_delete_raw_videos(raw_dir)
 		else:
@@ -742,13 +919,49 @@ def build_parser() -> argparse.ArgumentParser:
 		help="Expert starts from the student's last command, not the measured joints",
 	)
 	p.add_argument(
+		"--grasp-close-gate",
+		action="store_true",
+		help="Take over a student grasp that starts closing misaligned (or moving) w.r.t. the planned grasp",
+	)
+	p.add_argument("--grasp-close-tol-m", type=float, default=0.004)
+	p.add_argument(
+		"--grasp-descent-tol-m",
+		type=float,
+		default=None,
+		help="Take over a student grasp whose gripper enters the final descent this far (m) off the planned grasp",
+	)
+	p.add_argument("--grasp-close-max-speed", type=float, default=None, help="rad/frame arm motion at close onset")
+	p.add_argument(
+		"--in-place-grasp-recovery",
+		action="store_true",
+		help="Recover grasp takeovers in place (no return_ready / re-perceive), continuing the student's segment",
+	)
+	p.add_argument("--in-place-near-m", type=float, default=0.015)
+	p.add_argument(
+		"--takeover-weight-recovery-only",
+		action="store_true",
+		help="Takeover weight only on the recovered grasp and lift; later expert frames are plain demonstrations",
+	)
+	p.add_argument(
 		"--smoothness-rows",
-		choices=("all", "takeover"),
+		choices=("all", "takeover", "supervised"),
 		default="all",
 		help="Rows the S6 smoothness check scores when filtering S11 episodes",
 	)
 	p.add_argument(
 		"--replan-interval", type=int, default=None, help="Sync replan every N frames in rollouts and val eval"
+	)
+	p.add_argument(
+		"--rollout-workers",
+		type=int,
+		default=1,
+		help="Processes for train-layout rollouts and grading (share one policy server); MuJoCo is single-threaded",
+	)
+	p.add_argument(
+		"--train-eval-every",
+		type=int,
+		default=None,
+		help="train.py --eval-every (default: once, at the last step; each full val pass is ~7 min)",
 	)
 	return p
 
@@ -764,6 +977,13 @@ def main(argv: Sequence[str] | None = None) -> int:
 		grasp_deviation_thresh_rad=args.grasp_deviation_thresh_rad,
 		takeover_on_no_clamp=args.takeover_on_no_clamp,
 		expert_from_last_command=args.expert_from_last_command,
+		grasp_close_gate=args.grasp_close_gate,
+		grasp_close_tol_m=args.grasp_close_tol_m,
+		grasp_close_max_speed=args.grasp_close_max_speed,
+		grasp_descent_tol_m=args.grasp_descent_tol_m,
+		in_place_grasp_recovery=args.in_place_grasp_recovery,
+		in_place_near_m=args.in_place_near_m,
+		takeover_weight_recovery_only=args.takeover_weight_recovery_only,
 	)
 	summary = run_dagger_loop(
 		train_suite=args.train_suite,
@@ -796,6 +1016,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 		augment=args.augment,
 		replan_interval=args.replan_interval,
 		smoothness_rows=args.smoothness_rows,
+		rollout_workers=args.rollout_workers,
+		train_eval_every=args.train_eval_every,
 	)
 	print(json.dumps(summary, indent=2))
 	return 0

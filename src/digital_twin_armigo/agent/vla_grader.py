@@ -492,9 +492,12 @@ def phase_jerk(path: Path, manifest: dict, branches=None, *, rows: str = "all") 
 	arm joints (0-4), jerk as the third finite difference of the target and of the joint reading (rad/s^3).
 
 	``rows="takeover"`` keeps only the S11 expert-takeover rows (``is_takeover``; each contiguous run on its own, so
-	no difference spans the hand-over). A branch without that column contributes nothing."""
-	if rows not in ("all", "takeover"):
-		raise ValueError(f"rows must be 'all' or 'takeover', got {rows!r}")
+	no difference spans the hand-over). ``rows="supervised"`` keeps the rows with action supervision
+	(``supervise_action``: every expert row after a takeover, also those outside the takeover-weighted part). A branch
+	without that column contributes nothing."""
+	if rows not in ("all", "takeover", "supervised"):
+		raise ValueError(f"rows must be 'all', 'takeover' or 'supervised', got {rows!r}")
+	column = {"takeover": "is_takeover", "supervised": "supervise_action"}.get(rows)
 	acc: dict[str, list] = {}
 	if branches is None:
 		branches, _ = load_branches(path, manifest)
@@ -503,8 +506,8 @@ def phase_jerk(path: Path, manifest: dict, branches=None, *, rows: str = "all") 
 			continue
 		if rows == "all":
 			runs = [(0, len(z["action"]))]
-		elif "is_takeover" in z:
-			runs = _row_runs(np.asarray(z["is_takeover"], dtype=bool))
+		elif column in z:
+			runs = _row_runs(np.asarray(z[column], dtype=bool))
 		else:
 			runs = []
 		for a, b in runs:
@@ -574,7 +577,9 @@ def grade(
 	"""Grade one recorded episode directory (``episode.json``, ``events.jsonl``, ``branch-*/actions.npz``).
 
 	``smoothness_rows="takeover"`` (S11 data filtering) scores smoothness on the expert-takeover rows only: the
-	student's own frames carry no action supervision, so their jerk does not affect the labels being kept."""
+	student's own frames carry no action supervision, so their jerk does not affect the labels being kept.
+	``smoothness_rows="supervised"`` scores every supervised row (use it with ``takeover_weight_recovery_only``,
+	where the takeover rows are only a short grasp recovery)."""
 	path = Path(episode_dir)
 	reference = load_reference() if reference is None else reference
 	thresholds = {**DEFAULT_THRESHOLDS, **reference.get("thresholds", {})}

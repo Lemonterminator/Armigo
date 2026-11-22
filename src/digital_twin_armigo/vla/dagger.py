@@ -185,6 +185,30 @@ class TakeoverConfig:
 	# Start the expert from the student's last commanded target instead of the measured joints: the command leads the
 	# measurement by the tracking lag, so restarting from the measurement steps the command backwards (a jerk spike).
 	expert_from_last_command: bool = False
+	# Late-approach grasp gate (``grasp_close``): checked once per student grasp segment, at the first frame the
+	# student's gripper command has dropped ``grasp_close_drop`` below its largest value in the segment (it starts to
+	# close). Fires when the measured gripper frame is more than ``grasp_close_tol_m`` from the grasp target the expert
+	# plans on the perceived brick, or (if set) an arm joint moved more than ``grasp_close_max_speed`` rad in the last
+	# frame. Every check is logged as a ``grasp_close_check`` event.
+	grasp_close_gate: bool = False
+	grasp_close_tol_m: float = 0.004
+	grasp_close_max_speed: float | None = None
+	grasp_close_drop: float = 0.08
+	# Pre-contact grasp gate (``grasp_descent``): checked once per student grasp segment, at the first frame the
+	# measured gripper frame is lower than ``pregrasp_dz_m + grasp_descent_margin_m`` above the planned grasp target
+	# (the jaws have not reached the brick yet, so the perceived pose is still valid). Fires on a horizontal error above
+	# ``grasp_descent_tol_m``. None disables it. Logged as ``grasp_descent_check`` events.
+	grasp_descent_tol_m: float | None = None
+	grasp_descent_margin_m: float = 0.005
+	# Recover a grasp takeover in place: no let_go / return_ready / re-perceive. The expert reopens, servos onto the
+	# planned grasp from where the student is (or rises and re-approaches if it is more than ``in_place_near_m`` away),
+	# closes and lifts. A takeover inside the student's grasp segment continues that segment (same id and segment
+	# frames), so the corrections are labelled at the segment frames the student reaches them at.
+	in_place_grasp_recovery: bool = False
+	in_place_near_m: float = 0.015
+	# Mark only the recovered grasp and lift as takeover rows (takeover weight); the expert frames after them stay
+	# supervised as plain demonstrations (weight 1).
+	takeover_weight_recovery_only: bool = False
 
 	def __post_init__(self) -> None:
 		if self.deviation_thresh_rad <= 0.0:
@@ -197,6 +221,12 @@ class TakeoverConfig:
 			raise ValueError("shadow_lag_alpha must lie in (0, 1]")
 		if self.grasp_deviation_thresh_rad is not None and self.grasp_deviation_thresh_rad <= 0.0:
 			raise ValueError("grasp_deviation_thresh_rad must be positive")
+		if self.grasp_close_tol_m <= 0.0 or self.grasp_close_drop <= 0.0 or self.in_place_near_m <= 0.0:
+			raise ValueError("grasp_close_tol_m, grasp_close_drop and in_place_near_m must be positive")
+		if self.grasp_close_max_speed is not None and self.grasp_close_max_speed <= 0.0:
+			raise ValueError("grasp_close_max_speed must be positive")
+		if self.grasp_descent_tol_m is not None and self.grasp_descent_tol_m <= 0.0:
+			raise ValueError("grasp_descent_tol_m must be positive")
 
 	def deviation_thresholds(self, kind: str) -> tuple[float, float] | None:
 		"""``(hard, soft)`` joint-deviation thresholds for a segment kind, or None if the kind is exempt."""
@@ -678,6 +708,8 @@ class TakeoverTwin(StudentTwin):
 		self._frame_supervise_action: list[bool] = []
 		self._active_scan_path: list[np.ndarray] | None = None
 		self._active_bottom_q: np.ndarray | None = None
+		self._grasp_ref: tuple[np.ndarray, float, float] | None = None  # planned (target, roll, open_g) of the grasp
+		self._takeover_tail = False  # past the recovered grasp: supervised, but not takeover-weighted
 		self._hook_record_finish()
 
 	def _hook_record_finish(self) -> None:
@@ -744,7 +776,7 @@ class TakeoverTwin(StudentTwin):
 		# Student frames (< t_takeover) NEVER receive expert action supervision (zero back-fill!).
 		is_to = bool(self.taken_over)
 		self._frame_is_blind.append(False)
-		self._frame_is_takeover.append(is_to)
+		self._frame_is_takeover.append(is_to and not self._takeover_tail)
 		self._frame_supervise_action.append(is_to)
 		return super()._apply_target(obs, target, phase)
 
@@ -831,8 +863,18 @@ class TakeoverTwin(StudentTwin):
 		clamp_run = 0
 		monitor = GripperMonitor(GripperMonitorParams(effort_min=0.0, use_effort=False))
 		self._clamped = self._blocked = False
-		gate_active = (not self.taken_over) or self.takeover_config.allow_multiple_takeovers
+		cfg = self.takeover_config
+		gate_active = (not self.taken_over) or cfg.allow_multiple_takeovers
 		gate_started = False
+		# A grasp takeover recovered in place continues the student's segment (the expert's frames keep its id).
+		keep_open = cfg.in_place_grasp_recovery and seg.kind == "grasp"
+		close_check = (
+			gate_active and cfg.grasp_close_gate and seg.kind == "grasp" and self._grasp_ref is not None
+		)
+		descent_check = (
+			gate_active and cfg.grasp_descent_tol_m is not None and seg.kind == "grasp" and self._grasp_ref is not None
+		)
+		grip_max = float(self._prev_action[5])
 
 		while True:
 			if self.total_frames >= MAX_TOTAL_FRAMES:
@@ -880,7 +922,21 @@ class TakeoverTwin(StudentTwin):
 						no_dual_frames=ex._no_dual,
 					)
 				if decision.trigger:
-					return self._trigger_takeover(seg, sid, decision, safe_obs)
+					return self._trigger_takeover(seg, sid, decision, safe_obs, end_segment=not keep_open)
+
+			if descent_check and float(safe_obs["tcp"][2]) < (
+				self._grasp_ref[0][2] + ex.p.pregrasp_dz_m + cfg.grasp_descent_margin_m
+			):
+				descent_check = False  # once per segment: entering the final descent
+				decision = self._grasp_descent_decision(safe_obs, sid, frames)
+				if decision.trigger:
+					return self._trigger_takeover(seg, sid, decision, safe_obs, end_segment=not keep_open)
+
+			if close_check and frames > 0 and float(self._prev_action[5]) < grip_max - cfg.grasp_close_drop:
+				close_check = False  # once per segment: at the onset of the student's close
+				decision = self._grasp_close_decision(safe_obs, sid, frames)
+				if decision.trigger:
+					return self._trigger_takeover(seg, sid, decision, safe_obs, end_segment=not keep_open)
 
 			if seg.held and ex.lost:
 				self._segment_end("brick_lost")
@@ -923,11 +979,59 @@ class TakeoverTwin(StudentTwin):
 			error = self._apply_target(obs, target, phase)
 			self._q_prev = q
 			self._prev_action = target.copy()
+			grip_max = max(grip_max, float(target[5]))
 			frames += 1
 			after_step = True
 			if error:
 				self._segment_end("fault")
 				return error
+
+	def _grasp_descent_decision(self, obs: Mapping[str, Any], sid: int, segment_frame: int) -> GateDecision:
+		"""The ``grasp_descent`` gate as the gripper enters the final descent: horizontal gripper-frame error to the
+		planned grasp target (measured joints -> ``obs["tcp"]``, perceived brick -> target)."""
+		target, roll, _ = self._grasp_ref
+		err = np.asarray(obs["tcp"], dtype=np.float64) - target
+		xy = float(np.linalg.norm(err[:2]))
+		metrics = {
+			"segment_frame": int(segment_frame),
+			"err_xy_m": round(xy, 5),
+			"err_xyz_m": [round(float(v), 5) for v in err],
+			"roll_err_rad": round(float(obs["q"][4] - roll), 4),
+		}
+		fired = xy > float(self.takeover_config.grasp_descent_tol_m)
+		self.event("grasp_descent_check", segment_id=sid, fired=fired, **metrics)
+		if not fired:
+			return GateDecision(trigger=False, metrics=metrics)
+		return GateDecision(trigger=True, gate="grasp_descent", reason="misaligned_before_contact", metrics=metrics)
+
+	def _grasp_close_decision(self, obs: Mapping[str, Any], sid: int, segment_frame: int) -> GateDecision:
+		"""The ``grasp_close`` gate at the onset of the student's close: gripper-frame error to the planned grasp
+		target (measured joints -> ``obs["tcp"]``, perceived brick -> target) and the last frame's arm joint motion."""
+		cfg = self.takeover_config
+		target, roll, _ = self._grasp_ref
+		err = np.asarray(obs["tcp"], dtype=np.float64) - target
+		q = np.asarray(obs["q"], dtype=np.float64)
+		q_prev = q if self._q_prev is None else self._q_prev
+		speed = float(np.max(np.abs(q[:5] - q_prev[:5])))
+		dist = float(np.linalg.norm(err))
+		metrics = {
+			"segment_frame": int(segment_frame),
+			"err_m": round(dist, 5),
+			"err_xyz_m": [round(float(v), 5) for v in err],
+			"roll_err_rad": round(float(q[4] - roll), 4),
+			"arm_speed_rad": round(speed, 5),
+		}
+		misaligned = dist > cfg.grasp_close_tol_m
+		moving = cfg.grasp_close_max_speed is not None and speed > cfg.grasp_close_max_speed
+		self.event("grasp_close_check", segment_id=sid, fired=bool(misaligned or moving), **metrics)
+		if not (misaligned or moving):
+			return GateDecision(trigger=False, metrics=metrics)
+		return GateDecision(
+			trigger=True,
+			gate="grasp_close",
+			reason="misaligned_at_close" if misaligned else "moving_at_close",
+			metrics=metrics,
+		)
 
 	# -- Expert execution & in-place recovery after takeover ------------------------------------------------------
 
@@ -1098,21 +1202,168 @@ class TakeoverTwin(StudentTwin):
 		err = self._execute_as_expert(grasp_and_lift())
 		return err or ("BRICK_LOST" if ex.lost else ex.aborted)
 
+	IN_PLACE_MISS = "in_place_miss"
+
+	def _in_place_near(self, err: np.ndarray, roll: float) -> bool:
+		"""Whether the gripper is close enough to the planned grasp to correct in place: within ``in_place_near_m``
+		horizontally, between just below the grasp point and a little above the pre-grasp height, wrist roll close."""
+		p = self.expert.p
+		return (
+			float(np.linalg.norm(err[:2])) <= self.takeover_config.in_place_near_m
+			and -0.005 <= float(err[2]) <= p.pregrasp_dz_m + 0.015
+			and abs(float(self.expert.last[4]) - roll) <= 0.15
+		)
+
+	def _in_place_grasp_gen(self):
+		"""One expert grasp attempt from where the student left the gripper, on the perceived brick (no re-perception):
+		reopen, correct horizontally at the current height, descend, servo and close. Returns a ``_Grasp``, or None
+		with ``aborted`` = ``IN_PLACE_MISS`` after reopening and rising clear of the brick (the brick may have been
+		moved, so the caller re-perceives), or ``gripper_blocked``."""
+		from ..mujoco_cell.physics_expert import _Grasp
+
+		ex, p = self.expert, self.expert.p
+		target, roll, _ = ex._grasp_plan(open_g=ex._active_open_g)  # sets z_grasp and grasp_info
+		g_open = float(ex._active_open_g)
+		tcp = np.asarray(ex.obs["tcp"], dtype=np.float64)
+		if ex.last[5] < g_open - 1e-3:
+			q_open = ex.last.copy()
+			q_open[5] = g_open
+			frac = (g_open - float(ex.last[5])) / max(g_open - p.hold_g, 1e-6)
+			yield from ex._move(q_open, max(0.1, p.reopen_s * min(frac, 1.0)), "grasp")
+		dz = float(tcp[2] - target[2])
+		if dz > 0.003:  # line up over the grasp point at the current height before going down
+			above = target + np.array([0.0, 0.0, dz])
+			q = ex._ik(above, ex.last, roll)
+			q[5] = g_open
+			shift = float(np.linalg.norm(tcp[:2] - target[:2]))
+			yield from ex._move(q, max(0.5, p.final_descend_s * shift / 0.005), "grasp")
+		q = ex._ik(target, ex.last, roll)
+		q[5] = g_open
+		yield from ex._move(q, p.final_descend_s, "grasp")
+		corr = yield from ex._servo(target, roll, "grasp", p.servo_tol_m)
+		outcome = yield from ex._close_and_clamp()
+		if outcome == "clamped":
+			return _Grasp(target=target, roll=roll, corr=corr)
+		if outcome == "blocked":
+			ex.aborted = "gripper_blocked"
+		else:
+			ex.aborted = self.IN_PLACE_MISS
+		q_open = ex.last.copy()
+		q_open[5] = g_open
+		yield from ex._move(q_open, p.reopen_s, "grasp")
+		yield from ex._rise_to_hover(roll, g_open)
+		return None
+
+	def _in_place_grasp_and_lift(self, segs: dict[str, Segment]) -> str | None:
+		"""Grasp takeover recovered in place (``in_place_grasp_recovery``). If the student's grasp segment is still
+		open the expert continues it, and the lift starts a new segment at the expert's first lift frame; otherwise
+		(the student ended the grasp unclamped) the expert's grasp is a new ``grasp`` segment.
+
+		Falls back to the full recovery (let_go / return_ready / re-perceive / grasp) when the gripper is too far
+		from the planned grasp, or when the in-place attempt misses; a missed attempt's frames lose their supervision
+		(the perceived brick pose it servoed to may be stale)."""
+		ex = self.expert
+		cfg = self.takeover_config
+		self.held = None
+		self._grip_from_brick = None
+		ex.lost = False
+		ex._no_dual = 0
+		ex.aborted = None
+		ex.grasp_retries = ex.block_replans = 0
+		ex._active_open_g = float(self._grasp_ref[2]) if self._grasp_ref is not None else float(ex.p.open_g)
+		target, roll = (self._grasp_ref[0], self._grasp_ref[1]) if self._grasp_ref is not None else (None, 0.0)
+		tcp = np.asarray(self.cell.tcp_pos(), dtype=np.float64)  # measured joints' forward kinematics
+		if target is None or not self._in_place_near(tcp - target, roll):
+			self.event("in_place_recovery", outcome="too_far")
+			return self._fallback_recovery(None)
+
+		def grasp_and_lift():
+			self._belief_obs = True
+			try:
+				grasp = yield from self._in_place_grasp_gen()
+			finally:
+				self._belief_obs = False
+			if grasp is not None:
+				self._grip_from_brick = np.linalg.inv(self._grip_pose()) @ self._table_belief_tf()
+				q_lift = yield from ex._lift(grasp)
+				self.held = (q_lift, grasp.roll)
+
+		start = self.ep.n_frames
+		if self._open_segment is None:
+			err = self._execute_as_expert(grasp_and_lift())
+		else:
+			err = self._continue_grasp_segment(grasp_and_lift(), segs)
+		if err:
+			return err
+		if ex.aborted in (self.IN_PLACE_MISS, "gripper_blocked"):
+			self.event("in_place_recovery", outcome=ex.aborted, frames=self.ep.n_frames - start)
+			return self._fallback_recovery(start)
+		self.event("in_place_recovery", outcome="clamped" if self.held is not None else str(ex.aborted))
+		if cfg.takeover_weight_recovery_only:
+			self._takeover_tail = True
+		return "BRICK_LOST" if ex.lost else ex.aborted
+
+	def _fallback_recovery(self, unsupervise_from: int | None) -> str | None:
+		"""Full grasp recovery after an in-place attempt was not possible or missed. Frames from ``unsupervise_from``
+		on lose their action supervision; the recovery's frames are plain demonstrations under
+		``takeover_weight_recovery_only`` (they start from the ready pose, so they add no near-brick states)."""
+		if unsupervise_from is not None:
+			for i in range(unsupervise_from, len(self._frame_supervise_action)):
+				self._frame_supervise_action[i] = False
+				self._frame_is_takeover[i] = False
+		if self._open_segment is not None:
+			self._segment_end("takeover")  # the student's grasp segment, kept open for an in-place recovery
+		if self.takeover_config.takeover_weight_recovery_only:
+			self._takeover_tail = True
+		return self._expert_reperceive_and_grasp_and_lift()
+
+	def _continue_grasp_segment(self, generator, segs: dict[str, Segment]) -> str | None:
+		"""Run an expert grasp-and-lift generator inside the student's still-open grasp segment: the grasp frames keep
+		that segment, the first ``lift`` frame ends it (``done``) and opens the lift segment, as ``ExpertTracer._split``
+		splits the expert's own grasp_and_lift."""
+		self._tag_carry()
+
+		def split():
+			in_lift = False
+			try:
+				for target, phase in generator:
+					if not in_lift and phase == "lift":
+						self._segment_end("done")
+						self._segment_begin(segs["lift"])
+						in_lift = True
+					yield target, phase
+			finally:
+				generator.close()
+
+		error = TwinMujoco._execute(self, split())
+		if self._open_segment is not None:
+			lost = self._open_segment["segment"].held and self.expert.lost
+			self._segment_end(error or ("brick_lost" if lost else "done"))
+		if self.held is not None:
+			self.lift_poses.append(np.asarray(self.held[0], dtype=np.float64).copy())
+		return error
+
+	def _grasp_takeover_recovery(self, segs: dict[str, Segment]) -> str | None:
+		if self.takeover_config.in_place_grasp_recovery:
+			return self._in_place_grasp_and_lift(segs)
+		return self._expert_reperceive_and_grasp_and_lift()
+
 	def _takeover_grasp_and_lift(self, segs: dict[str, Segment]) -> str | None:
 		ex = self.expert
-		seg = with_grasp_roll(segs["grasp"], self._planned_grasp_roll())
+		self._grasp_ref = self._planned_grasp()
+		seg = with_grasp_roll(segs["grasp"], self._grasp_ref[1])
 		self._belief_obs = True
 		try:
 			error = self.run_segment(seg)
 		finally:
 			self._belief_obs = False
 		if error == TAKEOVER_RETURN_CODE:
-			return self._expert_reperceive_and_grasp_and_lift()
+			return self._grasp_takeover_recovery(segs)
 		if error:
 			return error
 		if not self._clamped:
 			if not self._blocked and self._takeover_after_no_clamp(seg) == TAKEOVER_RETURN_CODE:
-				return self._expert_reperceive_and_grasp_and_lift()
+				return self._grasp_takeover_recovery(segs)
 			ex.aborted = "gripper_blocked" if self._blocked else "no_clamp"
 			return None
 		self._grip_from_brick = np.linalg.inv(self._grip_pose()) @ self._table_belief_tf()

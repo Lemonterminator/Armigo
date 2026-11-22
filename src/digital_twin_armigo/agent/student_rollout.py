@@ -464,6 +464,11 @@ class StudentTwin(_SegmentMixin, TwinMujoco):
 	def _planned_grasp_roll(self) -> float:
 		"""The wrist roll ``ClosedLoopExpert._grasp_plan`` picks for the perceived brick, as the expert's grasp would
 		plan it at its first frame. Leaves the expert's state as it was (the student, not the expert, moves next)."""
+		return self._planned_grasp()[1]
+
+	def _planned_grasp(self) -> tuple[np.ndarray, float, float]:
+		"""``(gripper-frame target, wrist roll, jaw opening)`` of the grasp ``ClosedLoopExpert._grasp_plan`` plans for
+		the perceived brick at its first frame. Leaves the expert's state as it was."""
 		ex = self.expert
 		obs = dict(ex.obs)
 		if self.realistic:
@@ -476,7 +481,8 @@ class StudentTwin(_SegmentMixin, TwinMujoco):
 		z_saved = vars(ex).get("z_grasp")
 		try:
 			ex.obs = obs
-			_, roll, _ = ex._grasp_plan(open_g=ex._active_open_g)
+			target, roll, _ = ex._grasp_plan(open_g=ex._active_open_g)
+			open_g = float(ex._active_open_g)  # _grasp_plan may pick a narrower opening (pre_narrow_open)
 		finally:
 			ex.obs, ex._active_open_g, ex.grasp_info, qpos = saved
 			ex.kin.data.qpos[:] = qpos
@@ -484,7 +490,7 @@ class StudentTwin(_SegmentMixin, TwinMujoco):
 				vars(ex).pop("z_grasp", None)
 			else:
 				ex.z_grasp = z_saved
-		return float(roll)
+		return np.asarray(target, dtype=np.float64).copy(), float(roll), open_g
 
 	def _student_park(self, segs):
 		"""TwinMujoco._park_held's park: back to the lift pose, put down at the park spot, ready pose."""

@@ -522,6 +522,8 @@ def evaluate_closed_loop(
 	replan_interval: int | None = None,
 	prefetch_ahead: int | None = None,
 	end_threshold: float | None = None,
+	temporal_ensemble: float | None = None,
+	stop_policy: str = "latest",
 	teacher_runs: Path | None = None,
 	run_teacher: bool = True,
 	grader_ref: Path | None = None,
@@ -559,6 +561,8 @@ def evaluate_closed_loop(
 			replan_interval=replan_interval,
 			prefetch_ahead=prefetch_ahead,
 			end_threshold=end_threshold,
+			temporal_ensemble=temporal_ensemble,
+			stop_policy=stop_policy,
 		)
 		try:
 			run_episode(case, scorer, ep_dir, policy=policy, sensing="realistic", video=video)
@@ -647,6 +651,18 @@ def build_parser() -> argparse.ArgumentParser:
 	p.add_argument("--replan-interval", type=int, default=None)
 	p.add_argument("--prefetch-ahead", type=int, default=None)
 	p.add_argument("--end-threshold", type=float, default=None)
+	p.add_argument(
+		"--temporal-ensemble",
+		type=float,
+		default=None,
+		help="ACT temporal ensembling coefficient m (e.g. 0.01); pair with a small --replan-interval",
+	)
+	p.add_argument(
+		"--stop-policy",
+		choices=("latest", "keep", "earliest"),
+		default="latest",
+		help="How a replan combines its end-step with a planned stop (see ChunkClientPolicy)",
+	)
 	p.add_argument("--teacher-runs", type=Path, default=None, help="Optional dir of expert runs on the same suite")
 	p.add_argument("--no-teacher", action="store_true", help="Do not run teacher baseline if --teacher-runs is absent")
 	p.add_argument("--max-episodes", type=int, default=None)
@@ -694,6 +710,8 @@ def main(argv: list[str] | None = None) -> int:
 				replan_interval=args.replan_interval,
 				prefetch_ahead=args.prefetch_ahead,
 				end_threshold=args.end_threshold,
+				temporal_ensemble=args.temporal_ensemble,
+				stop_policy=args.stop_policy,
 				teacher_runs=args.teacher_runs,
 				run_teacher=not args.no_teacher,
 				grader_ref=args.grader_ref,

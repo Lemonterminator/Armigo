@@ -287,6 +287,60 @@ def test_queue_reset_on_start_and_k_hat_zero_immediate_stop():
 	policy.close()
 
 
+def test_temporal_ensemble_weights_overlapping_chunks_and_resets_per_segment():
+	model = _DummyChunkModel(horizon=10, family="act")
+	local = LocalChunkPredictor(model)
+	policy = ChunkClientPolicy(local, mode="sync", replan_interval=2, temporal_ensemble=1.0)
+
+	seg0 = policy_inputs(Segment("prepare"))
+	policy.start(seg0, 0)
+	model.next_action_value = 0.25
+	t0 = policy.act(_make_obs(seg0, segment_id=0, segment_frame=0)).target
+	t1 = policy.act(_make_obs(seg0, segment_id=0, segment_frame=1)).target
+	assert len(model.calls) == 1
+	assert t0[1] == pytest.approx(0.25) and t1[0] == pytest.approx(0.26)
+
+	model.next_action_value = 0.45
+	t2 = policy.act(_make_obs(seg0, segment_id=0, segment_frame=2)).target
+	assert len(model.calls) == 2
+	w = np.array([1.0, np.exp(-1.0)])  # oldest chunk first
+	assert t2[1] == pytest.approx((w[0] * 0.25 + w[1] * 0.45) / w.sum())
+	assert t2[0] == pytest.approx((w[0] * 0.27 + w[1] * 0.45) / w.sum())
+
+	# A new segment must not blend in chunks from the previous one.
+	seg1 = policy_inputs(Segment("prepare"))
+	policy.start(seg1, 1)
+	model.next_action_value = 0.65
+	t_new = policy.act(_make_obs(seg1, segment_id=1, segment_frame=0)).target
+	assert t_new[1] == pytest.approx(0.65)
+	policy.close()
+
+
+def _stop_sequence(stop_policy: str) -> list[int | None]:
+	model = _DummyChunkModel(horizon=10, family="act")
+	policy = ChunkClientPolicy(LocalChunkPredictor(model), mode="sync", replan_interval=2, stop_policy=stop_policy)
+	seg = policy_inputs(Segment("prepare"))
+	policy.start(seg, 0)
+	seen = []
+	# frame 0: stop 8; frame 2: H+1 (no end in this chunk); frame 4: 4+9=13 (later); frame 6: 6+1=7 (earlier)
+	for frame, k in ((0, 8), (2, 11), (4, 9), (6, 1)):
+		model.next_k_hat = k
+		policy.act(_make_obs(seg, segment_id=0, segment_frame=frame))
+		seen.append(policy.planned_stop_step)
+	policy.start(seg, 1)
+	assert policy.planned_stop_step is None
+	policy.close()
+	return seen
+
+
+def test_stop_policy_latest_keep_earliest():
+	assert _stop_sequence("latest") == [8, None, 13, 7]
+	assert _stop_sequence("keep") == [8, 8, 13, 7]
+	assert _stop_sequence("earliest") == [8, 8, 8, 7]
+	with pytest.raises(ValueError):
+		ChunkClientPolicy(LocalChunkPredictor(_DummyChunkModel()), stop_policy="bogus")
+
+
 def test_k_hat_stop_at_base_frame_plus_k_without_extra_call_and_threshold():
 	model = _DummyChunkModel(horizon=8, family="act")
 	local = LocalChunkPredictor(model)

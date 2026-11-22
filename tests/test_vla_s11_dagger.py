@@ -105,6 +105,34 @@ class StallingScanPolicy(DriftingScanPolicy):
 		return PolicyStep(target=self.q_start.copy() if self.q_start is not None else obs.q.copy(), phase="approach")
 
 
+class OffsetGraspReplay(ReplayPolicy):
+	"""Replays an expert trace, but walks the pan joint off by up to ``offset`` rad during the ``grasp`` segment."""
+
+	def __init__(self, segments, offset: float = 0.03) -> None:
+		super().__init__(segments)
+		self.offset = float(offset)
+		self.kind = ""
+
+	def start(self, task: dict, segment_id: int) -> None:
+		super().start(task, segment_id)
+		self.kind = str(task["kind"])
+
+	def act(self, obs: StudentObservation) -> PolicyStep:
+		step = super().act(obs)
+		if self.kind == "grasp" and step.target is not None:
+			step.target[0] += self.offset * min(1.0, obs.segment_frame / 30.0)
+		return step
+
+
+IN_PLACE_CFG = dict(
+	deviation_exempt_kinds=("prepare", "return_ready", "grasp"),
+	grasp_close_gate=True,
+	grasp_descent_tol_m=0.003,
+	in_place_grasp_recovery=True,
+	expert_from_last_command=True,
+)
+
+
 # -----------------------------------------------------------------------------------------------------------
 # 1. Train-only suite guard tests
 # -----------------------------------------------------------------------------------------------------------
@@ -475,6 +503,117 @@ def test_mujoco_takeover_joint_deviation_no_backfill_and_dataset(tmp_path: Path)
 	assert pre["action_mask"].tolist()[:5] == [True, True, True, False, False]
 
 
+def test_mujoco_grasp_close_gate_no_false_takeover_on_expert_replay(tmp_path: Path):
+	pytest.importorskip("mujoco")
+	pytest.importorskip("langgraph")
+	pytest.importorskip("av")
+	pytest.importorskip("cv2")
+
+	expert_dir = tmp_path / "expert"
+	assert run_episode(TRAIN_CASE_DEFECTIVE, ConstantScorer(1.0), expert_dir, sensing="realistic")["result"][
+		"verdict"
+	] == "SUCCESS"
+	replay = ReplayPolicy.from_trace(expert_dir)
+	ep_dir = tmp_path / "replay"
+	run = run_takeover_episode(
+		TRAIN_CASE_DEFECTIVE,
+		ConstantScorer(1.0),
+		ep_dir,
+		policy=replay,
+		segment_monitor=replay.check_segment,
+		takeover_config=TakeoverConfig(**IN_PLACE_CFG),
+	)
+	assert run["result"]["verdict"] == "SUCCESS"
+	assert run["takeover"]["triggered"] is False
+	checks = [e for e in run["events"] if e["kind"] == "grasp_close_check"]
+	assert checks and not any(c["fired"] for c in checks)
+	assert max(c["err_m"] for c in checks) < 0.002
+	descent = [e for e in run["events"] if e["kind"] == "grasp_descent_check"]
+	assert descent and not any(c["fired"] for c in descent)
+
+
+@pytest.mark.parametrize("recovery_only", [False, True])
+def test_mujoco_grasp_close_takeover_recovers_in_place(tmp_path: Path, recovery_only: bool):
+	pytest.importorskip("mujoco")
+	pytest.importorskip("langgraph")
+	pytest.importorskip("av")
+	pytest.importorskip("cv2")
+
+	expert_dir = tmp_path / "expert"
+	run_episode(TRAIN_CASE_DEFECTIVE, ConstantScorer(1.0), expert_dir, sensing="realistic")
+	policy = OffsetGraspReplay(ReplayPolicy.from_trace(expert_dir).segments, offset=0.03)
+	ep_dir = tmp_path / "ep"
+	cfg = TakeoverConfig(**IN_PLACE_CFG, takeover_weight_recovery_only=recovery_only)
+	run = run_takeover_episode(TRAIN_CASE_DEFECTIVE, ConstantScorer(1.0), ep_dir, policy=policy, takeover_config=cfg)
+
+	to = run["takeover"]
+	assert run["result"]["verdict"] == "SUCCESS"
+	assert run["result"]["rewinds"] == 0
+	assert to["triggered"] is True and to["gate"] == "grasp_descent" and to["segment_kind"] == "grasp"
+	t_to, sid = int(to["frame"]), int(to["segment_id"])
+
+	events = run["events"]
+	assert not any(e["kind"] == "segment_end" and e["reason"] == "takeover" for e in events)
+	grasp_start = next(e for e in events if e["kind"] == "segment" and e["id"] == sid)
+	grasp_end = next(e for e in events if e["kind"] == "segment_end" and e["id"] == sid)
+	assert grasp_start["frame"] < t_to < grasp_start["frame"] + grasp_end["frames"]
+	assert grasp_end["reason"] == "done"
+	segs_after = [e for e in events if e["kind"] == "segment" and e["id"] > sid]
+	assert segs_after[0]["segment_kind"] == "lift"  # in place: no let_go / return_ready / re-perceive in between
+	lift_end = next(e for e in events if e["kind"] == "segment_end" and e["id"] == segs_after[0]["id"])
+	t_lift_end = segs_after[0]["frame"] + lift_end["frames"]
+	fired = [e for e in events if e["kind"] == "grasp_descent_check" and e["fired"]]
+	assert len(fired) == 1 and fired[0]["err_xy_m"] > cfg.grasp_descent_tol_m
+	assert [e["outcome"] for e in events if e["kind"] == "in_place_recovery"] == ["clamped"]
+
+	labels = segment_labels(ep_dir)
+	assert len(labels["index"]) == run["frames"]
+	assert labels["index"][t_to - 1] == labels["index"][t_to] == sid  # the expert continues the student's segment
+	assert labels["frame"][t_to] == t_to - grasp_start["frame"]
+
+	with np.load(ep_dir / "branch-0" / "actions.npz", allow_pickle=False) as rows:
+		sup, is_to = rows["supervise_action"], rows["is_takeover"]
+	assert not sup[:t_to].any() and sup[t_to:].all()
+	if recovery_only:
+		assert is_to[t_to:t_lift_end].all() and not is_to[t_lift_end:].any()
+	else:
+		assert is_to[t_to:].all()
+
+	ep_dict = episode_to_dataset_dict(ep_dir, episode_index=0)
+	ds = SegmentChunkDataset.from_episodes([ep_dict], horizon=20, takeover_weight=4.0, return_torch=False)
+	s = ds[t_to]
+	assert s["action_mask"].any() and int(s["end_step_target"]) >= 0
+	assert float(s["sample_weight"]) == 4.0
+
+
+def test_mujoco_grasp_takeover_too_far_falls_back_to_full_recovery(tmp_path: Path):
+	pytest.importorskip("mujoco")
+	pytest.importorskip("langgraph")
+	pytest.importorskip("av")
+	pytest.importorskip("cv2")
+
+	expert_dir = tmp_path / "expert"
+	run_episode(TRAIN_CASE_DEFECTIVE, ConstantScorer(1.0), expert_dir, sensing="realistic")
+	policy = OffsetGraspReplay(ReplayPolicy.from_trace(expert_dir).segments, offset=0.15)
+	ep_dir = tmp_path / "ep"
+	cfg = TakeoverConfig(**IN_PLACE_CFG, takeover_weight_recovery_only=True)
+	run = run_takeover_episode(TRAIN_CASE_DEFECTIVE, ConstantScorer(1.0), ep_dir, policy=policy, takeover_config=cfg)
+
+	to = run["takeover"]
+	assert run["result"]["verdict"] == "SUCCESS"
+	assert to["triggered"] is True and to["segment_kind"] == "grasp"
+	events = run["events"]
+	assert [e["outcome"] for e in events if e["kind"] == "in_place_recovery"] == ["too_far"]
+	end = next(e for e in events if e["kind"] == "segment_end" and e["id"] == to["segment_id"])
+	assert end["reason"] == "takeover" and end["frame"] == to["frame"]
+	assert any(e["kind"] == "segment" and e["segment_kind"] == "return_ready" and e["frame"] >= to["frame"] for e in events)
+	labels = segment_labels(ep_dir)
+	assert len(labels["index"]) == run["frames"]
+	with np.load(ep_dir / "branch-0" / "actions.npz", allow_pickle=False) as rows:
+		assert not rows["is_takeover"].any()  # a full recovery adds no near-brick takeover rows
+		assert rows["supervise_action"][to["frame"] :].all()
+
+
 def test_mujoco_takeover_budget_or_stall_recovers_to_success(tmp_path: Path):
 	pytest.importorskip("mujoco")
 	pytest.importorskip("langgraph")
@@ -706,6 +845,10 @@ def test_run_dagger_loop_trains_only_on_new_expert_corrections(tmp_path: Path, m
 	run_dagger_iter._default_train(1, tmp_path, None, tmp_path / "c1", **kw)
 	run_dagger_iter._default_train(1, tmp_path, None, tmp_path / "c2", augment=True, **kw)
 	assert "--no-augment" in seen[0] and "--no-augment" not in seen[1]
+	# One val pass at the last step by default (a pass is ~7 min); an explicit interval is passed through.
+	run_dagger_iter._default_train(1, tmp_path, None, tmp_path / "c3", eval_every=500, **kw)
+	assert seen[0][seen[0].index("--eval-every") + 1] == "1"
+	assert seen[2][seen[2].index("--eval-every") + 1] == "500"
 
 
 def test_run_dagger_iter_cli_dry_run(tmp_path: Path):
