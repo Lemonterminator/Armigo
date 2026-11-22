@@ -200,6 +200,45 @@ def test_rerun_control_needs_the_token_and_loopback_host(root):
 	assert client.get("/api/episodes", headers={"host": "evil.example"}).status_code == 403
 
 
+def test_episode_payload_carries_head_signals_case_and_crops(root):
+	ep = root / "agent" / "case-0000"
+	view = {
+		"id": "0:30:top",
+		"branch": 0,
+		"frame": 30,
+		"camera": "top",
+		"faces": [5],
+		"face_pixels": [0, 0, 0, 0, 0, 900],
+		"score": 0.67,
+		"threshold": 0.0,
+	}
+	extra = [
+		{"seq": 10, "kind": "view_truth", "id": "0:30:top", "true_cross_px_crop": 127},
+		{
+			"seq": 11,
+			"kind": "view",
+			"node": "scan_wrist",
+			"sim_time_s": 1.0,
+			"observation": view,
+			"detector": {"head_scores": {"cls": 0.67, "seg": 0.32}},
+		},
+	]
+	with (ep / "events.jsonl").open("a", encoding="utf-8") as f:
+		f.write("".join(json.dumps(e) + "\n" for e in extra))
+	(ep / "task.json").write_text(json.dumps({"case": [700004, False, 3]}), encoding="utf-8")
+	(ep / "keyframes").mkdir()
+	(ep / "keyframes" / "0-30-top-crop.png").write_bytes(b"\x89PNG")
+	client = TestClient(server.create_app(root, session=FakeSession()))
+	d = client.get("/api/episode", params={"id": "agent/case-0000"}).json()
+	(sig,) = d["signals"]
+	assert (sig["cls"], sig["seg"], sig["score"], sig["cross_px"]) == (0.67, 0.32, 0.67, 127)
+	assert sig["crop"] == "0-30-top-crop.png" and d["case"] == [700004, False, 3]
+	got = client.get("/api/keyframe", params={"id": "agent/case-0000", "name": sig["crop"]})
+	assert got.status_code == 200 and got.content == b"\x89PNG"
+	for bad in ("../episode.json", "0-30-top-crop.png/..", "x.png"):
+		assert client.get("/api/keyframe", params={"id": "agent/case-0000", "name": bad}).status_code == 404
+
+
 def test_page_is_served(root):
 	client = TestClient(server.create_app(root, session=FakeSession()))
 	r = client.get("/")

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import secrets
 import socket
 import subprocess
@@ -134,6 +135,58 @@ class RerunSession:
 		return {"running": running, **(self.info if running else {})}
 
 
+KEYFRAME_NAME = re.compile(r"^\d+-\d+-[A-Za-z_]+-(crop|frame)\.png$")
+
+
+def view_signals(events: list[dict], keyframes: Path | None = None) -> list[dict]:
+	"""One row per detector view of an episode, for the head-signal panel: where and when it was taken, what the two
+	classification heads (``cls`` whole-crop, ``seg`` best patch; both calibrated so that 0 is the alarm threshold)
+	and their fusion said, and what the simulator knows about the crop (``cross_px``: pixels of the defect cross
+	inside the detector's crop; the simulator counts the hidden cross of a normal brick too)."""
+	truth = {e["id"]: e for e in events if e.get("kind") == "view_truth" and "id" in e}
+	rows = []
+	for e in events:
+		if e.get("kind") != "view" or not isinstance(e.get("observation"), dict):
+			continue
+		o, det = e["observation"], e.get("detector") or {}
+		heads = det.get("head_scores") or {}
+		t = truth.get(o.get("id"), {})
+		crop = "{}-{}-{}-crop.png".format(o.get("branch"), o.get("frame"), o.get("camera"))
+		rows.append(
+			{
+				"id": o.get("id"),
+				"seq": e.get("seq"),
+				"node": e.get("node"),
+				"branch": o.get("branch"),
+				"frame": o.get("frame"),
+				"sim_s": e.get("sim_time_s"),
+				"camera": o.get("camera"),
+				"faces": o.get("faces"),
+				"face_pixels": o.get("face_pixels"),
+				"score": o.get("score"),
+				"threshold": o.get("threshold"),
+				"cls": heads.get("cls"),
+				"seg": heads.get("seg"),
+				"cross_px": t.get("true_cross_px_crop"),
+				"crop": crop if keyframes is not None and (keyframes / crop).is_file() else None,
+			}
+		)
+	return rows[:80]
+
+
+def episode_case(path: Path, meta: dict) -> list | None:
+	"""``[seed, defective, face]`` of the episode, from ``task.json`` or the provenance, when recorded."""
+	for src in (path / "task.json", path / "run.json"):
+		try:
+			case = json.loads(src.read_text(encoding="utf-8")).get("case")
+		except (OSError, ValueError, AttributeError):
+			continue
+		if isinstance(case, list) and len(case) >= 2:
+			return case[:3]
+	case = (meta.get("provenance") or {}).get("case")
+	return case[:3] if isinstance(case, list) and len(case) >= 2 else None
+
+
 def episode_payload(path: Path, cache: dict) -> dict:
 	"""State, visits and statistics of an agent episode; recomputed only when its files change."""
 	events_file, end_file = path / "events.jsonl", path / "episode.json"
@@ -167,6 +220,8 @@ def episode_payload(path: Path, cache: dict) -> dict:
 		),
 		"events": events[-200:],
 		"event_count": len(events),
+		"signals": view_signals(events, path / "keyframes"),
+		"case": episode_case(path, meta),
 		"result": meta.get("result"),
 		"live": not finished and bool(events) and (time.time() - events_file.stat().st_mtime) < LIVE_GRACE_S,
 		"live_image": (path / "live.jpg").is_file(),
@@ -296,6 +351,15 @@ def create_app(root: Path, *, session: RerunSession | None = None, inventory: Pa
 		if (path / "motion.npz").is_file():
 			return {"kind": "recording", "id": id}
 		raise HTTPException(404, "not an episode directory")
+
+	@app.get("/api/keyframe")
+	def keyframe(id: str, name: str):
+		if not KEYFRAME_NAME.match(name):
+			raise HTTPException(404)
+		target = resolve(id) / "keyframes" / name
+		if not target.is_file():
+			raise HTTPException(404)
+		return FileResponse(target, media_type="image/png")
 
 	@app.get("/api/live.jpg")
 	def live_image(id: str):
