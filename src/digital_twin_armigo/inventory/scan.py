@@ -153,8 +153,10 @@ def agent_episode(directory: Path, root_label: str, root: Path) -> dict | None:
 		"defect_face": int(case[2]) if case else None,
 		"verdict": result.get("verdict"),
 		"verdict_final_cycle": result.get("verdict_final_cycle"),
-		"failure_mode": health.get("failure_mode") if result.get("verdict") != "SUCCESS" else None,
-		"failure_mode_final_cycle": cycle.get("failure_mode")
+		"failure_mode": _failure_mode(result, health),
+		"failure_mode_final_cycle": (
+			"wrong_label" if result.get("label_correct") is False else cycle.get("failure_mode")
+		)
 		if result.get("verdict_final_cycle") == "FAILED"
 		else None,
 		"label": result.get("label"),
@@ -184,6 +186,19 @@ def agent_episode(directory: Path, root_label: str, root: Path) -> dict | None:
 		"written_at": file.stat().st_mtime,
 		"episode_sha256": sha256_file(file),
 	}
+
+
+def _failure_mode(result: dict, health: dict) -> str | None:
+	"""Why a non-SUCCESS episode failed. A wrong classification comes first: the physical evaluator then measures the
+	distance to the *correct* bowl, so a normal brick the agent called defective and put in the pink bowl reads as
+	``place_miss`` although the arm did what it was told."""
+	if result.get("verdict") == "SUCCESS":
+		return None
+	if result.get("label") == "unknown":
+		return "no_label"
+	if result.get("label_correct") is False:
+		return "wrong_label"
+	return health.get("failure_mode")
 
 
 def _last_wall_time(events: Path) -> float | None:

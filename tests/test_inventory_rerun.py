@@ -196,6 +196,22 @@ def test_scan_keeps_the_old_verdict_and_reads_the_final_cycle_verdict_and_failur
 	assert {f["value"] for f in query.facets(inv, "trajectories", {})["failure_mode"]} == {"place_miss"}
 
 
+def test_a_wrong_label_is_the_failure_mode_even_when_the_physical_check_says_place_miss(tmp_path):
+	root = tmp_path / "data"
+	health = {"failure_mode": "place_miss"}
+	rows_in = {
+		"wrong": {**_result("FAILED"), "label": "defective", "label_correct": False, "health": health},
+		"nolabel": {**_result("UNKNOWN"), "label": "unknown", "label_correct": False, "health": {}},
+		"physical": {**_result("FAILED"), "label": "normal", "label_correct": True, "health": health},
+	}
+	for i, (name, result) in enumerate(rows_in.items()):
+		_episode(root / f"run/{name}", {"engine": "mujoco", "sensing": "truth"}, result, case=(10 + i, False, 1))
+	inv = tmp_path / "inv"
+	store.build([("d", root)], inv, overrides=tmp_path / "none.json")
+	modes = {Path(r["path"]).name: r["failure_mode"] for r in query.rows(inv, "trajectories", {})["rows"]}
+	assert modes == {"wrong": "wrong_label", "nolabel": "no_label", "physical": "place_miss"}
+
+
 def test_final_cycle_verdict_needs_a_correct_label_and_a_passing_cycle():
 	pytest.importorskip("mujoco")
 	from digital_twin_armigo.agent.twin_mujoco import TwinMujoco
