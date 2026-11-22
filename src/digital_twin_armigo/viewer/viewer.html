@@ -206,7 +206,7 @@ async function loadEpisodes(keep) {
     const o = document.createElement('option'); o.value = wanted; o.textContent = wanted; sel.prepend(o);
   }
   const target = list.find(e => e.id === prev) ? prev : (list.find(e => e.id === wanted) ? wanted : list[0]?.id);
-  if (target) { sel.value = target; if (target !== current) { current = target; poll(); } }
+  if (target) { sel.value = target; if (target !== current) { current = target; showRerun(null); poll(); rerunStatus(); } }
   return list;
 }
 
@@ -216,12 +216,13 @@ function showRerun(url) {
   if (!url) { $('rerun').removeAttribute('src'); delete $('rerun').dataset.url; }
 }
 async function rerunStatus() {
+  // Only show a running viewer that belongs to the episode on screen; another episode's 3D scene would sit under this one's state machine.
   const s = await (await fetch('/api/rerun')).json();
-  if (s.running) showRerun(s.url);
+  showRerun(s.running && s.id === current ? s.url : null);
 }
 let rerunLabel = '打开 Rerun 回放';
 
-$('episodes').onchange = e => { current = e.target.value; poll(); };
+$('episodes').onchange = e => { current = e.target.value; showRerun(null); poll(); rerunStatus(); };
 $('follow').onchange = () => { if ($('follow').checked) loop(); };
 $('open-rerun').onclick = async () => {
   if (!current) return;

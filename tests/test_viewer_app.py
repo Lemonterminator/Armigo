@@ -192,8 +192,11 @@ def test_rerun_control_needs_the_token_and_loopback_host(root):
 	token = client.get("/api/token").json()["token"]
 	r = client.post("/api/rerun", params={"id": "agent/case-0000"}, headers={"X-Viewer-Token": token})
 	assert r.status_code == 200 and fake.started == root / "agent" / "case-0000"
-	assert client.get("/api/rerun").json()["running"]
+	status = client.get("/api/rerun").json()
+	# the page shows a running viewer only for the episode it was started for
+	assert status["running"] and status["id"] == "agent/case-0000"
 	assert client.delete("/api/rerun", headers={"X-Viewer-Token": token}).json() == {"running": False}
+	assert client.get("/api/rerun").json() == {"running": False}
 	assert client.get("/api/episodes", headers={"host": "evil.example"}).status_code == 403
 
 

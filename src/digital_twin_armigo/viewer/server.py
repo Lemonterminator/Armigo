@@ -304,9 +304,14 @@ def create_app(root: Path, *, session: RerunSession | None = None, inventory: Pa
 			raise HTTPException(404)
 		return FileResponse(target, headers={"Cache-Control": "no-store"})
 
+	shown = {"id": None}  # the episode id the running Rerun child was started for
+
 	@app.get("/api/rerun")
 	def rerun_status():
-		return rerun.status()
+		s = rerun.status()
+		# The page only shows a running viewer for the episode it started it for; otherwise it would show another
+		# episode's 3D scene under this episode's state machine.
+		return {**s, "id": shown["id"]} if s.get("running") else s
 
 	@app.post("/api/rerun")
 	def rerun_start(id: str):
@@ -315,13 +320,16 @@ def create_app(root: Path, *, session: RerunSession | None = None, inventory: Pa
 		if info:  # the simulation process already serves a viewer with the streamed 3D scene
 			return {"url": info["url"], "live": True}
 		try:
-			return rerun.start(path)
+			started = rerun.start(path)
 		except RuntimeError as exc:
 			return JSONResponse({"detail": str(exc)}, status_code=503)
+		shown["id"] = id
+		return started
 
 	@app.delete("/api/rerun")
 	def rerun_stop():
 		rerun.stop()
+		shown["id"] = None
 		return {"running": False}
 
 	return app
