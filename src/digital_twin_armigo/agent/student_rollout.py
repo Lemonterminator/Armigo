@@ -294,20 +294,28 @@ class ExpertTracer(_SegmentMixin, TwinMujoco):
 # an arm that stays away from it is pushed back by something. Consecutive observations in the wait with the arm joints
 # (j0-j4) at least ``clamp_wait_obstruct_rad`` from the held command end the wait as ``"obstructed"``.
 CLAMP_WAIT_OBSTRUCT_FRAMES = 3
+# Closed-empty exit of the clamp wait (same doc, v3): a brick between the jaws holds the gripper open well above its
+# command (clamped holds stay >= 0.049 rad above it on val2/val3), so a gripper within ``clamp_wait_empty_rad`` of the
+# held gripper command has closed on nothing. Consecutive such observations end the wait as ``"empty"``. Gripper
+# position only (no effort): the realistic sensing contract does not assume the servo load is read.
+CLAMP_WAIT_EMPTY_FRAMES = 3
 
 
 def clamp_wait_outcome(
-	gstate: GripperState | None, clamp_run: int, waited: int, p, obstruct_run: int = 0
+	gstate: GripperState | None, clamp_run: int, waited: int, p, obstruct_run: int = 0, empty_run: int = 0
 ) -> str | None:
 	"""``ClosedLoopExpert._close_and_clamp``'s wait, one held frame at a time: ``"blocked"``, ``"clamped"`` (clamped and
-	still for ``p.clamp_still_frames``), ``"obstructed"`` after ``CLAMP_WAIT_OBSTRUCT_FRAMES`` obstructed frames (only
-	counted with the obstruction exit on), ``"timeout"`` after ``p.clamp_timeout_frames`` held frames, else None."""
+	still for ``p.clamp_still_frames``), ``"obstructed"`` after ``CLAMP_WAIT_OBSTRUCT_FRAMES`` obstructed frames,
+	``"empty"`` after ``CLAMP_WAIT_EMPTY_FRAMES`` closed-empty frames (each counted only with its exit on), ``"timeout"``
+	after ``p.clamp_timeout_frames`` held frames, else None."""
 	if gstate is GripperState.BLOCKED:
 		return "blocked"
 	if clamp_run >= p.clamp_still_frames:
 		return "clamped"
 	if obstruct_run >= CLAMP_WAIT_OBSTRUCT_FRAMES:
 		return "obstructed"
+	if empty_run >= CLAMP_WAIT_EMPTY_FRAMES:
+		return "empty"
 	if waited >= p.clamp_timeout_frames:
 		return "timeout"
 	return None
@@ -331,6 +339,7 @@ class StudentTwin(_SegmentMixin, TwinMujoco):
 		grasp_tail: str | None = None,
 		clamp_wait: bool = False,
 		clamp_wait_obstruct_rad: float | None = None,
+		clamp_wait_empty_rad: float | None = None,
 		**kwargs,
 	):
 		"""``grasp_tail``: first-grasp tail experiment mode (agent/grasp_tail.py: ``act`` logs only, ``act-wait``,
@@ -341,7 +350,9 @@ class StudentTwin(_SegmentMixin, TwinMujoco):
 		``_close_and_clamp`` wait). The A+wait arm of the grasp-tail A/B did this on the first triggered grasp only.
 
 		``clamp_wait_obstruct_rad``: obstruction exit of the clamp wait (``CLAMP_WAIT_OBSTRUCT_FRAMES``); None keeps the
-		v1 rule (hold to clamp, blocked or timeout)."""
+		v1 rule (hold to clamp, blocked or timeout).
+
+		``clamp_wait_empty_rad``: closed-empty exit of the clamp wait (``CLAMP_WAIT_EMPTY_FRAMES``); None leaves it off."""
 		if grasp_tail is not None and grasp_tail not in GRASP_TAIL_MODES:
 			raise ValueError(f"grasp_tail must be None or one of {GRASP_TAIL_MODES}, got {grasp_tail!r}")
 		if clamp_wait and grasp_tail == "act-wait":
@@ -351,6 +362,9 @@ class StudentTwin(_SegmentMixin, TwinMujoco):
 			raise ValueError("clamp_wait_obstruct_rad needs clamp_wait and a positive threshold")
 		self.clamp_wait = bool(clamp_wait)
 		self.clamp_wait_obstruct_rad = clamp_wait_obstruct_rad
+		if clamp_wait_empty_rad is not None and not (clamp_wait and clamp_wait_empty_rad > 0):
+			raise ValueError("clamp_wait_empty_rad needs clamp_wait and a positive threshold")
+		self.clamp_wait_empty_rad = clamp_wait_empty_rad
 		self.grasp_tail_log: GraspTail | None = None  # the first grasp's switch decision and telemetry
 		self._tail_pending: GraspPlan | None = None
 		self._first_grasp_done = False
@@ -412,6 +426,8 @@ class StudentTwin(_SegmentMixin, TwinMujoco):
 		waited = 0  # hold frames of a clamp wait (act_wait_hold / clamp_wait_hold)
 		obstruct_run = 0  # consecutive held frames with the arm away from the held command (obstruction exit)
 		arm_err_max = 0.0
+		empty_run = 0  # consecutive held frames with the gripper at its held command (closed-empty exit)
+		grip_err_min = float("inf")
 		executed: np.ndarray | None = None  # last command executed in this segment
 		gstate = None  # the segment monitor's state at the current observation
 		expert_gen = hold = saved_expert = None
@@ -523,7 +539,11 @@ class StudentTwin(_SegmentMixin, TwinMujoco):
 						arm_err = float(np.max(np.abs(hold[:5] - q[:5])))
 						arm_err_max = max(arm_err_max, arm_err)
 						obstruct_run = obstruct_run + 1 if arm_err >= self.clamp_wait_obstruct_rad else 0
-					outcome = clamp_wait_outcome(gstate, clamp_run, waited, p, obstruct_run)
+					if source == "clamp_wait_hold" and self.clamp_wait_empty_rad is not None:
+						grip_err = abs(float(q[5]) - float(hold[5]))
+						grip_err_min = min(grip_err_min, grip_err)
+						empty_run = empty_run + 1 if grip_err < self.clamp_wait_empty_rad else 0
+					outcome = clamp_wait_outcome(gstate, clamp_run, waited, p, obstruct_run, empty_run)
 					if outcome is not None:
 						self._clamped = outcome == "clamped"
 						if tail is not None:
@@ -532,6 +552,8 @@ class StudentTwin(_SegmentMixin, TwinMujoco):
 							extra = (
 								{} if self.clamp_wait_obstruct_rad is None else {"arm_err_max": round(arm_err_max, 5)}
 							)
+							if self.clamp_wait_empty_rad is not None:
+								extra["grip_err_min"] = round(grip_err_min, 5)
 							self.event("clamp_wait", id=sid, frames=waited, outcome=outcome, **extra)
 						end("done", outcome)
 						return None
@@ -945,6 +967,7 @@ def run_episode(
 	grasp_tail: str | None = None,
 	clamp_wait: bool = False,
 	clamp_wait_obstruct_rad: float | None = None,
+	clamp_wait_empty_rad: float | None = None,
 ):
 	"""Run one case through the graph: the expert (with segment markers) when ``policy`` is None, else the student
 	(``segment_monitor``: the diagnostics channel, see :class:`StudentTwin`). Writes the trace to ``out`` and returns
@@ -968,6 +991,7 @@ def run_episode(
 			grasp_tail=grasp_tail,
 			clamp_wait=clamp_wait,
 			clamp_wait_obstruct_rad=clamp_wait_obstruct_rad,
+			clamp_wait_empty_rad=clamp_wait_empty_rad,
 		)
 	try:
 		result = build_graph(twin, Policy()).invoke({}, config={"recursion_limit": 64})["result"]
@@ -978,6 +1002,8 @@ def run_episode(
 			provenance["clamp_wait"] = True
 		if clamp_wait_obstruct_rad is not None:
 			provenance["clamp_wait_obstruct_rad"] = clamp_wait_obstruct_rad
+		if clamp_wait_empty_rad is not None:
+			provenance["clamp_wait_empty_rad"] = clamp_wait_empty_rad
 		trace.finish(result, provenance)
 		if grasp_tail is not None:
 			log = twin.grasp_tail_log

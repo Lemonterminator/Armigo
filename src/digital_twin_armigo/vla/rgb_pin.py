@@ -38,7 +38,15 @@ RECORD_FILE = "act_rgb.npz"
 LOG_FILE = "rgb_pin.json"
 ROLES = ("record", "pin")
 # Arguments that may differ between A and a pinned arm (everything else in the manifest must match).
-ARM_ARGS = ("grasp_tail_mode", "record_act_rgb", "pin_rgb_from", "clamp_wait", "clamp_wait_obstruct", "pin_handoff")
+ARM_ARGS = (
+	"grasp_tail_mode",
+	"record_act_rgb",
+	"pin_rgb_from",
+	"clamp_wait",
+	"clamp_wait_obstruct",
+	"clamp_wait_empty",
+	"pin_handoff",
+)
 
 
 def meta_digest(payload: dict[str, Any]) -> str:

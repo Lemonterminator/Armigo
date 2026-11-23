@@ -46,6 +46,7 @@ PROTOCOLS = {
 	"grasp-tail-r3": "docs/vla/GRASP_TAIL_AB_HANDOFF_2026-11-23.md r3",
 	"clamp-wait-v1": "docs/vla/CLAMP_WAIT_VALIDATION_2026-11-23.md v1",
 	"clamp-wait-v2": "docs/vla/CLAMP_WAIT_VALIDATION_2026-11-23.md v2",
+	"clamp-wait-v3": "docs/vla/CLAMP_WAIT_VALIDATION_2026-11-23.md v3",
 }
 DEFAULT_DETECTOR = ROOT / "results/agent-bench/sup-v7bot-local.json"
 PILOT_TEACHER_RATIO_GATE = 0.70
@@ -545,6 +546,7 @@ def evaluate_closed_loop(
 	clamp_wait: bool = False,
 	pin_handoff: str | None = None,
 	clamp_wait_obstruct: float | None = None,
+	clamp_wait_empty: float | None = None,
 ) -> dict[str, Any]:
 	"""Run sequential ``StudentTwin`` episodes, grade with S6 rules, and compare with teacher.
 
@@ -589,6 +591,10 @@ def evaluate_closed_loop(
 					f"{ep_dir} was run with clamp_wait_obstruct={prov.get('clamp_wait_obstruct_rad')}, "
 					f"not {clamp_wait_obstruct}"
 				)
+			if prov.get("clamp_wait_empty_rad") != clamp_wait_empty:
+				raise ValueError(
+					f"{ep_dir} was run with clamp_wait_empty={prov.get('clamp_wait_empty_rad')}, not {clamp_wait_empty}"
+				)
 			pin_log = ep_dir / rgb_pin.LOG_FILE
 			old_role = json.loads(pin_log.read_text(encoding="utf-8"))["role"] if pin_log.exists() else None
 			if old_role != pin_role:
@@ -629,6 +635,7 @@ def evaluate_closed_loop(
 				grasp_tail=grasp_tail_mode,
 				clamp_wait=clamp_wait,
 				clamp_wait_obstruct_rad=clamp_wait_obstruct,
+				clamp_wait_empty_rad=clamp_wait_empty,
 			)
 		finally:
 			_write_task_json_if_missing(ep_dir, case)
@@ -697,6 +704,7 @@ def evaluate_closed_loop(
 		},
 		"clamp_wait": clamp_wait,
 		"clamp_wait_obstruct": clamp_wait_obstruct,
+		"clamp_wait_empty": clamp_wait_empty,
 		"mode_requested": mode,
 		"mode_resolved": resolved_mode,
 		"server_health": health,
@@ -779,6 +787,14 @@ def build_parser() -> argparse.ArgumentParser:
 		"held command (protocol v2)",
 	)
 	p.add_argument(
+		"--clamp-wait-empty",
+		type=float,
+		default=None,
+		metavar="RAD",
+		help="With --clamp-wait: end the wait as empty after 3 held frames with the gripper within RAD of its held "
+		"command, i.e. closed on nothing (protocol v3)",
+	)
+	p.add_argument(
 		"--protocol",
 		choices=tuple(PROTOCOLS),
 		default="grasp-tail-r3",
@@ -828,6 +844,8 @@ def main(argv: list[str] | None = None) -> int:
 		raise ValueError("--pin-handoff needs --pin-rgb-from")
 	if args.clamp_wait_obstruct is not None and not args.clamp_wait:
 		raise ValueError("--clamp-wait-obstruct needs --clamp-wait")
+	if args.clamp_wait_empty is not None and not args.clamp_wait:
+		raise ValueError("--clamp-wait-empty needs --clamp-wait")
 	if args.clamp_wait and args.grasp_tail_mode == "act-wait":
 		raise ValueError("--clamp-wait already covers --grasp-tail-mode act-wait")
 	if args.grasp_tail_mode is not None or args.clamp_wait:
@@ -884,6 +902,7 @@ def main(argv: list[str] | None = None) -> int:
 				clamp_wait=args.clamp_wait,
 				pin_handoff=args.pin_handoff,
 				clamp_wait_obstruct=args.clamp_wait_obstruct,
+				clamp_wait_empty=args.clamp_wait_empty,
 			)
 	finally:
 		if hasattr(scorer, "close"):

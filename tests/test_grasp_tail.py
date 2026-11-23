@@ -494,7 +494,11 @@ def test_exact_mcnemar_matches_the_protocol_numbers():
 def test_clamp_wait_outcome_order():
 	from types import SimpleNamespace
 
-	from digital_twin_armigo.agent.student_rollout import CLAMP_WAIT_OBSTRUCT_FRAMES, clamp_wait_outcome
+	from digital_twin_armigo.agent.student_rollout import (
+		CLAMP_WAIT_EMPTY_FRAMES,
+		CLAMP_WAIT_OBSTRUCT_FRAMES,
+		clamp_wait_outcome,
+	)
 	from digital_twin_armigo.mujoco_cell.gripper_state import GripperState
 
 	p = SimpleNamespace(clamp_still_frames=4, clamp_timeout_frames=45)
@@ -505,6 +509,11 @@ def test_clamp_wait_outcome_order():
 	assert clamp_wait_outcome(None, 3, 45, p, n - 1) == "timeout"
 	assert clamp_wait_outcome(None, 3, 10, p, n - 1) is None
 	assert clamp_wait_outcome(None, 3, 10, p) is None  # v1: no obstruction count
+	e = CLAMP_WAIT_EMPTY_FRAMES
+	assert clamp_wait_outcome(None, 4, 45, p, 0, e) == "clamped"  # a confirmed clamp wins over closed-empty
+	assert clamp_wait_outcome(None, 3, 45, p, n, e) == "obstructed"
+	assert clamp_wait_outcome(None, 3, 45, p, 0, e) == "empty"
+	assert clamp_wait_outcome(None, 3, 10, p, 0, e - 1) is None
 
 
 def test_clamp_wait_obstruction_exit(expert_trace, tmp_path):
@@ -535,3 +544,33 @@ def test_clamp_wait_obstruction_exit(expert_trace, tmp_path):
 			t.close()
 	with pytest.raises(ValueError):
 		_run(expert_trace, tmp_path, None, name="bad", clamp_wait_obstruct_rad=0.05)
+
+
+def test_clamp_wait_empty_exit(expert_trace, tmp_path):
+	"""A threshold the gripper never gets within leaves the v1 commands unchanged; a threshold every held frame is
+	within ends the wait as empty after CLAMP_WAIT_EMPTY_FRAMES frames, unclamped (the no_clamp branch)."""
+	from digital_twin_armigo.agent.student_rollout import CLAMP_WAIT_EMPTY_FRAMES
+
+	v1, _, a1 = _run(expert_trace, tmp_path, None, done_when=_closing, name="v1", clamp_wait=True)
+	lo, _, al = _run(
+		expert_trace, tmp_path, None, done_when=_closing, name="lo", clamp_wait=True, clamp_wait_empty_rad=1e-12
+	)
+	hi, _, _ = _run(
+		expert_trace, tmp_path, None, done_when=_closing, name="hi", clamp_wait=True, clamp_wait_empty_rad=10.0
+	)
+	try:
+		assert np.array_equal(a1, al)
+		assert [(e["frames"], e["outcome"]) for e in _clamp_waits(v1)] == [
+			(e["frames"], e["outcome"]) for e in _clamp_waits(lo)
+		]
+		assert all("grip_err_min" in e for e in _clamp_waits(lo)) and not any(
+			"grip_err_min" in e for e in _clamp_waits(v1)
+		)
+		ev = _clamp_waits(hi)[0]
+		assert ev["outcome"] == "empty" and ev["frames"] == CLAMP_WAIT_EMPTY_FRAMES - 1
+		assert not hi._clamped
+	finally:
+		for t in (v1, lo, hi):
+			t.close()
+	with pytest.raises(ValueError):
+		_run(expert_trace, tmp_path, None, name="bad", clamp_wait_empty_rad=0.03)

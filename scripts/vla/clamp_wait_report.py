@@ -1,15 +1,16 @@
-"""Paired analysis of the clamp-wait validation (docs/vla/CLAMP_WAIT_VALIDATION_2026-11-23.md, v1 and v2).
+"""Paired analysis of the clamp-wait validation (docs/vla/CLAMP_WAIT_VALIDATION_2026-11-23.md, v1 to v3).
 
 Arms: ``act`` (A, records its request RGB), ``act-rep`` (A', pinned to A, hand-off ``clamp-wait``), ``clamp-wait``
-(W1, ``--clamp-wait``, pinned to A) and ``clamp-wait-v2`` (W2, ``--clamp-wait --clamp-wait-obstruct``, pinned to A).
+(W1, ``--clamp-wait``, pinned to A), ``clamp-wait-v2`` (W2, ``--clamp-wait --clamp-wait-obstruct``, pinned to A) and
+``clamp-wait-v3`` (W3, ``--clamp-wait --clamp-wait-empty``, pinned to A).
 Writes ``paired_cases.csv``, ``paired_stats.json`` and ``paired_stats.md``: four-cell tables, net differences, bootstrap
 intervals and exact McNemar p per pair; lift conversion; collision details (robot / jaw-environment, peak force, the
 segment of the first contact and whether it fell in a clamp-wait hold) of every collision layout; clamp-wait events
 (first grasp vs retries) with the jaw-environment contact frames inside each hold; prefix checks; and the
-pre-registered decision (v2 when a ``clamp-wait-v2`` arm is given, else v1).
+pre-registered decision (v3 with a ``clamp-wait-v3`` arm, else v2 with a ``clamp-wait-v2`` arm, else v1).
 
     python scripts/vla/clamp_wait_report.py --run act=<dir> --run act-rep=<dir> --run clamp-wait=<dir> \
-        [--run clamp-wait-v2=<dir>] --out <dir>
+        [--run clamp-wait-v2=<dir>] [--run clamp-wait-v3=<dir>] --out <dir>
 """
 
 from __future__ import annotations
@@ -29,11 +30,19 @@ sys.path.insert(0, str(ROOT / "scripts" / "vla"))
 import numpy as np
 from grasp_tail_report import ENDPOINTS, first_state_divergence, four_cell, load_arm, prefix_check
 
-ARMS = ("act", "act-rep", "clamp-wait", "clamp-wait-v2")
-PAIRS = (("act", "act-rep"), ("act", "clamp-wait"), ("act", "clamp-wait-v2"), ("clamp-wait", "clamp-wait-v2"))
+ARMS = ("act", "act-rep", "clamp-wait", "clamp-wait-v2", "clamp-wait-v3")
+PAIRS = (
+	("act", "act-rep"),
+	("act", "clamp-wait"),
+	("act", "clamp-wait-v2"),
+	("clamp-wait", "clamp-wait-v2"),
+	("act", "clamp-wait-v3"),
+	("clamp-wait", "clamp-wait-v3"),
+)
 FIRST_CLAMP_NET = 10  # pre-registered (cases out of 100)
 COLLISION_NET_MAX = 2  # v1 veto; v2 reports it and attributes the excess
-HOLD_CONTACT_FRAMES_MAX = 5  # v2: jaw-environment contact frames allowed inside any one clamp-wait hold
+HOLD_CONTACT_FRAMES_MAX = 5  # v2/v3: jaw-environment contact frames allowed inside any one clamp-wait hold
+EMPTY_EXIT_LOSS_MAX = 2  # v3: first-grasp holds W3 ended "empty" where W1's ended "clamped"
 JAW_ENV_LIMIT_N = 2.0  # max_jaw_env_contact_n of the frozen grader reference (a contact frame is above it)
 ROBOT_LIMIT_N = 3.0  # max_robot_contact_n of the same reference
 
@@ -76,6 +85,7 @@ def clamp_waits(ep_dir: str) -> list[dict[str, Any]]:
 					"outcome": e.get("outcome"),
 					"frame": e["frame"],
 					"arm_err_max": e.get("arm_err_max"),
+					"grip_err_min": e.get("grip_err_min"),
 					"hold_contact_frames": None if jaw is None else int((jaw > JAW_ENV_LIMIT_N).sum()),
 					"hold_contact_max_n": None if jaw is None or not len(jaw) else round(float(jaw.max()), 3),
 				}
@@ -192,6 +202,8 @@ def analyse(runs: dict[str, Path]) -> dict[str, Any]:
 			"hold_contact_unavailable": sum(w["hold_contact_frames"] is None for w in ev),
 		}
 	stats["clamp_waits"] = waits
+	if "clamp-wait" in arms and "clamp-wait-v3" in arms:
+		stats["empty_exit_vs_w1"] = empty_exit_vs_w1(arms["clamp-wait"], arms["clamp-wait-v3"], keys)
 	stats["pins"] = {
 		n: {
 			"handoff_reasons": dict(Counter(str((a[k]["pin"] or {}).get("handoff_reason")) for k in keys)),
@@ -205,11 +217,31 @@ def analyse(runs: dict[str, Path]) -> dict[str, Any]:
 	return {"stats": stats, "arms": arms, "keys": keys}
 
 
+def empty_exit_vs_w1(w1: dict, w3: dict, keys: list) -> dict[str, Any]:
+	"""First-grasp holds per layout: W3's ``"empty"`` exits against W1's outcome of the same hold (both arms hand off
+	from A's pinned prefix at the hold's start, so the hold begins in the same state). ``lost_clamps`` are the layouts
+	where W1 clamped in that hold and W3 exited empty."""
+	cross: Counter = Counter()
+	lost = []
+	for k in keys:
+		a = next((w for w in clamp_waits(w1[k]["dir"]) if w["attempt"] == 1), None)
+		b = next((w for w in clamp_waits(w3[k]["dir"]) if w["attempt"] == 1), None)
+		if a is None or b is None:
+			continue
+		cross[f"{a['outcome']}->{b['outcome']}"] += 1
+		if a["outcome"] == "clamped" and b["outcome"] == "empty":
+			lost.append(list(k))
+	return {"first_hold_w1_to_w3": dict(cross), "lost_clamps": lost}
+
+
 def decision(stats: dict[str, Any]) -> dict[str, Any]:
-	"""v2 (``act vs clamp-wait-v2``) when that pair exists, else v1 (``act vs clamp-wait``). The prefix check covers the
-	pairs against A only: W1 vs W2 share no pinned prefix with each other beyond A's."""
-	v2 = "act vs clamp-wait-v2" in stats["pairs"]
-	w = stats["pairs"].get("act vs clamp-wait-v2" if v2 else "act vs clamp-wait")
+	"""v3 (``act vs clamp-wait-v3``) when that pair exists, else v2 (``act vs clamp-wait-v2``), else v1 (``act vs
+	clamp-wait``). The prefix check covers the pairs against A only: the W arms share no pinned prefix with each other
+	beyond A's."""
+	pairs = stats["pairs"]
+	protocol = "v3" if "act vs clamp-wait-v3" in pairs else "v2" if "act vs clamp-wait-v2" in pairs else "v1"
+	arm = {"v1": "clamp-wait", "v2": "clamp-wait-v2", "v3": "clamp-wait-v3"}[protocol]
+	w = pairs.get(f"act vs {arm}")
 	if w is None:
 		return {"available": False}
 	prefix_ok = all(
@@ -220,11 +252,16 @@ def decision(stats: dict[str, Any]) -> dict[str, Any]:
 	net = {e: w[e]["net_cases"] for e in ENDPOINTS}
 	clamp_ok = net["first_clamp"] >= FIRST_CLAMP_NET
 	downstream_ok = net["lifted"] >= 0 and net["success"] >= 0
-	extra: dict[str, Any] = {"protocol": "v2" if v2 else "v1"}
-	if v2:
-		waits = stats["clamp_waits"]["clamp-wait-v2"]
+	exit_ok = True  # v3 only: the closed-empty exit cost no first-grasp clamps against W1
+	extra: dict[str, Any] = {"protocol": protocol}
+	if protocol in ("v2", "v3"):
+		waits = stats["clamp_waits"][arm]
 		hold_ok = not waits["holds_over_contact_max"] and not waits["hold_contact_unavailable"]
 		collision_ok = hold_ok and not w["new_robot_env_layouts"]
+		if protocol == "v3":
+			ex = stats.get("empty_exit_vs_w1")
+			exit_ok = ex is not None and len(ex["lost_clamps"]) <= EMPTY_EXIT_LOSS_MAX
+			extra |= {"empty_exit_ok": exit_ok, "empty_exit_lost_clamps": None if ex is None else ex["lost_clamps"]}
 		extra |= {
 			"hold_contact_ok": hold_ok,
 			"collision_net_over_report_cap": net["collision"] > COLLISION_NET_MAX,
@@ -234,7 +271,7 @@ def decision(stats: dict[str, Any]) -> dict[str, Any]:
 		collision_ok = net["collision"] <= COLLISION_NET_MAX and not w["new_robot_env_layouts"]
 	if not (stats["complete"] and prefix_ok):
 		verdict = "incomplete_or_prefix_failed"
-	elif clamp_ok and downstream_ok and collision_ok:
+	elif clamp_ok and downstream_ok and collision_ok and exit_ok:
 		verdict = "make_default"
 	elif clamp_ok:
 		verdict = "inspect_costs"
@@ -314,6 +351,9 @@ def markdown(stats: dict[str, Any]) -> str:
 	L += ["", "## Clamp waits", ""]
 	for n, v in stats["clamp_waits"].items():
 		L.append(f"- {n}: {json.dumps(v, sort_keys=True)}")
+	if "empty_exit_vs_w1" in stats:
+		L += ["", "## Closed-empty exit vs W1 (first-grasp hold)", ""]
+		L.append(f"- {json.dumps(stats['empty_exit_vs_w1'], sort_keys=True)}")
 	L += ["", "## RGB pin", ""]
 	for n, v in stats["pins"].items():
 		L.append(f"- {n}: {json.dumps(v, sort_keys=True)}")
