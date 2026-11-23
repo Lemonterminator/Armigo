@@ -178,7 +178,7 @@ def cmd_context(a) -> dict:
 			return lambda *args, **kwargs: None
 
 	choices = ["scan_wrist", "present_bottom"]
-	history = os.environ.get("ARMIGO_LLM_CONTEXT_MODE") == "history"
+	history = os.environ.get("ARMIGO_LLM_CONTEXT_MODE", "history") == "history"
 	backend = TwinMujoco(sample_case(*a.case), None, _NullTrace())
 	try:
 		backend.enter("prepare")

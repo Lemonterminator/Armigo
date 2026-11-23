@@ -1163,7 +1163,7 @@ class TwinMujoco:
 			action, source = allowed[0], "policy"
 		else:
 			context = self.decision_context(allowed, views, failures, notes)
-			if os.environ.get("ARMIGO_LLM_CONTEXT_MODE") == "history":
+			if os.environ.get("ARMIGO_LLM_CONTEXT_MODE", "history") == "history":
 				self._add_decision_history(context)
 			action, source, info = select_skill(self.llm, allowed, context)
 			self._note_llm(source, info)

@@ -56,10 +56,10 @@ def test_history_after_rewind_and_in_place_retry_uses_current_views(monkeypatch)
 	backend.decision_context = lambda allowed, views, failures, notes: {"views": views, "failures": failures}
 	backend.event = lambda *args, **kwargs: None
 	backend.llm = FakeLLM(['{"skill":"present_bottom"}'])
-	monkeypatch.delenv("ARMIGO_LLM_CONTEXT_MODE", raising=False)
+	monkeypatch.setenv("ARMIGO_LLM_CONTEXT_MODE", "compact")
 	backend.choose(CHOICES, [inherited, active], [failure])
 	assert "history" not in json.loads(backend.llm.calls[-1][1]["content"])
-	monkeypatch.setenv("ARMIGO_LLM_CONTEXT_MODE", "history")
+	monkeypatch.delenv("ARMIGO_LLM_CONTEXT_MODE", raising=False)
 	backend.choose(CHOICES, [inherited, active], [failure])
 	wire = backend.llm.calls[-1][1]["content"]
 	assert all(value not in wire for value in (discarded["id"], "prior_views", "evidence", "defect_face", "frame"))

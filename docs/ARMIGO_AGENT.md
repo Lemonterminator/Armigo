@@ -61,13 +61,12 @@ whether the brick is grasped, the brick position, the offered checkpoints and a 
 visual mark geometry, mark seed, ground-truth label and face never enter it (`assert_no_defect_leakage` runs on
 every context). A first decision is about 200 user tokens instead of 1,600 for the earlier full-scene dump.
 
-The compact prompt is the default. Set `ARMIGO_LLM_CONTEXT_MODE=history` in the environment of the Armigo process
-to try the expanded prompt. It puts chronological view and tool records before the current choices, coverage and
-budgets, so vLLM can reuse matching prefixes. Views follow the graph's active evidence. A rewind restores the
-checkpoint's views, and a retry drops them if the brick shifted. Previous failure and recovery results remain
-available to inform the next attempt. History mode drops the oldest detail records first to fit the context, with
-the current coverage, legal choices and latest failure kept together. Use it as an opt-in until paired validation
-shows stable sorting, unknown-label and fallback counts.
+The default prompt puts chronological view and tool records before the current choices, coverage and budgets,
+so vLLM can reuse matching prefixes. Views follow the graph's active evidence. A rewind restores the checkpoint's
+views, and a retry drops them if the brick shifted. Previous failure and recovery results remain available to inform
+the next attempt. History mode drops the oldest detail records first to fit the context, with the current coverage,
+legal choices and latest failure kept together. Set `ARMIGO_LLM_CONTEXT_MODE=compact` in the Armigo process
+environment to use the original prompt.
 
 `select_skill` constrains the answer with a JSON schema whose `skill` is an enum of the legal choices (vLLM
 `response_format: json_schema`; a 4xx from the server degrades to `json_object` once). The prompt is counted
@@ -219,11 +218,13 @@ E:/il/v/Scripts/python.exe scripts/isaac/stage2_expert.py --no-cameras --out-dir
 Start the local vLLM service from WSL with `bash scripts/serve_armigo_qwen.sh` (port 8038, the client default).
 It configures Qwen3.8-27B NVFP4 with a 16,384-token window for input and output combined, one image per request
 and an NVFP4 KV cache. Defaults include four concurrent sequences, prefix caching and eager execution. The client
-uses the configured model's limit from `/models` and falls back to 4,096 if the limit is unavailable.
+uses the configured model's limit from `/models` and falls back to 4,096 if the limit is unavailable. Restart the
+Armigo client after switching service windows so it reads the new limit.
 Set `ARMIGO_VLLM_MAX_LEN=4096` for the earlier window. Other overrides include
 `ARMIGO_VLLM_MAX_SEQS`, `ARMIGO_VLLM_GPU_UTIL`, `ARMIGO_VLLM_PREFIX_CACHE`, `ARMIGO_VLLM_EAGER` and
-`ARMIGO_VLLM_EXTRA`. If image profiling limits KV cache memory, validate the text-only skill selector on a
-separate port with `ARMIGO_VLLM_EXTRA=--language-model-only bash scripts/serve_armigo_qwen.sh 18038`.
+`ARMIGO_VLLM_EXTRA`. If other GPU workloads leave too little memory for cache blocks, try
+`ARMIGO_VLLM_MAX_SEQS=1` with the 16,384-token window. For text-only skill selection, start a separate server
+with `ARMIGO_VLLM_EXTRA=--language-model-only bash scripts/serve_armigo_qwen.sh 18038`.
 Vision review requires an image-enabled server. The current v6 path owns the sorting decision.
 
 `scripts/bench_agent.py` measures the stack before and after a change: `episodes` (wall time, outcomes and LLM
