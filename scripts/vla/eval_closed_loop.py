@@ -6,6 +6,10 @@ Connects ``StudentTwin`` (via ``ChunkClientPolicy``) to either a running policy 
 over ALL attempts (including ``UNKNOWN`` / ``FAILED``), computes missed defects, paired
 teacher-student difference with 95% bootstrap CI across layouts, and checks the S10 pilot
 gate (``student_sort_rate >= 0.7 * teacher_sort_rate`` and ``total_collisions == 0``).
+
+Since 2026-11-23 the student runs with clamp-verified grasp termination and its closed-empty exit by default
+(``--clamp-wait``, ``--clamp-wait-empty 0.03``; docs/vla/CLAMP_WAIT_VALIDATION_2026-11-23.md). ``--no-clamp-wait``
+reproduces earlier evaluations.
 """
 
 from __future__ import annotations
@@ -48,6 +52,10 @@ PROTOCOLS = {
 	"clamp-wait-v2": "docs/vla/CLAMP_WAIT_VALIDATION_2026-11-23.md v2",
 	"clamp-wait-v3": "docs/vla/CLAMP_WAIT_VALIDATION_2026-11-23.md v3",
 }
+# Student evaluation default since 2026-11-23: clamp-verified grasp termination with the closed-empty exit (protocol
+# v3 verdict make_default on the fresh suite val4, docs/vla/CLAMP_WAIT_VALIDATION_2026-11-23.md section 13).
+# --no-clamp-wait reproduces evaluations from before that date.
+CLAMP_WAIT_EMPTY_DEFAULT_RAD = 0.03
 DEFAULT_DETECTOR = ROOT / "results/agent-bench/sup-v7bot-local.json"
 PILOT_TEACHER_RATIO_GATE = 0.70
 
@@ -543,18 +551,22 @@ def evaluate_closed_loop(
 	grasp_tail_mode: str | None = None,
 	record_act_rgb: bool = False,
 	pin_rgb_from: Path | None = None,
-	clamp_wait: bool = False,
+	clamp_wait: bool = True,
 	pin_handoff: str | None = None,
 	clamp_wait_obstruct: float | None = None,
-	clamp_wait_empty: float | None = None,
+	clamp_wait_empty: float | None | str = "default",
 ) -> dict[str, Any]:
 	"""Run sequential ``StudentTwin`` episodes, grade with S6 rules, and compare with teacher.
 
 	``grasp_tail_mode``: first-grasp tail experiment arm (``agent/grasp_tail.py``); None runs the student without
 	the instrumentation (the replay gate's path). ``record_act_rgb`` (arm A) / ``pin_rgb_from`` (another arm: A's
 	output directory): the shared pre-intervention prefix of ``vla/rgb_pin.py``. ``clamp_wait``: clamp-verified grasp
-	termination (``StudentTwin``). ``pin_handoff``: the hand-off rule of a pinned arm (default: its grasp_tail mode,
-	``clamp-wait`` when ``clamp_wait``)."""
+	termination (``StudentTwin``), on by default. ``clamp_wait_empty``: its closed-empty exit threshold; ``"default"``
+	is ``CLAMP_WAIT_EMPTY_DEFAULT_RAD`` with ``clamp_wait`` and None without it, None with ``clamp_wait`` is the v1
+	rule. ``pin_handoff``: the hand-off rule of a pinned arm (default: its grasp_tail mode, ``clamp-wait`` when
+	``clamp_wait``)."""
+	if clamp_wait_empty == "default":
+		clamp_wait_empty = CLAMP_WAIT_EMPTY_DEFAULT_RAD if clamp_wait else None
 	if record_act_rgb and pin_rgb_from is not None:
 		raise ValueError("record_act_rgb and pin_rgb_from are exclusive")
 	if (record_act_rgb or pin_rgb_from is not None) and grasp_tail_mode is None:
@@ -774,9 +786,12 @@ def build_parser() -> argparse.ArgumentParser:
 	)
 	p.add_argument(
 		"--clamp-wait",
-		action="store_true",
-		help="Clamp-verified grasp termination: when ACT ends a grasp before the clamp is confirmed, hold its last "
-		"command until clamped, blocked or timeout (docs/vla/CLAMP_WAIT_VALIDATION_2026-11-23.md)",
+		action=argparse.BooleanOptionalAction,
+		default=True,
+		help="Clamp-verified grasp termination (default on): when ACT ends a grasp before the clamp is confirmed, hold "
+		"its last command until clamped, blocked, closed on nothing (--clamp-wait-empty) or timeout "
+		"(docs/vla/CLAMP_WAIT_VALIDATION_2026-11-23.md). --no-clamp-wait runs the policy's own grasp end, as every "
+		"evaluation before 2026-11-23 did",
 	)
 	p.add_argument(
 		"--clamp-wait-obstruct",
@@ -792,13 +807,15 @@ def build_parser() -> argparse.ArgumentParser:
 		default=None,
 		metavar="RAD",
 		help="With --clamp-wait: end the wait as empty after 3 held frames with the gripper within RAD of its held "
-		"command, i.e. closed on nothing (protocol v3)",
+		f"command, i.e. closed on nothing (protocol v3). Default {CLAMP_WAIT_EMPTY_DEFAULT_RAD}; 0 turns the exit off "
+		"(the v1 rule)",
 	)
 	p.add_argument(
 		"--protocol",
 		choices=tuple(PROTOCOLS),
-		default="grasp-tail-r3",
-		help="Protocol recorded in run_manifest.json (with --grasp-tail-mode or --clamp-wait)",
+		default=None,
+		help="Bind the output directory to run_manifest.json under this protocol (default grasp-tail-r3 with "
+		"--grasp-tail-mode; without either no manifest is written)",
 	)
 	p.add_argument(
 		"--pin-handoff",
@@ -824,6 +841,28 @@ def build_parser() -> argparse.ArgumentParser:
 	return p
 
 
+def resolve_clamp_wait_args(args: argparse.Namespace) -> argparse.Namespace:
+	"""Check and resolve the clamp-wait arguments in place: ``clamp_wait_empty`` becomes the exit threshold actually
+	run (``CLAMP_WAIT_EMPTY_DEFAULT_RAD`` unless given; 0 -> None, the v1 rule; None without clamp-wait), and a
+	grasp-tail run without ``--protocol`` binds ``grasp-tail-r3``."""
+	if args.clamp_wait_obstruct is not None and not args.clamp_wait:
+		raise ValueError("--clamp-wait-obstruct needs --clamp-wait (on by default)")
+	if args.clamp_wait_empty is not None and not args.clamp_wait:
+		raise ValueError("--clamp-wait-empty needs --clamp-wait (on by default)")
+	if args.clamp_wait_empty is not None and args.clamp_wait_empty < 0:
+		raise ValueError(f"--clamp-wait-empty must be >= 0, got {args.clamp_wait_empty}")
+	if args.clamp_wait:
+		if args.clamp_wait_empty is None:
+			args.clamp_wait_empty = CLAMP_WAIT_EMPTY_DEFAULT_RAD
+		elif args.clamp_wait_empty == 0:
+			args.clamp_wait_empty = None
+	if args.clamp_wait and args.grasp_tail_mode == "act-wait":
+		raise ValueError("--grasp-tail-mode act-wait needs --no-clamp-wait (clamp-wait already covers it)")
+	if args.grasp_tail_mode is not None and args.protocol is None:
+		args.protocol = "grasp-tail-r3"
+	return args
+
+
 def main(argv: list[str] | None = None) -> int:
 	args = build_parser().parse_args(argv)
 	cases = assert_suite_allowed(args.suite, allow_sealed=args.allow_sealed)
@@ -842,13 +881,8 @@ def main(argv: list[str] | None = None) -> int:
 		raise ValueError("--record-act-rgb and --pin-rgb-from are exclusive")
 	if args.pin_handoff is not None and args.pin_rgb_from is None:
 		raise ValueError("--pin-handoff needs --pin-rgb-from")
-	if args.clamp_wait_obstruct is not None and not args.clamp_wait:
-		raise ValueError("--clamp-wait-obstruct needs --clamp-wait")
-	if args.clamp_wait_empty is not None and not args.clamp_wait:
-		raise ValueError("--clamp-wait-empty needs --clamp-wait")
-	if args.clamp_wait and args.grasp_tail_mode == "act-wait":
-		raise ValueError("--clamp-wait already covers --grasp-tail-mode act-wait")
-	if args.grasp_tail_mode is not None or args.clamp_wait:
+	resolve_clamp_wait_args(args)
+	if args.protocol is not None:
 		resolved = {**vars(args), "temporal_ensemble": args.temporal_ensemble, "sensing": "realistic"}
 		manifest = run_manifest.build_manifest(
 			root=ROOT,
@@ -923,6 +957,8 @@ def main(argv: list[str] | None = None) -> int:
 			"end_threshold": args.end_threshold,
 			"n_boot": args.n_boot,
 			"detector": args.detector,
+			"clamp_wait": args.clamp_wait,
+			"clamp_wait_empty": args.clamp_wait_empty,
 		},
 		tags={"task": "vla_eval", "suite.sha256": sha256_file(args.suite)},
 	) as run:
@@ -934,7 +970,8 @@ def main(argv: list[str] | None = None) -> int:
 		f"Closed-loop eval ({report['mode_resolved']}): {s['sort_successes']}/{s['episodes']} sorted "
 		f"({s['student_sort_rate']:.3f}), missed_defects={s['missed_defects']}/{s['defective_episodes']}, "
 		f"collisions={s['collisions']['total_collisions']} ({s['collisions']['collision_episodes']} eps), "
-		f"teacher={s['teacher_sort_rate']}, pilot_gate={pg['pilot_gate_pass']}"
+		f"teacher={s['teacher_sort_rate']}, pilot_gate={pg['pilot_gate_pass']}, "
+		f"clamp_wait={args.clamp_wait} (empty exit {args.clamp_wait_empty})"
 	)
 	if s["paired_teacher_student"] is not None:
 		p = s["paired_teacher_student"]

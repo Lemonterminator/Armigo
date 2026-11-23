@@ -233,3 +233,15 @@ python scripts/vla/clamp_wait_report.py --out <root> --run act=<A> --run act-rep
 - "≤ 2 个丢掉的夹稳"是噪声余量：交接后实时运行有波动（val3 上 W1 vs W2 规则相同，抬升仍差 2 例）。
 - W1 vs W3 的其他终点只作描述。
 - 100 个布局里碰撞事件很少。没有出现问题不能证明风险相同。
+
+---
+
+# 结果与默认化（2026-11-23）
+
+- **v3 判定：make_default。** val4 上 W3 − A：首次夹稳 +46（46:0），抬升 +33，分拣 +21；没有一次等待超时，每次等待的夹爪–环境接触最多 3 帧；首次抓取等待中"W1 夹稳、W3 empty"0 例。报告：`E:/scratch/clamp-wait/val4-20261123-164509/REPORT.md`。
+- **默认化（按用户决定，只改学生评测）：** `scripts/vla/eval_closed_loop.py` 默认开启 `--clamp-wait`，合拢退出阈值默认 0.03（`CLAMP_WAIT_EMPTY_DEFAULT_RAD`）。函数 `evaluate_closed_loop` 的默认值同步修改。
+  - `--no-clamp-wait`：关闭等待，与 2026-11-23 之前的评测一致。复现旧结果、以及验证实验里的 A / A′ 组，都要加这个参数。
+  - `--clamp-wait-empty 0`：只等待、不提前退出，即 v1 规则（验证实验里的 W1 组）。
+  - `--protocol` 不再默认写入：只有给了 `--grasp-tail-mode` 或 `--protocol` 才写 run_manifest。
+  - `run_dagger_iter.py` 每轮的 val 评测通过这个脚本运行，因此也会带上等待规则。之前的 val 分拣率是不等待的结果，跨日期比较要注意。
+- **没有改：** `StudentTwin` 和 `run_episode` 的库默认值仍然关闭；`TakeoverTwin`（DAgger 采集）没有接入等待规则，DAgger 采集时学生仍按自己的抓取结束信号走。

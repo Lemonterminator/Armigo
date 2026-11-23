@@ -836,3 +836,24 @@ def test_episode_record_detects_s5_perturbations_incl_nudge(tmp_path: Path) -> N
 	_write_episode(tmp_path / "d", [{"kind": "failure", "frame": 10}])
 	rec = eval_closed_loop._episode_record_from_dir(tmp_path / "d", (4, True, 1))
 	assert not rec["has_perturbation"] and not rec["perturbation_detected"]
+
+
+def test_clamp_wait_is_the_eval_default():
+	"""Clamp-wait with the closed-empty exit is on by default (protocol v3 verdict); --no-clamp-wait restores the
+	pre-2026-11-23 evaluation, --clamp-wait-empty 0 the v1 rule."""
+	parser = eval_closed_loop.build_parser()
+
+	def resolved(*argv):
+		a = eval_closed_loop.resolve_clamp_wait_args(parser.parse_args(["--ckpt", "x", "--out", "y", *argv]))
+		return a.clamp_wait, a.clamp_wait_empty, a.protocol
+
+	default = eval_closed_loop.CLAMP_WAIT_EMPTY_DEFAULT_RAD
+	assert default == 0.03
+	assert resolved() == (True, default, None)
+	assert resolved("--no-clamp-wait") == (False, None, None)
+	assert resolved("--clamp-wait-empty", "0") == (True, None, None)
+	assert resolved("--grasp-tail-mode", "act") == (True, default, "grasp-tail-r3")
+	assert resolved("--grasp-tail-mode", "act-wait", "--no-clamp-wait") == (False, None, "grasp-tail-r3")
+	for bad in (("--no-clamp-wait", "--clamp-wait-empty", "0.03"), ("--grasp-tail-mode", "act-wait")):
+		with pytest.raises(ValueError):
+			resolved(*bad)
