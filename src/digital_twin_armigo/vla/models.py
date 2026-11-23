@@ -19,6 +19,7 @@ from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy, pad_vector
 from lerobot.utils.constants import (
 	ACTION,
 	IMAGENET_STATS,
+	OBS_ENV_STATE,
 	OBS_IMAGES,
 	OBS_LANGUAGE_ATTENTION_MASK,
 	OBS_LANGUAGE_TOKENS,
@@ -43,6 +44,11 @@ DEFAULT_CAMERA_SHAPES: dict[str, tuple[int, int, int]] = {
 	"observation.images.top_depth_v2": (3, 416, 512),
 	"observation.images.wrist": (3, 480, 640),
 }
+# Target-bowl one-hot inside the 38-dim student state (contract.encode_state [31:34]). With ``bowl_token`` the ACT
+# wrapper moves it to its own encoder token (LeRobot's environment-state input) and zeroes it in the state token
+# (docs/vla/BOWL_CHANNEL_PAIRED_PLAN_2026-11-23.md).
+BOWL_SLICE = slice(31, 34)
+POS_EMBED_KEY = "policy.model.encoder_1d_feature_pos_embed.weight"
 DEFAULT_SMOLVLM_ID = "HuggingFaceTB/SmolVLM2-500M-Video-Instruct"
 DEFAULT_SMOLVLA_BASE_ID = "lerobot/smolvla_base"
 
@@ -727,7 +733,10 @@ class ACTWithEndHead(_BaseVLAWrapper):
 		end_head_hidden_dim: int = 256,
 		end_head_dropout: float = 0.1,
 		tiny_for_test: bool = False,
+		bowl_token: bool = False,
 	) -> None:
+		"""``bowl_token``: feed the target-bowl one-hot (state ``[31:34]``) as its own encoder token instead of inside
+		the state token, which then sees those three slots as zero."""
 		super().__init__(
 			horizon=horizon,
 			state_dim=STATE_DIM,
@@ -762,11 +771,16 @@ class ACTWithEndHead(_BaseVLAWrapper):
 		self.end_head_hidden_dim = int(end_head_hidden_dim)
 		self.end_head_dropout = float(end_head_dropout)
 		self.tiny_for_test = bool(tiny_for_test)
+		self.bowl_token = bool(bowl_token)
 
 		input_features = {
 			cam: PolicyFeature(type=FeatureType.VISUAL, shape=self.camera_shapes[cam]) for cam in STUDENT_CAMERAS
 		}
 		input_features[OBS_STATE] = PolicyFeature(type=FeatureType.STATE, shape=(STATE_DIM,))
+		if self.bowl_token:
+			input_features[OBS_ENV_STATE] = PolicyFeature(
+				type=FeatureType.ENV, shape=(BOWL_SLICE.stop - BOWL_SLICE.start,)
+			)
 		output_features = {ACTION: PolicyFeature(type=FeatureType.ACTION, shape=(ACTION_DIM,))}
 
 		cfg = ACTConfig(
@@ -832,10 +846,13 @@ class ACTWithEndHead(_BaseVLAWrapper):
 				img = img[:, -1]
 			imgs.append((img - mean) / std)
 
-		act_batch: dict[str, Any] = {
-			OBS_STATE: self._normalize_state(state),
-			OBS_IMAGES: imgs,
-		}
+		state_norm = self._normalize_state(state)
+		if self.bowl_token:
+			state_norm = state_norm.clone()
+			state_norm[:, BOWL_SLICE] = 0.0
+		act_batch: dict[str, Any] = {OBS_STATE: state_norm, OBS_IMAGES: imgs}
+		if self.bowl_token:
+			act_batch[OBS_ENV_STATE] = state[:, BOWL_SLICE]  # raw one-hot ("", green, pink)
 		if include_action:
 			actions = batch[ACTION].to(device=device, dtype=torch.float32)
 			act_batch[ACTION] = self._normalize_action(actions)
@@ -929,6 +946,7 @@ class ACTWithEndHead(_BaseVLAWrapper):
 			"end_head_hidden_dim": self.end_head_hidden_dim,
 			"end_head_dropout": self.end_head_dropout,
 			"tiny_for_test": self.tiny_for_test,
+			"bowl_token": self.bowl_token,
 		}
 
 	def get_optim_param_groups(
@@ -994,12 +1012,40 @@ class ACTWithEndHead(_BaseVLAWrapper):
 			end_head_hidden_dim=int(mc["end_head_hidden_dim"]),
 			end_head_dropout=float(mc["end_head_dropout"]),
 			tiny_for_test=bool(mc.get("tiny_for_test", False)),
+			bowl_token=bool(mc.get("bowl_token", False)),
 		)
 		sd = load_file(str(src / "model.safetensors"), device="cpu")
 		model.load_state_dict(sd, strict=True)
 		model.to(device)
 		model.eval()
 		return model
+
+
+def load_act_weights_expanding(model: ACTWithEndHead, src_state_dict: Mapping[str, Tensor]) -> list[str]:
+	"""Load an ACT state dict without the bowl token into ``model`` (which has it): every shared tensor is copied, the
+	1-d positional embedding keeps its old rows and gets one new row (left at its fresh init), and the new env-state
+	projection stays freshly initialised. Returns the names of the freshly initialised tensors."""
+	if not model.bowl_token:
+		raise ValueError("load_act_weights_expanding needs a model with bowl_token=True")
+	if any("encoder_env_state_input_proj" in k for k in src_state_dict):
+		raise ValueError("source already has a bowl token; load it with load_state_dict(strict=True)")
+	own = model.state_dict()
+	fresh = sorted(set(own) - set(src_state_dict))
+	merged = dict(own)
+	for k, v in src_state_dict.items():
+		if k not in own:
+			raise ValueError(f"unexpected tensor {k} in source state dict")
+		if k == POS_EMBED_KEY:
+			if own[k].shape[0] != v.shape[0] + 1 or own[k].shape[1:] != v.shape[1:]:
+				raise ValueError(f"{k}: cannot expand {tuple(v.shape)} to {tuple(own[k].shape)}")
+			merged[k] = torch.cat([v.to(own[k].dtype), own[k][v.shape[0] :]], dim=0)
+			fresh.append(f"{k}[{v.shape[0]}]")
+		elif own[k].shape != v.shape:
+			raise ValueError(f"{k}: shape {tuple(v.shape)} != {tuple(own[k].shape)}")
+		else:
+			merged[k] = v
+	model.load_state_dict(merged, strict=True)
+	return fresh
 
 
 def load_vla_checkpoint(

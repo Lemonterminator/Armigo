@@ -33,7 +33,7 @@ from digital_twin_armigo.vla.contract import (
 )
 from digital_twin_armigo.vla.dataset import SegmentChunkDataset, vla_collate_fn
 from digital_twin_armigo.vla.metrics import EvalAccumulator
-from digital_twin_armigo.vla.models import ACTWithEndHead, SmolVLAWithEndHead
+from digital_twin_armigo.vla.models import ACTWithEndHead, SmolVLAWithEndHead, load_act_weights_expanding
 
 S9_END_STEP_F1_GATE = 0.9
 DEFAULT_END_HEAD_LR = {"act": 1e-3, "smolvla": 1e-4}
@@ -139,8 +139,11 @@ def build_model(
 	camera_shapes: dict[str, tuple[int, int, int]] | None = None,
 	tiny_for_test: bool = False,
 	local_files_only: bool = False,
+	bowl_token: bool = False,
 ) -> SmolVLAWithEndHead | ACTWithEndHead:
 	if family == "smolvla":
+		if bowl_token:
+			raise ValueError("--bowl-token is ACT only")
 		resolved_init = init_from if init_from is not None else ("scratch" if tiny_for_test else "lerobot/smolvla_base")
 		if resolved_init == "scratch":
 			resolved_init = None
@@ -162,10 +165,15 @@ def build_model(
 			class_weights=class_weights,
 			camera_shapes=camera_shapes,
 			tiny_for_test=tiny_for_test,
+			bowl_token=bowl_token,
 		)
 		if init_from not in (None, "none", "scratch"):
 			loaded = ACTWithEndHead.load_checkpoint(init_from, device="cpu")
-			model.load_state_dict(loaded.state_dict(), strict=True)
+			if bowl_token and not loaded.bowl_token:
+				fresh = load_act_weights_expanding(model, loaded.state_dict())
+				print(f"[init] expanded {init_from} with a bowl token; fresh tensors: {fresh}", flush=True)
+			else:
+				model.load_state_dict(loaded.state_dict(), strict=True)
 			model.set_normalizer(normalizer)
 			model.set_class_weights(class_weights)
 		return model
@@ -199,6 +207,7 @@ def run_training(
 	camera_shapes: dict[str, tuple[int, int, int]] | None = None,
 	tiny_for_test: bool = False,
 	local_files_only: bool = False,
+	bowl_token: bool = False,
 ) -> dict[str, Any]:
 	"""Execute the S9 training loop on ``train_ds`` with optional periodic evaluation on ``val_ds``."""
 	_seed_everything(seed)
@@ -232,6 +241,7 @@ def run_training(
 				"lr": lr_val,
 				"end_head_lr": head_lr_val,
 				"weight_decay": wd_val,
+				"bowl_token": bool(bowl_token),
 				"train": train_ds.summary(),
 				"val": val_ds.summary() if val_ds is not None else None,
 			},
@@ -251,6 +261,7 @@ def run_training(
 		camera_shapes=camera_shapes,
 		tiny_for_test=tiny_for_test,
 		local_files_only=local_files_only,
+		bowl_token=bowl_token,
 	)
 	model.to(dev)
 	# Keep frozen VLM in bfloat16 on CUDA when bf16 AMP is active to reduce VRAM while keeping trainable weights fp32.
@@ -419,6 +430,11 @@ def main(argv: list[str] | None = None) -> int:
 	p.add_argument("--no-augment", action="store_true", help="Disable training-time image augmentations")
 	p.add_argument("--val-max-batches", type=int, default=None)
 	p.add_argument("--local-files-only", action="store_true")
+	p.add_argument(
+		"--bowl-token",
+		action="store_true",
+		help="ACT: target-bowl one-hot as its own encoder token (docs/vla/BOWL_CHANNEL_PAIRED_PLAN_2026-11-23.md)",
+	)
 	p.add_argument("--tiny-for-test", action="store_true", help="Use tiny in-memory backbone for fast smoke tests")
 	p.add_argument("--mlflow", action="store_true", help="Record this run (params, metrics, data digests) in MLflow")
 	p.add_argument("--mlflow-experiment", default="vla-train")
@@ -482,6 +498,7 @@ def main(argv: list[str] | None = None) -> int:
 			val_max_batches=args.val_max_batches,
 			tiny_for_test=args.tiny_for_test,
 			local_files_only=args.local_files_only,
+			bowl_token=args.bowl_token,
 		)
 		run.log_report(summary["final_val_metrics"] or {}, "val")
 		run.log_metrics({"best_end_step_f1": summary["best_end_step_f1"]})
