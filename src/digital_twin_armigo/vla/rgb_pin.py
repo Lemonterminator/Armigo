@@ -29,6 +29,7 @@ from typing import Any
 
 import numpy as np
 
+from ..mujoco_cell.physics_expert import ExpertParams
 from .client_policy import ChunkClientPolicy
 
 PIN_VERSION = "rgb-pin-v1"
@@ -37,7 +38,7 @@ RECORD_FILE = "act_rgb.npz"
 LOG_FILE = "rgb_pin.json"
 ROLES = ("record", "pin")
 # Arguments that may differ between A and a pinned arm (everything else in the manifest must match).
-ARM_ARGS = ("grasp_tail_mode", "record_act_rgb", "pin_rgb_from")
+ARM_ARGS = ("grasp_tail_mode", "record_act_rgb", "pin_rgb_from", "clamp_wait", "pin_handoff")
 
 
 def meta_digest(payload: dict[str, Any]) -> str:
@@ -98,6 +99,13 @@ def handoff_frame(mode: str, first_grasp: dict | None) -> tuple[int | None, str]
 	(None: never, pin the whole episode) and why."""
 	if first_grasp is None:
 		return None, "no_first_grasp"
+	if mode == "clamp-wait":  # StudentTwin(clamp_wait=True): any first grasp ACT ends before the clamp is confirmed
+		done = [e for e in first_grasp["events"] if e["kind"] == "act_done"]
+		if not done:
+			return None, "no_act_done"
+		if done[0]["clamp_run"] >= ExpertParams.clamp_still_frames:
+			return None, "clamped_at_done"
+		return int(done[0]["frame"]), "act_done_unclamped"
 	if first_grasp.get("decision") != "triggered":
 		return None, f"not_triggered:{first_grasp.get('decision')}"
 	if mode in ("act", "expert-once"):

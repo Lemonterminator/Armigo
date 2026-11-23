@@ -138,6 +138,25 @@ def test_a_request_that_differs_beyond_rgb_ends_the_pin(tmp_path):
 		("act-wait", {**_first_grasp(), "events": []}, None, "no_act_done"),
 		("expert-once", _first_grasp(decision="closed_early"), None, "not_triggered:closed_early"),
 		("act", None, None, "no_first_grasp"),
+		(
+			"clamp-wait",
+			{**_first_grasp(), "events": [{"kind": "act_done", "frame": 5, "clamp_run": 1}]},
+			5,
+			"act_done_unclamped",
+		),
+		(
+			"clamp-wait",
+			{**_first_grasp(decision="near_field_xy"), "events": [{"kind": "act_done", "frame": 7, "clamp_run": 0}]},
+			7,
+			"act_done_unclamped",
+		),
+		(
+			"clamp-wait",
+			{**_first_grasp(), "events": [{"kind": "act_done", "frame": 5, "clamp_run": 4}]},
+			None,
+			"clamped_at_done",
+		),
+		("clamp-wait", {**_first_grasp(), "events": []}, None, "no_act_done"),
 	],
 )
 def test_handoff_frame(mode, first_grasp, frame, reason):

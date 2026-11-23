@@ -695,6 +695,8 @@ class TakeoverTwin(StudentTwin):
 			sensing=sensing,
 			**kwargs,
 		)
+		if self.clamp_wait:  # run_segment below is its own loop; StudentTwin's clamp wait is not wired in here
+			raise NotImplementedError("TakeoverTwin does not support clamp_wait yet")
 		self.taken_over: bool = False
 		self._last_gate_obs: dict[str, Any] | None = None
 		self.takeover_frame: int | None = None

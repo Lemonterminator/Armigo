@@ -142,7 +142,7 @@ def expert_trace(tmp_path_factory):
 	return out
 
 
-def _run(expert_trace, tmp_path, mode, done_when=None, name=None):
+def _run(expert_trace, tmp_path, mode, done_when=None, name=None, **twin_kw):
 	"""Run the student up to the first segment after the first grasp; returns (twin, policy, actions array)."""
 	from digital_twin_armigo.agent.student_rollout import ReplayPolicy, StudentTwin
 	from digital_twin_armigo.agent.twin_graph import Policy, build_graph
@@ -151,7 +151,9 @@ def _run(expert_trace, tmp_path, mode, done_when=None, name=None):
 
 	trace = EpisodeTrace(tmp_path / (name or str(mode)), video=False)
 	policy = FirstGraspPolicy(ReplayPolicy.from_trace(expert_trace), done_when)
-	twin = StudentTwin(sample_case(*CASE), ConstantScorer(), trace, policy, sensing="realistic", grasp_tail=mode)
+	twin = StudentTwin(
+		sample_case(*CASE), ConstantScorer(), trace, policy, sensing="realistic", grasp_tail=mode, **twin_kw
+	)
 	with pytest.raises(_Stop):
 		build_graph(twin, Policy()).invoke({}, config={"recursion_limit": 64})
 	return twin, policy, np.array(twin.targets)
@@ -260,6 +262,69 @@ def test_act_wait_times_out_into_the_original_failure(expert_trace, tmp_path):
 		assert not w_twin._clamped and w_twin.segments[-1]["kind"] != "lift"
 	finally:
 		w_twin.close()
+
+
+def _clamp_waits(twin):
+	return [e for e in twin.record.events if e["kind"] == "clamp_wait"]
+
+
+def test_clamp_wait_is_the_act_wait_hold_on_every_grasp(expert_trace, tmp_path):
+	"""The engineering rule (StudentTwin clamp_wait) issues exactly A+wait's commands on a triggered first grasp, logs
+	one clamp_wait event, and its RGB-pin hand-off (vla/rgb_pin.py) is the wait's first frame."""
+	from digital_twin_armigo.vla.rgb_pin import handoff_frame
+
+	a_twin, _, _ = _run(expert_trace, tmp_path, "act", done_when=_closed, name="a")
+	w_twin, _, w = _run(expert_trace, tmp_path, "act-wait", done_when=_closed, name="w")
+	c_twin, _, c = _run(expert_trace, tmp_path, None, done_when=_closed, name="c", clamp_wait=True)
+	ct_twin, _, ct = _run(expert_trace, tmp_path, "act", done_when=_closed, name="ct", clamp_wait=True)
+	try:
+		assert np.array_equal(w, c) and np.array_equal(w, ct)
+		assert np.array_equal(w_twin.ep.telemetry()["qpos"], c_twin.ep.telemetry()["qpos"])
+		w_log = w_twin.grasp_tail_log.to_json()
+		(ev,) = _clamp_waits(c_twin)
+		assert ev["outcome"] == "clamped" and ev["frames"] == w_log["wait_frames"]
+		assert c_twin._clamped and c_twin.segments[-1]["kind"] == "lift"
+		ct_log = ct_twin.grasp_tail_log.to_json()
+		assert ct_log["source_counts"]["clamp_wait_hold"] == w_log["wait_frames"]
+		wait_start = next(e["frame"] for e in w_log["events"] if e["kind"] == "wait_start")
+		assert handoff_frame("clamp-wait", a_twin.grasp_tail_log.to_json()) == (wait_start, "act_done_unclamped")
+		assert not _clamp_waits(w_twin)  # the A/B arm's events are unchanged
+	finally:
+		for t in (a_twin, w_twin, c_twin, ct_twin):
+			t.close()
+
+
+def test_clamp_wait_changes_nothing_when_act_ends_clamped(expert_trace, tmp_path):
+	plain, _, a0 = _run(expert_trace, tmp_path, None, name="p")
+	waited, _, a1 = _run(expert_trace, tmp_path, None, name="c", clamp_wait=True)
+	try:
+		assert np.array_equal(a0, a1) and not _clamp_waits(waited)
+	finally:
+		plain.close()
+		waited.close()
+
+
+def test_clamp_wait_also_holds_grasps_the_tail_switch_skips(expert_trace, tmp_path, monkeypatch):
+	monkeypatch.setattr(gt, "NEAR_XY_M", -1.0)  # untriggered: A+wait does not wait, the engineering rule does
+	w_twin, _, _ = _run(expert_trace, tmp_path, "act-wait", done_when=_closed, name="w")
+	c_twin, _, _ = _run(expert_trace, tmp_path, "act", done_when=_closed, name="c", clamp_wait=True)
+	try:
+		assert w_twin.grasp_tail_log.decision == "near_field_xy" and not w_twin._clamped
+		assert c_twin._clamped and _clamp_waits(c_twin)[0]["outcome"] == "clamped"
+	finally:
+		w_twin.close()
+		c_twin.close()
+
+
+def test_clamp_wait_times_out_and_refuses_the_act_wait_arm(expert_trace, tmp_path):
+	c_twin, _, _ = _run(expert_trace, tmp_path, None, done_when=_closing, clamp_wait=True)
+	try:
+		(ev,) = [e for e in _clamp_waits(c_twin) if e["outcome"] == "timeout"][:1]
+		assert ev["frames"] == 45 and c_twin.segments[-1]["kind"] != "lift"
+	finally:
+		c_twin.close()
+	with pytest.raises(ValueError):
+		_run(expert_trace, tmp_path, "act-wait", name="bad", clamp_wait=True)
 
 
 @pytest.mark.parametrize("outcome", ["blocked", "timeout"])

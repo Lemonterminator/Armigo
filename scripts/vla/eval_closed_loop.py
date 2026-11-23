@@ -41,6 +41,11 @@ from digital_twin_armigo.vla.server import ChunkPredictor
 
 LEROBOT_CUDA_PYTHON = Path("E:/il/lerobot-cuda/Scripts/python.exe")
 DEFAULT_SUITE = ROOT / "config/vla/val.json"
+# Experiment protocols a run manifest can bind (--protocol); a pinned arm must share its source's protocol.
+PROTOCOLS = {
+	"grasp-tail-r3": "docs/vla/GRASP_TAIL_AB_HANDOFF_2026-11-23.md r3",
+	"clamp-wait-v1": "docs/vla/CLAMP_WAIT_VALIDATION_2026-11-23.md v1",
+}
 DEFAULT_DETECTOR = ROOT / "results/agent-bench/sup-v7bot-local.json"
 PILOT_TEACHER_RATIO_GATE = 0.70
 
@@ -536,17 +541,22 @@ def evaluate_closed_loop(
 	grasp_tail_mode: str | None = None,
 	record_act_rgb: bool = False,
 	pin_rgb_from: Path | None = None,
+	clamp_wait: bool = False,
+	pin_handoff: str | None = None,
 ) -> dict[str, Any]:
 	"""Run sequential ``StudentTwin`` episodes, grade with S6 rules, and compare with teacher.
 
 	``grasp_tail_mode``: first-grasp tail experiment arm (``agent/grasp_tail.py``); None runs the student without
 	the instrumentation (the replay gate's path). ``record_act_rgb`` (arm A) / ``pin_rgb_from`` (another arm: A's
-	output directory): the shared pre-intervention prefix of ``vla/rgb_pin.py``."""
+	output directory): the shared pre-intervention prefix of ``vla/rgb_pin.py``. ``clamp_wait``: clamp-verified grasp
+	termination (``StudentTwin``). ``pin_handoff``: the hand-off rule of a pinned arm (default: its grasp_tail mode,
+	``clamp-wait`` when ``clamp_wait``)."""
 	if record_act_rgb and pin_rgb_from is not None:
 		raise ValueError("record_act_rgb and pin_rgb_from are exclusive")
 	if (record_act_rgb or pin_rgb_from is not None) and grasp_tail_mode is None:
 		raise ValueError("RGB recording / pinning needs a grasp_tail_mode")
 	pin_role = "record" if record_act_rgb else ("pin" if pin_rgb_from is not None else None)
+	pin_mode = pin_handoff or ("clamp-wait" if clamp_wait else grasp_tail_mode)
 	out_dir = Path(out_dir)
 	out_dir.mkdir(parents=True, exist_ok=True)
 	health = predictor.health()
@@ -570,6 +580,8 @@ def evaluate_closed_loop(
 				raise ValueError(
 					f"{ep_dir} was run with grasp_tail={prov.get('grasp_tail')!r}, not {grasp_tail_mode!r}"
 				)
+			if bool(prov.get("clamp_wait")) != clamp_wait:
+				raise ValueError(f"{ep_dir} was run with clamp_wait={bool(prov.get('clamp_wait'))}, not {clamp_wait}")
 			pin_log = ep_dir / rgb_pin.LOG_FILE
 			old_role = json.loads(pin_log.read_text(encoding="utf-8"))["role"] if pin_log.exists() else None
 			if old_role != pin_role:
@@ -595,13 +607,20 @@ def evaluate_closed_loop(
 			src_case = _episode_case(src_ep) if (src_ep / "episode.json").exists() else None
 			if src_case is None or list(src_case)[:3] != list(case)[:3]:
 				raise ValueError(f"pin source {src_ep} holds case {src_case}, not {list(case)}")
-			pin = rgb_pin.RgbPin(src_ep, grasp_tail_mode)
+			pin = rgb_pin.RgbPin(src_ep, pin_mode)
 			policy = rgb_pin.RgbPinClientPolicy(predictor, pin=pin, **policy_kw)
 		else:
 			policy = ChunkClientPolicy(predictor, **policy_kw)
 		try:
 			run_episode(
-				case, scorer, ep_dir, policy=policy, sensing="realistic", video=video, grasp_tail=grasp_tail_mode
+				case,
+				scorer,
+				ep_dir,
+				policy=policy,
+				sensing="realistic",
+				video=video,
+				grasp_tail=grasp_tail_mode,
+				clamp_wait=clamp_wait,
 			)
 		finally:
 			_write_task_json_if_missing(ep_dir, case)
@@ -663,7 +682,12 @@ def evaluate_closed_loop(
 		)
 	report = {
 		"grasp_tail_mode": grasp_tail_mode,
-		"rgb_pin": {"role": pin_role, "source": None if pin_rgb_from is None else str(pin_rgb_from)},
+		"rgb_pin": {
+			"role": pin_role,
+			"source": None if pin_rgb_from is None else str(pin_rgb_from),
+			"handoff": pin_mode if pin_role == "pin" else None,
+		},
+		"clamp_wait": clamp_wait,
 		"mode_requested": mode,
 		"mode_resolved": resolved_mode,
 		"server_health": health,
@@ -731,6 +755,25 @@ def build_parser() -> argparse.ArgumentParser:
 		default=None,
 		help="Other arms: arm A's --out; pin A's request RGB up to this arm's hand-off point (vla/rgb_pin.py)",
 	)
+	p.add_argument(
+		"--clamp-wait",
+		action="store_true",
+		help="Clamp-verified grasp termination: when ACT ends a grasp before the clamp is confirmed, hold its last "
+		"command until clamped, blocked or timeout (docs/vla/CLAMP_WAIT_VALIDATION_2026-11-23.md)",
+	)
+	p.add_argument(
+		"--protocol",
+		choices=tuple(PROTOCOLS),
+		default="grasp-tail-r3",
+		help="Protocol recorded in run_manifest.json (with --grasp-tail-mode or --clamp-wait)",
+	)
+	p.add_argument(
+		"--pin-handoff",
+		choices=("act", "act-wait", "expert-once", "clamp-wait"),
+		default=None,
+		help="Hand-off rule of a --pin-rgb-from arm (default: its --grasp-tail-mode, clamp-wait with --clamp-wait); "
+		"a repeat-A noise arm of the clamp-wait validation passes clamp-wait",
+	)
 	p.add_argument("--teacher-runs", type=Path, default=None, help="Optional dir of expert runs on the same suite")
 	p.add_argument("--no-teacher", action="store_true", help="Do not run teacher baseline if --teacher-runs is absent")
 	p.add_argument("--max-episodes", type=int, default=None)
@@ -764,7 +807,11 @@ def main(argv: list[str] | None = None) -> int:
 		raise ValueError("--record-act-rgb / --pin-rgb-from need --grasp-tail-mode")
 	if args.record_act_rgb and args.pin_rgb_from is not None:
 		raise ValueError("--record-act-rgb and --pin-rgb-from are exclusive")
-	if args.grasp_tail_mode is not None:
+	if args.pin_handoff is not None and args.pin_rgb_from is None:
+		raise ValueError("--pin-handoff needs --pin-rgb-from")
+	if args.clamp_wait and args.grasp_tail_mode == "act-wait":
+		raise ValueError("--clamp-wait already covers --grasp-tail-mode act-wait")
+	if args.grasp_tail_mode is not None or args.clamp_wait:
 		resolved = {**vars(args), "temporal_ensemble": args.temporal_ensemble, "sensing": "realistic"}
 		manifest = run_manifest.build_manifest(
 			root=ROOT,
@@ -776,7 +823,7 @@ def main(argv: list[str] | None = None) -> int:
 				"grader_ref": run_manifest.describe_file(args.grader_ref),
 				"pin_source": _pin_source(args.pin_rgb_from),
 			},
-			protocol="docs/vla/GRASP_TAIL_AB_HANDOFF_2026-11-23.md r3",
+			protocol=PROTOCOLS[args.protocol],
 			grasp_tail_mode=args.grasp_tail_mode,
 		)
 		if args.pin_rgb_from is not None:
@@ -815,6 +862,8 @@ def main(argv: list[str] | None = None) -> int:
 				grasp_tail_mode=args.grasp_tail_mode,
 				record_act_rgb=args.record_act_rgb,
 				pin_rgb_from=args.pin_rgb_from,
+				clamp_wait=args.clamp_wait,
+				pin_handoff=args.pin_handoff,
 			)
 	finally:
 		if hasattr(scorer, "close"):

@@ -290,6 +290,18 @@ class ExpertTracer(_SegmentMixin, TwinMujoco):
 		return error
 
 
+def clamp_wait_outcome(gstate: GripperState | None, clamp_run: int, waited: int, p) -> str | None:
+	"""``ClosedLoopExpert._close_and_clamp``'s wait, one held frame at a time: ``"blocked"``, ``"clamped"`` (clamped and
+	still for ``p.clamp_still_frames``), ``"timeout"`` after ``p.clamp_timeout_frames`` held frames, else None."""
+	if gstate is GripperState.BLOCKED:
+		return "blocked"
+	if clamp_run >= p.clamp_still_frames:
+		return "clamped"
+	if waited >= p.clamp_timeout_frames:
+		return "timeout"
+	return None
+
+
 class StudentTwin(_SegmentMixin, TwinMujoco):
 	"""Graph backend whose skills issue segments to ``policy`` instead of running the expert's motion generators.
 
@@ -306,13 +318,21 @@ class StudentTwin(_SegmentMixin, TwinMujoco):
 		*,
 		segment_monitor: Callable[[Segment, int], None] | None = None,
 		grasp_tail: str | None = None,
+		clamp_wait: bool = False,
 		**kwargs,
 	):
 		"""``grasp_tail``: first-grasp tail experiment mode (agent/grasp_tail.py: ``act`` logs only, ``act-wait``,
-		``expert-once``); None runs without the instrumentation."""
+		``expert-once``); None runs without the instrumentation.
+
+		``clamp_wait``: clamp-verified grasp termination. When the policy ends ANY grasp segment before the clamp is
+		confirmed, hold its last command until clamped and still, blocked, or ``clamp_timeout_frames`` (the expert's
+		``_close_and_clamp`` wait). The A+wait arm of the grasp-tail A/B did this on the first triggered grasp only."""
 		if grasp_tail is not None and grasp_tail not in GRASP_TAIL_MODES:
 			raise ValueError(f"grasp_tail must be None or one of {GRASP_TAIL_MODES}, got {grasp_tail!r}")
+		if clamp_wait and grasp_tail == "act-wait":
+			raise ValueError("clamp_wait already covers the act-wait arm; use one of them")
 		self.grasp_tail = grasp_tail
+		self.clamp_wait = bool(clamp_wait)
 		self.grasp_tail_log: GraspTail | None = None  # the first grasp's switch decision and telemetry
 		self._tail_pending: GraspPlan | None = None
 		self._first_grasp_done = False
@@ -369,7 +389,9 @@ class StudentTwin(_SegmentMixin, TwinMujoco):
 			tail = GraspTail(self.grasp_tail, self._tail_pending, p.pregrasp_dz_m, sid)
 			self._tail_pending = None
 			self.grasp_tail_log = tail
-		source = "act"  # where this frame's command comes from: act, act_wait_hold (A+wait), expert_tail (B)
+		# Where this frame's command comes from: act, act_wait_hold (A+wait), expert_tail (B), clamp_wait_hold.
+		source = "act"
+		waited = 0  # hold frames of a clamp wait (act_wait_hold / clamp_wait_hold)
 		executed: np.ndarray | None = None  # last command executed in this segment
 		gstate = None  # the segment monitor's state at the current observation
 		expert_gen = hold = saved_expert = None
@@ -465,27 +487,30 @@ class StudentTwin(_SegmentMixin, TwinMujoco):
 							tail.event(
 								"act_done", self.ep.n_frames, frames, clamp_run=int(clamp_run), wait_eligible=eligible
 							)
-						if not (eligible and tail.mode == "act-wait"):
+						if self.clamp_wait and seg.kind == "grasp" and clamp_run < p.clamp_still_frames:
+							source = "clamp_wait_hold"
+						elif eligible and tail.mode == "act-wait":
+							source = "act_wait_hold"
+						else:
 							self._clamped = clamp_run >= p.clamp_still_frames
 							end("done")
 							return None
-						source, hold = "act_wait_hold", self._prev_action.copy()
-						tail.event("wait_start", self.ep.n_frames, frames)
-				if source == "act_wait_hold":
-					# ClosedLoopExpert._close_and_clamp's wait: blocked, clamped and still, or timeout.
-					outcome = None
-					if gstate is GripperState.BLOCKED:
-						outcome = "blocked"
-					elif clamp_run >= p.clamp_still_frames:
-						outcome = "clamped"
-					elif tail.wait_frames >= p.clamp_timeout_frames:
-						outcome = "timeout"
+						hold = self._prev_action.copy()
+						if tail is not None:
+							tail.event("wait_start", self.ep.n_frames, frames)
+				if source in ("act_wait_hold", "clamp_wait_hold"):
+					outcome = clamp_wait_outcome(gstate, clamp_run, waited, p)
 					if outcome is not None:
 						self._clamped = outcome == "clamped"
-						tail.event("wait_end", self.ep.n_frames, frames, outcome=outcome, wait_frames=tail.wait_frames)
+						if tail is not None:
+							tail.event("wait_end", self.ep.n_frames, frames, outcome=outcome, wait_frames=waited)
+						if source == "clamp_wait_hold":
+							self.event("clamp_wait", id=sid, frames=waited, outcome=outcome)
 						end("done", outcome)
 						return None
-					tail.wait_frames += 1
+					waited += 1
+					if tail is not None:
+						tail.wait_frames = waited
 					raw, phase = hold.copy(), "grasp"
 				else:
 					raw = np.asarray(step.target, dtype=np.float64)
@@ -891,6 +916,7 @@ def run_episode(
 	sensing="realistic",
 	video=False,
 	grasp_tail: str | None = None,
+	clamp_wait: bool = False,
 ):
 	"""Run one case through the graph: the expert (with segment markers) when ``policy`` is None, else the student
 	(``segment_monitor``: the diagnostics channel, see :class:`StudentTwin`). Writes the trace to ``out`` and returns
@@ -905,13 +931,22 @@ def run_episode(
 		twin = ExpertTracer(layout, scorer, trace, sensing=sensing)
 	else:
 		twin = StudentTwin(
-			layout, scorer, trace, policy, segment_monitor=segment_monitor, sensing=sensing, grasp_tail=grasp_tail
+			layout,
+			scorer,
+			trace,
+			policy,
+			segment_monitor=segment_monitor,
+			sensing=sensing,
+			grasp_tail=grasp_tail,
+			clamp_wait=clamp_wait,
 		)
 	try:
 		result = build_graph(twin, Policy()).invoke({}, config={"recursion_limit": 64})["result"]
 		provenance = {"engine": "mujoco", "sensing": sensing, "case": list(case), "student": policy is not None}
 		if grasp_tail is not None:
 			provenance["grasp_tail"] = grasp_tail
+		if clamp_wait:
+			provenance["clamp_wait"] = True
 		trace.finish(result, provenance)
 		if grasp_tail is not None:
 			log = twin.grasp_tail_log
