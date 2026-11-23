@@ -28,12 +28,14 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT / "src") not in sys.path:
 	sys.path.insert(0, str(ROOT / "src"))
 
+from digital_twin_armigo.agent.grasp_tail import GRASP_TAIL_MODES
 from digital_twin_armigo.agent.student_rollout import run_episode
 from digital_twin_armigo.agent.twin_mujoco import load_suite
 from digital_twin_armigo.agent.vla_grader import find_episodes, grade, load_reference
 from digital_twin_armigo.agent.vla_grader import summarize as summarize_grades
 from digital_twin_armigo.runtime.canonical import sha256_file
 from digital_twin_armigo.tracking.runs import tracked_run
+from digital_twin_armigo.vla import rgb_pin, run_manifest
 from digital_twin_armigo.vla.client_policy import ChunkClientPolicy, RemoteChunkPredictor
 from digital_twin_armigo.vla.server import ChunkPredictor
 
@@ -531,8 +533,20 @@ def evaluate_closed_loop(
 	grader_ref: Path | None = None,
 	video: bool = False,
 	n_boot: int = 10_000,
+	grasp_tail_mode: str | None = None,
+	record_act_rgb: bool = False,
+	pin_rgb_from: Path | None = None,
 ) -> dict[str, Any]:
-	"""Run sequential ``StudentTwin`` episodes, grade with S6 rules, and compare with teacher."""
+	"""Run sequential ``StudentTwin`` episodes, grade with S6 rules, and compare with teacher.
+
+	``grasp_tail_mode``: first-grasp tail experiment arm (``agent/grasp_tail.py``); None runs the student without
+	the instrumentation (the replay gate's path). ``record_act_rgb`` (arm A) / ``pin_rgb_from`` (another arm: A's
+	output directory): the shared pre-intervention prefix of ``vla/rgb_pin.py``."""
+	if record_act_rgb and pin_rgb_from is not None:
+		raise ValueError("record_act_rgb and pin_rgb_from are exclusive")
+	if (record_act_rgb or pin_rgb_from is not None) and grasp_tail_mode is None:
+		raise ValueError("RGB recording / pinning needs a grasp_tail_mode")
+	pin_role = "record" if record_act_rgb else ("pin" if pin_rgb_from is not None else None)
 	out_dir = Path(out_dir)
 	out_dir.mkdir(parents=True, exist_ok=True)
 	health = predictor.health()
@@ -551,25 +565,48 @@ def evaluate_closed_loop(
 				raise ValueError(
 					f"{ep_dir} holds case {recorded}, not suite case {list(case)}: use a fresh --out per checkpoint/suite"
 				)
+			prov = json.loads((ep_dir / "episode.json").read_text(encoding="utf-8")).get("provenance") or {}
+			if prov.get("grasp_tail") != grasp_tail_mode:
+				raise ValueError(
+					f"{ep_dir} was run with grasp_tail={prov.get('grasp_tail')!r}, not {grasp_tail_mode!r}"
+				)
+			pin_log = ep_dir / rgb_pin.LOG_FILE
+			old_role = json.loads(pin_log.read_text(encoding="utf-8"))["role"] if pin_log.exists() else None
+			if old_role != pin_role:
+				raise ValueError(f"{ep_dir} was run with RGB role {old_role!r}, not {pin_role!r}")
 			rec = _episode_record_from_dir(ep_dir, case)
 			g = grade(ep_dir, reference=reference)
 			student_records.append(rec)
 			student_grades.append(g)
 			continue
 
-		policy = ChunkClientPolicy(
-			predictor,
-			mode=resolved_mode,
-			replan_interval=replan_interval,
-			prefetch_ahead=prefetch_ahead,
-			end_threshold=end_threshold,
-			temporal_ensemble=temporal_ensemble,
-			stop_policy=stop_policy,
-		)
+		policy_kw = {
+			"mode": resolved_mode,
+			"replan_interval": replan_interval,
+			"prefetch_ahead": prefetch_ahead,
+			"end_threshold": end_threshold,
+			"temporal_ensemble": temporal_ensemble,
+			"stop_policy": stop_policy,
+		}
+		if pin_role == "record":
+			policy = rgb_pin.RgbPinClientPolicy(predictor, recorder=rgb_pin.RgbRecorder(), **policy_kw)
+		elif pin_role == "pin":
+			src_ep = Path(pin_rgb_from) / "student" / f"case-{idx:04d}"
+			src_case = _episode_case(src_ep) if (src_ep / "episode.json").exists() else None
+			if src_case is None or list(src_case)[:3] != list(case)[:3]:
+				raise ValueError(f"pin source {src_ep} holds case {src_case}, not {list(case)}")
+			pin = rgb_pin.RgbPin(src_ep, grasp_tail_mode)
+			policy = rgb_pin.RgbPinClientPolicy(predictor, pin=pin, **policy_kw)
+		else:
+			policy = ChunkClientPolicy(predictor, **policy_kw)
 		try:
-			run_episode(case, scorer, ep_dir, policy=policy, sensing="realistic", video=video)
+			run_episode(
+				case, scorer, ep_dir, policy=policy, sensing="realistic", video=video, grasp_tail=grasp_tail_mode
+			)
 		finally:
 			_write_task_json_if_missing(ep_dir, case)
+			if pin_role is not None:
+				policy.save(ep_dir)
 			policy.close()
 
 		rec = _episode_record_from_dir(ep_dir, case)
@@ -625,6 +662,8 @@ def evaluate_closed_loop(
 			}
 		)
 	report = {
+		"grasp_tail_mode": grasp_tail_mode,
+		"rgb_pin": {"role": pin_role, "source": None if pin_rgb_from is None else str(pin_rgb_from)},
 		"mode_requested": mode,
 		"mode_resolved": resolved_mode,
 		"server_health": health,
@@ -639,6 +678,14 @@ def evaluate_closed_loop(
 	)
 	(out_dir / "eval_summary.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 	return report
+
+
+def _pin_source(out: Path | None) -> dict[str, Any] | None:
+	"""Arm A's run as an input of a pinned arm: its directory and manifest identity (stable across A's resumes)."""
+	if out is None:
+		return None
+	source = json.loads((Path(out) / run_manifest.MANIFEST_NAME).read_text(encoding="utf-8"))
+	return {"path": str(Path(out).resolve()), "sha256": source["identity"]}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -664,6 +711,25 @@ def build_parser() -> argparse.ArgumentParser:
 		choices=("latest", "keep", "earliest"),
 		default="latest",
 		help="How a replan combines its end-step with a planned stop (see ChunkClientPolicy)",
+	)
+	p.add_argument(
+		"--grasp-tail-mode",
+		choices=GRASP_TAIL_MODES,
+		default=None,
+		help="First-grasp tail experiment arm (docs/vla/GRASP_TAIL_AB_HANDOFF_2026-11-23.md): act logs only, "
+		"act-wait holds ACT's last command until the clamp is confirmed, expert-once runs one truncated expert tail. "
+		"Writes grasp_tail.json per episode and binds the output directory to run_manifest.json",
+	)
+	p.add_argument(
+		"--record-act-rgb",
+		action="store_true",
+		help="Arm A of the tail experiment: store the RGB of every ACT request (act_rgb.npz) for the other arms",
+	)
+	p.add_argument(
+		"--pin-rgb-from",
+		type=Path,
+		default=None,
+		help="Other arms: arm A's --out; pin A's request RGB up to this arm's hand-off point (vla/rgb_pin.py)",
 	)
 	p.add_argument("--teacher-runs", type=Path, default=None, help="Optional dir of expert runs on the same suite")
 	p.add_argument("--no-teacher", action="store_true", help="Do not run teacher baseline if --teacher-runs is absent")
@@ -694,6 +760,30 @@ def main(argv: list[str] | None = None) -> int:
 
 	from digital_twin_armigo.inspection_scorer import default_sup_scorer
 
+	if (args.record_act_rgb or args.pin_rgb_from is not None) and args.grasp_tail_mode is None:
+		raise ValueError("--record-act-rgb / --pin-rgb-from need --grasp-tail-mode")
+	if args.record_act_rgb and args.pin_rgb_from is not None:
+		raise ValueError("--record-act-rgb and --pin-rgb-from are exclusive")
+	if args.grasp_tail_mode is not None:
+		resolved = {**vars(args), "temporal_ensemble": args.temporal_ensemble, "sensing": "realistic"}
+		manifest = run_manifest.build_manifest(
+			root=ROOT,
+			args={k: v for k, v in resolved.items() if k not in ("out", "mlflow", "run_name", "mlflow_experiment")},
+			inputs={
+				"ckpt": run_manifest.describe_dir(args.ckpt),
+				"suite": run_manifest.describe_file(args.suite),
+				"detector": run_manifest.describe_detector(args.detector),
+				"grader_ref": run_manifest.describe_file(args.grader_ref),
+				"pin_source": _pin_source(args.pin_rgb_from),
+			},
+			protocol="docs/vla/GRASP_TAIL_AB_HANDOFF_2026-11-23.md r3",
+			grasp_tail_mode=args.grasp_tail_mode,
+		)
+		if args.pin_rgb_from is not None:
+			source = json.loads((args.pin_rgb_from / run_manifest.MANIFEST_NAME).read_text(encoding="utf-8"))
+			rgb_pin.check_source_manifest(source, manifest)
+		run_manifest.bind_manifest(args.out, manifest)
+
 	scorer = default_sup_scorer(args.detector)
 	try:
 		with (
@@ -722,6 +812,9 @@ def main(argv: list[str] | None = None) -> int:
 				grader_ref=args.grader_ref,
 				video=args.video,
 				n_boot=args.n_boot,
+				grasp_tail_mode=args.grasp_tail_mode,
+				record_act_rgb=args.record_act_rgb,
+				pin_rgb_from=args.pin_rgb_from,
 			)
 	finally:
 		if hasattr(scorer, "close"):

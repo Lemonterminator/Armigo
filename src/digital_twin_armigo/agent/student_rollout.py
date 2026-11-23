@@ -47,6 +47,7 @@ import numpy as np
 
 from ..constants import PHASES
 from ..mujoco_cell.gripper_state import GripperMonitor, GripperMonitorParams, GripperState
+from .grasp_tail import GRASP_TAIL_MODES, GraspPlan, GraspTail, expert_tail
 from .twin_mujoco import INITIAL_Q, MAX_TOTAL_FRAMES, WRIST_MIN_PX, TwinMujoco
 from .twin_record import POLICY_FIELDS, POLICY_PARAMS, SEGMENT_KINDS, Segment, policy_inputs
 
@@ -304,8 +305,17 @@ class StudentTwin(_SegmentMixin, TwinMujoco):
 		policy: SegmentPolicy,
 		*,
 		segment_monitor: Callable[[Segment, int], None] | None = None,
+		grasp_tail: str | None = None,
 		**kwargs,
 	):
+		"""``grasp_tail``: first-grasp tail experiment mode (agent/grasp_tail.py: ``act`` logs only, ``act-wait``,
+		``expert-once``); None runs without the instrumentation."""
+		if grasp_tail is not None and grasp_tail not in GRASP_TAIL_MODES:
+			raise ValueError(f"grasp_tail must be None or one of {GRASP_TAIL_MODES}, got {grasp_tail!r}")
+		self.grasp_tail = grasp_tail
+		self.grasp_tail_log: GraspTail | None = None  # the first grasp's switch decision and telemetry
+		self._tail_pending: GraspPlan | None = None
+		self._first_grasp_done = False
 		self.segment_policy = policy  # not ``policy``: TwinMujoco keeps the graph's Policy there
 		# Separate channel for replay checks and grading: receives the whole segment, diagnostics included. The policy
 		# itself only ever gets policy_inputs(segment).
@@ -353,9 +363,28 @@ class StudentTwin(_SegmentMixin, TwinMujoco):
 			else GripperMonitor()
 		)
 		self._clamped = self._blocked = False
+		# First-grasp tail experiment (agent/grasp_tail.py); None leaves the segment loop exactly as before.
+		tail = None
+		if seg.kind == "grasp" and self._tail_pending is not None:
+			tail = GraspTail(self.grasp_tail, self._tail_pending, p.pregrasp_dz_m, sid)
+			self._tail_pending = None
+			self.grasp_tail_log = tail
+		source = "act"  # where this frame's command comes from: act, act_wait_hold (A+wait), expert_tail (B)
+		executed: np.ndarray | None = None  # last command executed in this segment
+		gstate = None  # the segment monitor's state at the current observation
+		expert_gen = hold = saved_expert = None
+
+		def end(reason: str, outcome: str | None = None):
+			if tail is not None:
+				tail.outcome = outcome if outcome is not None else tail.outcome
+				tail.finish(self.ep.n_frames, frames, reason)
+			if saved_expert is not None:  # the expert's per-frame fields are the student's again
+				ex.obs, ex.gripper_state = saved_expert
+			self._segment_end(reason)
+
 		while True:
 			if self.total_frames >= MAX_TOTAL_FRAMES:
-				self._segment_end("budget")
+				end("budget", "budget" if source != "act" else None)
 				return "ACTION_BUDGET_EXHAUSTED"
 			if self.on_frame is not None:
 				self.on_frame(self)
@@ -374,51 +403,115 @@ class StudentTwin(_SegmentMixin, TwinMujoco):
 					state, _ = monitor.update(
 						float(obs["gripper_cmd"]), float(obs["q"][5]), float(obs["effort_frac"]), obs["jaw_normal"]
 					)
+					gstate = state
 					self._blocked |= state is GripperState.BLOCKED
 			if seg.held and ex.lost:
 				self._segment_end("brick_lost")
 				return None
 			q = np.asarray(obs["q"], dtype=np.float64).copy()
-			q_prev = q.copy() if self._q_prev is None else self._q_prev.copy()
-			prev_action = self._prev_action.copy()
-			gripper_cmd = float(obs["gripper_cmd"])
-			step = self.segment_policy.act(
-				StudentObservation(
+			if tail is not None:
+				fired = tail.observe(
 					frame=self.ep.n_frames,
-					task=dict(task),
-					segment_id=sid,
 					segment_frame=frames,
+					obs=obs,
 					q=q,
-					_images=self._images,
-					q_prev=q_prev,
-					prev_action=prev_action,
-					gripper_cmd=gripper_cmd,
+					executed=executed,
+					clamp_run=clamp_run,
+					gripper_state=gstate,
+					clamp_frames=p.clamp_still_frames,
 				)
-			)
-			if step.done:
-				self._clamped = clamp_run >= p.clamp_still_frames
-				self._segment_end("done")
-				return None
+				if fired and source == "act" and tail.mode == "expert-once":
+					source = "expert_tail"
+					saved_expert = (ex.obs, ex.gripper_state)
+					ex.obs = obs
+					expert_gen = expert_tail(ex, tail.plan)
+					tail.event("expert_start", self.ep.n_frames, frames)
+			phase = None
+			if source == "expert_tail":
+				ex.obs = obs  # ClosedLoopExpert.act: the generator reads this frame's observation and gripper state
+				ex.gripper_state = gstate if gstate is not None else GripperState.FREE
+				try:
+					target, phase = next(expert_gen)
+				except StopIteration as stop:
+					outcome = stop.value
+					self._clamped = outcome == "clamped"
+					self._blocked |= outcome == "blocked"
+					tail.event("expert_end", self.ep.n_frames, frames, outcome=outcome)
+					end("done", outcome)
+					return None
+				raw = np.asarray(target, dtype=np.float64)
+			else:
+				step = None
+				if source == "act":
+					q_prev = q.copy() if self._q_prev is None else self._q_prev.copy()
+					prev_action = self._prev_action.copy()
+					gripper_cmd = float(obs["gripper_cmd"])
+					step = self.segment_policy.act(
+						StudentObservation(
+							frame=self.ep.n_frames,
+							task=dict(task),
+							segment_id=sid,
+							segment_frame=frames,
+							q=q,
+							_images=self._images,
+							q_prev=q_prev,
+							prev_action=prev_action,
+							gripper_cmd=gripper_cmd,
+						)
+					)
+					if step.done:
+						eligible = tail is not None and tail.triggered and clamp_run < p.clamp_still_frames
+						if tail is not None:  # every arm: where A+wait would start waiting (vla/rgb_pin.py)
+							tail.event(
+								"act_done", self.ep.n_frames, frames, clamp_run=int(clamp_run), wait_eligible=eligible
+							)
+						if not (eligible and tail.mode == "act-wait"):
+							self._clamped = clamp_run >= p.clamp_still_frames
+							end("done")
+							return None
+						source, hold = "act_wait_hold", self._prev_action.copy()
+						tail.event("wait_start", self.ep.n_frames, frames)
+				if source == "act_wait_hold":
+					# ClosedLoopExpert._close_and_clamp's wait: blocked, clamped and still, or timeout.
+					outcome = None
+					if gstate is GripperState.BLOCKED:
+						outcome = "blocked"
+					elif clamp_run >= p.clamp_still_frames:
+						outcome = "clamped"
+					elif tail.wait_frames >= p.clamp_timeout_frames:
+						outcome = "timeout"
+					if outcome is not None:
+						self._clamped = outcome == "clamped"
+						tail.event("wait_end", self.ep.n_frames, frames, outcome=outcome, wait_frames=tail.wait_frames)
+						end("done", outcome)
+						return None
+					tail.wait_frames += 1
+					raw, phase = hold.copy(), "grasp"
+				else:
+					raw = np.asarray(step.target, dtype=np.float64)
+					phase = step.phase
 			if frames >= seg.max_frames:
-				self._segment_end("frame_budget")
+				end("frame_budget", "frame_budget" if source != "act" else None)
 				return "SEGMENT_FRAME_BUDGET"
-			raw = np.asarray(step.target, dtype=np.float64)
 			if raw.shape != (6,) or not np.isfinite(raw).all():
 				raise ValueError("a policy target must be 6 finite joint positions")
 			target = np.clip(raw, ex._lo, ex._hi)  # as ClosedLoopExpert.act
 			ex.clipped_frames += bool(np.any(target != raw))
 			ex.last = target.copy()
 			ex._frame_idx += 1
-			phase = step.phase or seg.phase
+			phase = phase or seg.phase
 			if phase not in PHASES:
 				raise ValueError(f"unknown phase {phase!r}")
+			if tail is not None:
+				tail.command(source, target)
 			error = self._apply_target(obs, target, phase)
 			self._q_prev = q
 			self._prev_action = target.copy()
+			executed = target.copy()
 			frames += 1
 			after_step = True
 			if error:
-				self._segment_end("fault")
+				end("fault", "fault" if source != "act" else None)
 				return error
 
 	def _images(self):
@@ -439,7 +532,12 @@ class StudentTwin(_SegmentMixin, TwinMujoco):
 	def _student_grasp_and_lift(self, segs):
 		"""TwinMujoco._grasp's grasp_and_lift: grasp, clamp check, carried-brick belief at the grasp, lift."""
 		ex = self.expert
-		seg = with_grasp_roll(segs["grasp"], self._planned_grasp_roll())
+		target, roll, open_g = self._planned_grasp()
+		seg = with_grasp_roll(segs["grasp"], roll)
+		if self.grasp_tail is not None and not self._first_grasp_done:
+			# The plan snapshot of this very call: the tail never re-plans inside the segment.
+			self._tail_pending = GraspPlan(target, roll, open_g, self.ep.n_frames, self._perception_frame())
+		self._first_grasp_done = True
 		self._belief_obs = True
 		try:
 			error = self.run_segment(seg)
@@ -459,6 +557,13 @@ class StudentTwin(_SegmentMixin, TwinMujoco):
 		# wrist-roll command the brick was grasped and lifted with (the expert's lift pose has q[4] = its grasp roll).
 		self.held = (ex.last.copy(), float(ex.last[4]))
 		self.lift_poses.append(ex.last.copy())
+		return None
+
+	def _perception_frame(self) -> int | None:
+		"""Episode frame of the last ``brick_perceived`` event that found the brick."""
+		for e in reversed(self.record.events):
+			if e.get("kind") == "brick_perceived" and e.get("found"):
+				return int(e["frame"])
 		return None
 
 	def _planned_grasp_roll(self) -> float:
@@ -785,6 +890,7 @@ def run_episode(
 	segment_monitor: Callable[[Segment, int], None] | None = None,
 	sensing="realistic",
 	video=False,
+	grasp_tail: str | None = None,
 ):
 	"""Run one case through the graph: the expert (with segment markers) when ``policy`` is None, else the student
 	(``segment_monitor``: the diagnostics channel, see :class:`StudentTwin`). Writes the trace to ``out`` and returns
@@ -798,12 +904,23 @@ def run_episode(
 	if policy is None:
 		twin = ExpertTracer(layout, scorer, trace, sensing=sensing)
 	else:
-		twin = StudentTwin(layout, scorer, trace, policy, segment_monitor=segment_monitor, sensing=sensing)
+		twin = StudentTwin(
+			layout, scorer, trace, policy, segment_monitor=segment_monitor, sensing=sensing, grasp_tail=grasp_tail
+		)
 	try:
 		result = build_graph(twin, Policy()).invoke({}, config={"recursion_limit": 64})["result"]
-		trace.finish(
-			result, {"engine": "mujoco", "sensing": sensing, "case": list(case), "student": policy is not None}
-		)
+		provenance = {"engine": "mujoco", "sensing": sensing, "case": list(case), "student": policy is not None}
+		if grasp_tail is not None:
+			provenance["grasp_tail"] = grasp_tail
+		trace.finish(result, provenance)
+		if grasp_tail is not None:
+			log = twin.grasp_tail_log
+			payload = {
+				"version": "grasp-tail-v1",
+				"mode": grasp_tail,
+				"first_grasp": None if log is None else log.to_json(),
+			}
+			(out / "grasp_tail.json").write_text(json.dumps(payload, allow_nan=True), encoding="utf-8")
 		run = {
 			"case": list(case),
 			"result": json.loads(json.dumps(result)),
