@@ -1,13 +1,14 @@
 """Inner-graph LLM decisions: fallback reasons, structured output, repair, token budget and episode statistics."""
 
 import json
+from types import SimpleNamespace
 from typing import ClassVar
 
 import httpx
 import pytest
 
 from digital_twin_armigo.agent.llm import FakeLLM, LLMError, OpenAICompatLLM
-from digital_twin_armigo.agent.twin_graph import select_skill, skill_schema
+from digital_twin_armigo.agent.twin_graph import SELECT_SYSTEM, _skill_messages, select_skill, skill_schema
 from digital_twin_armigo.agent.twin_mcp import aggregate
 
 CHOICES = ["scan_wrist", "present_bottom"]
@@ -15,6 +16,96 @@ CHOICES = ["scan_wrist", "present_bottom"]
 
 def view(i, score=-1.0):
 	return {"id": f"0:{i}:wrist_cam", "camera": "wrist_cam", "faces": [0, 1], "score": score, "threshold": 0.0}
+
+
+def test_compact_prompt_and_appended_history_prefix():
+	assert _skill_messages(CHOICES, {"missing_faces": [5]}) == [
+		{"role": "system", "content": SELECT_SYSTEM},
+		{"role": "user", "content": '{"choices":["scan_wrist","present_bottom"],"missing_faces":[5]}'},
+	]
+	first = _skill_messages(CHOICES, {"history": [view(0)], "missing_faces": [5]})
+	second = _skill_messages(["present_bottom"], {"history": [view(0), view(1)], "missing_faces": [3, 5]})
+	assert first[0] == second[0]
+	assert second[1]["content"].startswith(first[1]["content"].split('],"current":', 1)[0] + ",")
+	assert json.loads(second[1]["content"])["current"]["choices"] == ["present_bottom"]
+
+
+def test_history_after_rewind_and_in_place_retry_uses_current_views(monkeypatch):
+	from digital_twin_armigo.agent.twin_mujoco import TwinMujoco
+
+	inherited, discarded, active = view(0), view(1), {**view(2), "id": "1:2:wrist_cam"}
+	failure = {"code": "NO_CLAMP", "skill": "present_bottom"}
+	backend = object.__new__(TwinMujoco)
+	backend.record = SimpleNamespace(
+		events=[
+			{"kind": "node", "node": "present_bottom"},
+			{"kind": "view", "observation": discarded},
+			{"kind": "failure", **failure, "prior_views": [discarded], "frame": 7},
+			{
+				"kind": "decision",
+				"node": "recover",
+				"choice": "checkpoint-0",
+				"choices": ["checkpoint-0", "stop"],
+				"evidence": [discarded["id"]],
+			},
+			{"kind": "rewound", "checkpoint": "checkpoint-0", "reason": "NO_CLAMP"},
+			{"kind": "view_truth", "defect_face": 5},
+			{"kind": "view", "observation": {**active, "defect_face": 5}},
+		]
+	)
+	backend.decision_context = lambda allowed, views, failures, notes: {"views": views, "failures": failures}
+	backend.event = lambda *args, **kwargs: None
+	backend.llm = FakeLLM(['{"skill":"present_bottom"}'])
+	monkeypatch.delenv("ARMIGO_LLM_CONTEXT_MODE", raising=False)
+	backend.choose(CHOICES, [inherited, active], [failure])
+	assert "history" not in json.loads(backend.llm.calls[-1][1]["content"])
+	monkeypatch.setenv("ARMIGO_LLM_CONTEXT_MODE", "history")
+	backend.choose(CHOICES, [inherited, active], [failure])
+	wire = backend.llm.calls[-1][1]["content"]
+	assert all(value not in wire for value in (discarded["id"], "prior_views", "evidence", "defect_face", "frame"))
+	parsed = json.loads(wire)
+	assert parsed["current"]["latest_failure"] == failure
+	assert [event["kind"] for event in parsed["history"]] == [
+		"view",
+		"skill_started",
+		"failure",
+		"decision",
+		"rewound",
+		"view",
+	]
+	assert parsed["history"][0]["id"] == inherited["id"]
+	assert parsed["history"][-1]["id"] == active["id"]
+	backend.record.events.extend(
+		[
+			{"kind": "retry", "reason": "NO_CLAMP", "variant": "slow_scan"},
+			{"kind": "retried", "brick_moved": True, "views_kept": 0},
+		]
+	)
+	backend.choose(CHOICES, [], [failure])
+	history = json.loads(backend.llm.calls[-1][1]["content"])["history"]
+	assert not any(event["kind"] == "view" for event in history)
+	assert [event["kind"] for event in history[-2:]] == ["retry", "retried"]
+
+
+def test_history_trims_only_old_details_and_keeps_current_failure_and_choices():
+	llm = FakeLLM(['{"skill":"present_bottom"}'], max_model_len=390)
+	llm.count_tokens = lambda messages: 100 * (1 + len(json.loads(messages[1]["content"])["history"]))
+	failure = {"code": "NO_CLAMP", "skill": "present_bottom"}
+	context = {"history": [view(i) for i in range(4)], "latest_failure": failure, "covered_faces": [0, 1]}
+	choice, source, info = select_skill(llm, CHOICES, context)
+	assert (choice, source, info["trimmed"]) == ("present_bottom", "llm", 3)
+	assert json.loads(llm.calls[0][1]["content"]) == {
+		"history": [view(3)],
+		"current": {"choices": CHOICES, "latest_failure": failure, "covered_faces": [0, 1], "history_omitted": 3},
+	}
+
+
+def test_over_budget_history_repair_falls_back_to_legal_choice():
+	llm = FakeLLM(['{"skill":"impossible"}'], max_model_len=390)
+	llm.count_tokens = lambda messages: 500 if len(messages) > 2 else 100
+	choice, source, info = select_skill(llm, CHOICES, {"history": []})
+	assert (choice, source, info["reason"], info["attempts"]) == ("scan_wrist", "fallback", "illegal_choice", 1)
+	assert not info["repaired"]
 
 
 @pytest.mark.parametrize(
@@ -89,6 +180,35 @@ def completion(content, tokens=50):
 		"choices": [{"message": {"content": content}, "finish_reason": "stop"}],
 		"usage": {"prompt_tokens": tokens, "completion_tokens": 8},
 	}
+
+
+def test_context_window_is_discovered_for_the_named_model_and_keeps_fallback():
+	def handler(request):
+		assert request.url.path == "/v1/models"
+		return httpx.Response(
+			200,
+			json={"data": [{"id": "different", "max_model_len": 8192}, {"id": "wanted", "max_model_len": 16384}]},
+		)
+
+	assert client(handler, model="wanted").context_limit() == 16384
+	assert client(handler, model="missing").context_limit() == 4096
+
+
+@pytest.mark.parametrize("cached_tokens", [None, 0, 64])
+def test_cached_prompt_tokens_in_selection_info(cached_tokens):
+	def handler(request):
+		if request.url.path == "/tokenize":
+			assert json.loads(request.content)["chat_template_kwargs"] == {"enable_thinking": False}
+			return httpx.Response(200, json={"count": 100})
+		if request.url.path == "/v1/models":
+			return httpx.Response(200, json={"data": []})
+		response = completion('{"skill":"scan_wrist"}', tokens=100)
+		if cached_tokens is not None:
+			response["usage"]["prompt_tokens_details"] = {"cached_tokens": cached_tokens}
+		return httpx.Response(200, json=response)
+
+	_, source, info = select_skill(client(handler), CHOICES, {})
+	assert source == "llm" and info["cached_tokens"] == cached_tokens
 
 
 def test_request_body_carries_a_strict_json_schema_whose_skill_is_an_enum():

@@ -7,6 +7,7 @@ import hashlib
 import itertools
 import json
 import math
+import os
 import time
 from collections import deque
 from contextlib import contextmanager
@@ -1076,6 +1077,46 @@ class TwinMujoco:
 		assert_no_defect_leakage(context)
 		return context
 
+	def _add_decision_history(self, context):
+		"""Place graph-approved views and safe trace details in chronological prompt order."""
+		views = {view["id"]: {"kind": "view", **view} for view in context.pop("views")}
+		failures = context.pop("failures")
+		if failures:
+			context["latest_failure"] = failures[-1]
+		history = []
+		recorded_failures = 0
+		fields = {
+			"failure": ("code", "skill", "reason_codes"),
+			"retry": ("reason", "variant"),
+			"retried": ("brick_moved", "views_kept"),
+			"rewound": ("checkpoint", "reason", "variant"),
+		}
+		for event in getattr(self.record, "events", ()):
+			kind = event.get("kind")
+			node = event.get("node")
+			if kind == "view":
+				view = views.pop(event.get("observation", {}).get("id"), None)
+				if view is not None:
+					history.append(view)
+			elif kind == "node" and node in {"prepare", "scan_wrist", "present_bottom", "place"}:
+				history.append({"kind": "skill_started", "skill": node})
+			elif kind == "decision" and node in {"choose_view", "recover"}:
+				entry = {"kind": kind, "node": node, "choice": event["choice"]}
+				if node == "recover":
+					entry["choices"] = event["choices"]
+				history.append(entry)
+			elif kind in fields:
+				history.append({"kind": kind, **{key: event[key] for key in fields[kind] if key in event}})
+				recorded_failures += kind == "failure"
+		# Following a process restart, checkpoint observations and earlier failures may have no local trace rows.
+		inherited_failures = failures[: -max(recorded_failures, 1)]
+		context["history"] = [
+			*({"kind": "failure", **failure} for failure in inherited_failures),
+			*views.values(),
+			*history,
+		]
+		assert_no_defect_leakage(context)
+
 	def _note_llm(self, source, info):
 		stats = getattr(self, "_llm_stats", None)
 		if stats is None:
@@ -1122,6 +1163,8 @@ class TwinMujoco:
 			action, source = allowed[0], "policy"
 		else:
 			context = self.decision_context(allowed, views, failures, notes)
+			if os.environ.get("ARMIGO_LLM_CONTEXT_MODE") == "history":
+				self._add_decision_history(context)
 			action, source, info = select_skill(self.llm, allowed, context)
 			self._note_llm(source, info)
 		self.event(
@@ -1133,6 +1176,7 @@ class TwinMujoco:
 			prior_failure=bool(failures),
 			fallback_reason=info.get("reason"),
 			prompt_tokens=info.get("prompt_tokens"),
+			cached_tokens=info.get("cached_tokens"),
 			latency_s=info.get("latency_s"),
 			attempts=info.get("attempts"),
 		)

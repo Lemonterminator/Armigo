@@ -150,6 +150,10 @@ SELECT_SYSTEM = (
 	"listed best-evidence first. stop ends the episode as a failure with the brick unsorted, so avoid it while a "
 	"checkpoint is offered. choice_notes explains each choice."
 )
+SELECT_HISTORY_SYSTEM = SELECT_SYSTEM + (
+	" Select only from current.choices and use current.covered_faces as the coverage summary. "
+	"History records earlier tool activity. Use past failures and recovery results to choose what to try next."
+)
 LLM_FALLBACK_REASONS = (
 	"http_error",
 	"timeout",
@@ -173,23 +177,39 @@ def skill_schema(choices: list[str]) -> dict:
 
 
 def _skill_messages(choices: list[str], context: dict) -> list[dict[str, str]]:
-	user = json.dumps({"choices": choices, **context}, allow_nan=False, separators=(",", ":"))
-	return [{"role": "system", "content": SELECT_SYSTEM}, {"role": "user", "content": user}]
+	if "history" in context:
+		current = {key: value for key, value in context.items() if key != "history"}
+		payload = {"history": context["history"], "current": {"choices": choices, **current}}
+		system = SELECT_HISTORY_SYSTEM
+	else:
+		payload = {"choices": choices, **context}
+		system = SELECT_SYSTEM
+	user = json.dumps(payload, allow_nan=False, separators=(",", ":"))
+	return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
-def _count_prompt(llm, messages) -> tuple[int, bool]:
+def _count_prompt(llm, messages, *, conservative=False) -> tuple[int, bool]:
 	"""(tokens, exact). Uses the server tokenizer when the client has one, else a chars-per-token estimate."""
 	counter = getattr(llm, "count_tokens", None)
 	exact = counter(messages) if counter else None
 	if exact is not None:
 		return int(exact), True
+	if conservative:
+		# The UTF-8 byte count bounds text tokens for Qwen when the tokenizer endpoint is unavailable.
+		return sum(len(m["content"].encode("utf-8")) for m in messages), False
 	chars = sum(len(m["content"]) for m in messages)
 	return int(chars / CHARS_PER_TOKEN_ESTIMATE) + 1, False
 
 
 def _trim_context(context: dict) -> dict | None:
-	"""Drop the oldest per-view detail (then oldest failure); ``None`` when nothing is left to drop."""
+	"""Drop the oldest detail; ``None`` when nothing is left to drop."""
 	out = dict(context)
+	if "history" in out:
+		if not out["history"]:
+			return None
+		out["history"] = out["history"][1:]
+		out["history_omitted"] = out.get("history_omitted", 0) + 1
+		return out
 	for key, counter in (("views", "views_omitted"), ("failures", "failures_omitted")):
 		items = out.get(key)
 		if items:
@@ -234,6 +254,7 @@ def select_skill(llm: ChatLLM, choices: list[str], distinct_context: dict) -> tu
 		"reason": None,
 		"attempts": 0,
 		"prompt_tokens": 0,
+		"cached_tokens": None,
 		"completion_tokens": 0,
 		"latency_s": 0.0,
 		"trimmed": 0,
@@ -246,9 +267,10 @@ def select_skill(llm: ChatLLM, choices: list[str], distinct_context: dict) -> tu
 		return choices[0], "fallback", info
 
 	context, messages = distinct_context, _skill_messages(choices, distinct_context)
+	history = "history" in context
 	limit = getattr(llm, "context_limit", lambda: 4096)()
 	budget = int(limit) - int(getattr(llm, "max_tokens", 96)) - TOKEN_MARGIN
-	tokens, exact = _count_prompt(llm, messages)
+	tokens, exact = _count_prompt(llm, messages, conservative=history)
 	while tokens > budget:
 		smaller = _trim_context(context)
 		if smaller is None:
@@ -256,7 +278,7 @@ def select_skill(llm: ChatLLM, choices: list[str], distinct_context: dict) -> tu
 			return fallback("context_too_long")
 		context, info["trimmed"] = smaller, info["trimmed"] + 1
 		messages = _skill_messages(choices, context)
-		tokens, exact = _count_prompt(llm, messages)
+		tokens, exact = _count_prompt(llm, messages, conservative=history)
 	info["counted_tokens"], info["tokens_exact"] = tokens, exact
 	schema = skill_schema(choices) if getattr(llm, "structured", False) else None
 	for attempt in range(2):
@@ -268,14 +290,14 @@ def select_skill(llm: ChatLLM, choices: list[str], distinct_context: dict) -> tu
 		info["latency_s"] = round(info["latency_s"] + response.latency_s, 4)
 		info["completion_tokens"] += response.completion_tokens
 		info["prompt_tokens"] = response.prompt_tokens or tokens
+		info["cached_tokens"] = getattr(response, "cached_tokens", None)
 		info["format"] = response.response_format
 		name, reason, detail = _parse_skill(response.content, choices)
 		if name is not None:
 			info["reason"] = None
 			return name, "llm", info
 		if attempt == 0:
-			info["repaired"] = True
-			messages = [
+			repair_messages = [
 				*messages,
 				{"role": "assistant", "content": response.content or "(empty)"},
 				{
@@ -283,6 +305,13 @@ def select_skill(llm: ChatLLM, choices: list[str], distinct_context: dict) -> tu
 					"content": f'Invalid answer: {detail}. Reply with only {{"skill": X}} where X is exactly one of {choices}.',
 				},
 			]
+			if history:
+				repair_tokens, _ = _count_prompt(llm, repair_messages, conservative=True)
+				if repair_tokens > budget:
+					break
+				tokens = repair_tokens
+			info["repaired"] = True
+			messages = repair_messages
 	return fallback(reason)
 
 
