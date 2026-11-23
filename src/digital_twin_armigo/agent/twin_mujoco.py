@@ -1688,6 +1688,11 @@ class TwinMujoco:
 		self._save(views)
 		return views
 
+	def target_bowl(self, label: str) -> str:
+		"""The bowl a brick with ``label`` goes to. Subclasses may remap it (vla/paired_carry.TargetSwapTracer); the
+		placement check and the final evaluation then judge the episode against the remapped bowl."""
+		return "pink" if label == "defective" else "green"
+
 	def place(self, label):
 		if label == "unknown":
 			self.event("abstain", destination="inspection_table")
@@ -1711,7 +1716,7 @@ class TwinMujoco:
 			return error
 		ex = self.expert
 		q_lift, _ = self.held
-		ex.bowl_xy = np.array(self.bowls["pink" if label == "defective" else "green"])
+		ex.bowl_xy = np.array(self.bowls[self.target_bowl(label)])
 		if not self._straight_clear(ex.last, q_lift, held=True):
 			return "PLACE_RETURN_PATH_BLOCKED"
 
@@ -1732,7 +1737,7 @@ class TwinMujoco:
 			if np.linalg.norm(position[:2] - xy) < BOWL_R and position[2] < 0.055:
 				self.actual_destination = name  # ground truth, read only by evaluate in realistic
 				break
-		target = "pink" if label == "defective" else "green"
+		target = self.target_bowl(label)
 		if self.realistic:
 			self._grip_from_brick = None
 			self.brick_est = None
@@ -1756,9 +1761,10 @@ class TwinMujoco:
 	def evaluate(self, label, views, failures):
 		# Ground truth enters only after the graph has selected and executed its final action.
 		expected = "defective" if self.layout.defective else "normal"
-		target = self.layout.pink if self.layout.defective else self.layout.green
+		true_bowl = self.target_bowl(expected)
+		target = self.layout.pink if true_bowl == "pink" else self.layout.green
 		health = self._health(target) if self.ep.n_frames and label != "unknown" else {}
-		ok = label == expected and self.actual_destination == ("pink" if self.layout.defective else "green")
+		ok = label == expected and self.actual_destination == true_bowl
 		result = {
 			"verdict": "SUCCESS"
 			if ok and health.get("verdict") == "SUCCESS"
@@ -1789,6 +1795,8 @@ class TwinMujoco:
 			"placement_evidence": next(
 				(v["id"] for v in views if v["score"] is not None and v["score"] >= v["threshold"]), None
 			),
+			# A paired-target demonstration put the brick in the other bowl on purpose (vla/paired_carry.py).
+			**({"target_swap": True} if getattr(self, "target_swap", False) else {}),
 		}
 		self.record.audit(
 			{"true_label": expected, "true_face": self.layout.defect_face if self.layout.defective else None}
