@@ -1,12 +1,15 @@
-"""Paired analysis of the clamp-wait validation (docs/vla/CLAMP_WAIT_VALIDATION_2026-11-23.md, sections 4-5).
+"""Paired analysis of the clamp-wait validation (docs/vla/CLAMP_WAIT_VALIDATION_2026-11-23.md, v1 and v2).
 
-Arms: ``act`` (A, records its request RGB), ``act-rep`` (A', pinned to A, hand-off ``clamp-wait``) and ``clamp-wait``
-(W, ``--clamp-wait``, pinned to A). Writes ``paired_cases.csv``, ``paired_stats.json`` and ``paired_stats.md``: four-cell
-tables, net differences, bootstrap intervals and exact McNemar p for A vs A' and A vs W; lift conversion; collision
-details (robot / jaw-environment, peak force) of every collision layout; clamp-wait events (first grasp vs retries);
-prefix checks; and the pre-registered decision.
+Arms: ``act`` (A, records its request RGB), ``act-rep`` (A', pinned to A, hand-off ``clamp-wait``), ``clamp-wait``
+(W1, ``--clamp-wait``, pinned to A) and ``clamp-wait-v2`` (W2, ``--clamp-wait --clamp-wait-obstruct``, pinned to A).
+Writes ``paired_cases.csv``, ``paired_stats.json`` and ``paired_stats.md``: four-cell tables, net differences, bootstrap
+intervals and exact McNemar p per pair; lift conversion; collision details (robot / jaw-environment, peak force, the
+segment of the first contact and whether it fell in a clamp-wait hold) of every collision layout; clamp-wait events
+(first grasp vs retries) with the jaw-environment contact frames inside each hold; prefix checks; and the
+pre-registered decision (v2 when a ``clamp-wait-v2`` arm is given, else v1).
 
-    python scripts/vla/clamp_wait_report.py --run act=<dir> --run act-rep=<dir> --run clamp-wait=<dir> --out <dir>
+    python scripts/vla/clamp_wait_report.py --run act=<dir> --run act-rep=<dir> --run clamp-wait=<dir> \
+        [--run clamp-wait-v2=<dir>] --out <dir>
 """
 
 from __future__ import annotations
@@ -16,35 +19,89 @@ import csv
 import json
 import sys
 from collections import Counter
+from functools import cache
 from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts" / "vla"))
 
+import numpy as np
 from grasp_tail_report import ENDPOINTS, first_state_divergence, four_cell, load_arm, prefix_check
 
-ARMS = ("act", "act-rep", "clamp-wait")
-PAIRS = (("act", "act-rep"), ("act", "clamp-wait"))
+ARMS = ("act", "act-rep", "clamp-wait", "clamp-wait-v2")
+PAIRS = (("act", "act-rep"), ("act", "clamp-wait"), ("act", "clamp-wait-v2"), ("clamp-wait", "clamp-wait-v2"))
 FIRST_CLAMP_NET = 10  # pre-registered (cases out of 100)
-COLLISION_NET_MAX = 2
+COLLISION_NET_MAX = 2  # v1 veto; v2 reports it and attributes the excess
+HOLD_CONTACT_FRAMES_MAX = 5  # v2: jaw-environment contact frames allowed inside any one clamp-wait hold
+JAW_ENV_LIMIT_N = 2.0  # max_jaw_env_contact_n of the frozen grader reference (a contact frame is above it)
+ROBOT_LIMIT_N = 3.0  # max_robot_contact_n of the same reference
+
+
+@cache
+def _contacts(ep_dir: str) -> tuple[np.ndarray, np.ndarray, np.ndarray] | None:
+	"""Per-frame (robot N, jaw-env N, segment id) of branch 0, or None without an action record."""
+	path = Path(ep_dir) / "branch-0" / "actions.npz"
+	if not path.exists():
+		return None
+	z = np.load(path)
+	if "contact_jaw_env_n" not in z.files:
+		return None
+	seg = z["segment"] if "segment" in z.files else np.full(len(z["contact_jaw_env_n"]), -1)
+	return np.asarray(z["contact_robot_n"]), np.asarray(z["contact_jaw_env_n"]), np.asarray(seg)
+
+
+def _events(ep_dir: str) -> list[dict[str, Any]]:
+	path = Path(ep_dir) / "events.jsonl"
+	if not path.exists():
+		return []
+	return [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines()]
 
 
 def clamp_waits(ep_dir: str) -> list[dict[str, Any]]:
-	"""The episode's ``clamp_wait`` events, each with the grasp attempt it closed (1 = first grasp)."""
+	"""The episode's ``clamp_wait`` events, each with the grasp attempt it closed (1 = first grasp), its hold frames
+	``[frame - frames, frame)`` and the jaw-environment contact frames (above ``JAW_ENV_LIMIT_N``) inside the hold."""
 	out, grasps = [], 0
-	path = Path(ep_dir) / "events.jsonl"
-	if not path.exists():
-		return out
-	for line in path.read_text(encoding="utf-8").splitlines():
-		e = json.loads(line)
+	con = _contacts(str(ep_dir))
+	for e in _events(str(ep_dir)):
 		if e.get("kind") == "segment_end" and e.get("segment_kind") == "grasp":
 			grasps += 1
 		elif e.get("kind") == "clamp_wait":  # logged just before its grasp segment's segment_end
+			lo, hi = e["frame"] - e.get("frames", 0), e["frame"]
+			jaw = None if con is None else con[1][lo:hi]
 			out.append(
-				{"attempt": grasps + 1, "frames": e.get("frames"), "outcome": e.get("outcome"), "frame": e["frame"]}
+				{
+					"attempt": grasps + 1,
+					"frames": e.get("frames"),
+					"outcome": e.get("outcome"),
+					"frame": e["frame"],
+					"arm_err_max": e.get("arm_err_max"),
+					"hold_contact_frames": None if jaw is None else int((jaw > JAW_ENV_LIMIT_N).sum()),
+					"hold_contact_max_n": None if jaw is None or not len(jaw) else round(float(jaw.max()), 3),
+				}
 			)
 	return out
+
+
+def first_contact(ep_dir: str) -> dict[str, Any] | None:
+	"""Where the episode's first contact frame (robot above ``ROBOT_LIMIT_N`` or jaw-env above ``JAW_ENV_LIMIT_N``)
+	fell: frame, segment kind, and whether inside a clamp-wait hold. None without contact or record."""
+	con = _contacts(str(ep_dir))
+	if con is None:
+		return None
+	robot, jaw, seg = con
+	hits = np.flatnonzero((robot > ROBOT_LIMIT_N) | (jaw > JAW_ENV_LIMIT_N))
+	if not len(hits):
+		return None
+	i = int(hits[0])
+	kinds = {e["id"]: e.get("segment_kind") for e in _events(str(ep_dir)) if e.get("kind") == "segment_end"}
+	holds = [(w["frame"] - w["frames"], w["frame"]) for w in clamp_waits(ep_dir)]
+	return {
+		"frame": i,
+		"segment_kind": kinds.get(int(seg[i])),
+		"in_hold": any(lo <= i < hi for lo, hi in holds),
+		"kind": "robot" if robot[i] > ROBOT_LIMIT_N else "jaw_env",
+	}
 
 
 def analyse(runs: dict[str, Path]) -> dict[str, Any]:
@@ -93,6 +150,9 @@ def analyse(runs: dict[str, Path]) -> dict[str, Any]:
 			if (arms[b][k]["collisions"] or {}).get("robot_contact_frames")
 			and not (arms[a][k]["collisions"] or {}).get("robot_contact_frames")
 		]
+		res["new_collision_attribution"] = {
+			str(k): first_contact(arms[b][tuple(k)]["dir"]) for k in res["collision"]["only_second_cases"]
+		}
 		checks = {}
 		for k in keys:
 			c = prefix_check(arms[a][k], arms[b][k])
@@ -122,6 +182,14 @@ def analyse(runs: dict[str, Path]) -> dict[str, Any]:
 			},
 			"frames_total": sum(w["frames"] for w in ev),
 			"frames_max": max((w["frames"] for w in ev), default=0),
+			"hold_contact_frames_total": sum(w["hold_contact_frames"] or 0 for w in ev),
+			"hold_contact_frames_max": max((w["hold_contact_frames"] or 0 for w in ev), default=0),
+			"holds_over_contact_max": [
+				[*w["case"], w["frame"], w["hold_contact_frames"]]
+				for w in ev
+				if (w["hold_contact_frames"] or 0) > HOLD_CONTACT_FRAMES_MAX
+			],
+			"hold_contact_unavailable": sum(w["hold_contact_frames"] is None for w in ev),
 		}
 	stats["clamp_waits"] = waits
 	stats["pins"] = {
@@ -138,17 +206,32 @@ def analyse(runs: dict[str, Path]) -> dict[str, Any]:
 
 
 def decision(stats: dict[str, Any]) -> dict[str, Any]:
-	w = stats["pairs"].get("act vs clamp-wait")
+	"""v2 (``act vs clamp-wait-v2``) when that pair exists, else v1 (``act vs clamp-wait``). The prefix check covers the
+	pairs against A only: W1 vs W2 share no pinned prefix with each other beyond A's."""
+	v2 = "act vs clamp-wait-v2" in stats["pairs"]
+	w = stats["pairs"].get("act vs clamp-wait-v2" if v2 else "act vs clamp-wait")
 	if w is None:
 		return {"available": False}
 	prefix_ok = all(
 		p["prefix_summary"].keys() <= {"ok", "within_tol"} and not p["handoff_inconsistent_cases"]
-		for p in stats["pairs"].values()
+		for name, p in stats["pairs"].items()
+		if name.startswith("act vs ")
 	)
 	net = {e: w[e]["net_cases"] for e in ENDPOINTS}
 	clamp_ok = net["first_clamp"] >= FIRST_CLAMP_NET
 	downstream_ok = net["lifted"] >= 0 and net["success"] >= 0
-	collision_ok = net["collision"] <= COLLISION_NET_MAX and not w["new_robot_env_layouts"]
+	extra: dict[str, Any] = {"protocol": "v2" if v2 else "v1"}
+	if v2:
+		waits = stats["clamp_waits"]["clamp-wait-v2"]
+		hold_ok = not waits["holds_over_contact_max"] and not waits["hold_contact_unavailable"]
+		collision_ok = hold_ok and not w["new_robot_env_layouts"]
+		extra |= {
+			"hold_contact_ok": hold_ok,
+			"collision_net_over_report_cap": net["collision"] > COLLISION_NET_MAX,
+			"new_collision_attribution": w["new_collision_attribution"],
+		}
+	else:
+		collision_ok = net["collision"] <= COLLISION_NET_MAX and not w["new_robot_env_layouts"]
 	if not (stats["complete"] and prefix_ok):
 		verdict = "incomplete_or_prefix_failed"
 	elif clamp_ok and downstream_ok and collision_ok:
@@ -166,7 +249,7 @@ def decision(stats: dict[str, Any]) -> dict[str, Any]:
 		"collision_ok": collision_ok,
 		"pin_mismatch_cases": {k: len(p["pin_mismatch_cases"]) for k, p in stats["pairs"].items()},
 		"verdict": verdict,
-	}
+	} | extra
 
 
 def write_csv(path: Path, arms: dict, keys: list) -> None:
@@ -180,7 +263,10 @@ def write_csv(path: Path, arms: dict, keys: list) -> None:
 			for n, a in arms.items():
 				r, col = a[k], a[k]["collisions"] or {}
 				pin = r["pin"] or {}
-				waits = ";".join(f"{x['attempt']}:{x['outcome']}:{x['frames']}" for x in clamp_waits(r["dir"]))
+				waits = ";".join(
+					f"{x['attempt']}:{x['outcome']}:{x['frames']}:{x['hold_contact_frames']}"
+					for x in clamp_waits(r["dir"])
+				)
 				w.writerow(
 					[*k, n, r["dir"], r["first_clamp"], r["lifted"], r["success"], r["collision"]]
 					+ [col.get("robot_contact_frames"), col.get("jaw_env_contact_frames")]
@@ -217,6 +303,11 @@ def markdown(stats: dict[str, Any]) -> str:
 			f"pin mismatches {len(p['pin_mismatch_cases'])}; identical episodes {p['identical_episodes']}; "
 			f"new robot-env layouts {p['new_robot_env_layouts']}."
 		)
+		if p["new_collision_attribution"]:
+			L.append("")
+			L.append("New collision layouts (first contact):")
+			for k, v in p["new_collision_attribution"].items():
+				L.append(f"- {k}: {json.dumps(v, sort_keys=True)}")
 	L += ["", "## Collision layouts", ""]
 	for k, v in stats["collisions"].items():
 		L.append(f"- {k}: {json.dumps(v, sort_keys=True)}")

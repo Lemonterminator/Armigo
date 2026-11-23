@@ -489,3 +489,49 @@ def test_exact_mcnemar_matches_the_protocol_numbers():
 	c = four_cell([True, True, False, False, False], [True, False, True, True, False])
 	assert (c["both"], c["only_first"], c["only_second"], c["neither"], c["net_cases"]) == (1, 1, 2, 1, 1)
 	assert c["ci95"][0] <= c["net"] <= c["ci95"][1]
+
+
+def test_clamp_wait_outcome_order():
+	from types import SimpleNamespace
+
+	from digital_twin_armigo.agent.student_rollout import CLAMP_WAIT_OBSTRUCT_FRAMES, clamp_wait_outcome
+	from digital_twin_armigo.mujoco_cell.gripper_state import GripperState
+
+	p = SimpleNamespace(clamp_still_frames=4, clamp_timeout_frames=45)
+	n = CLAMP_WAIT_OBSTRUCT_FRAMES
+	assert clamp_wait_outcome(GripperState.BLOCKED, 4, 45, p, n) == "blocked"
+	assert clamp_wait_outcome(None, 4, 45, p, n) == "clamped"  # a clamp confirmed this frame wins over obstruction
+	assert clamp_wait_outcome(None, 3, 45, p, n) == "obstructed"
+	assert clamp_wait_outcome(None, 3, 45, p, n - 1) == "timeout"
+	assert clamp_wait_outcome(None, 3, 10, p, n - 1) is None
+	assert clamp_wait_outcome(None, 3, 10, p) is None  # v1: no obstruction count
+
+
+def test_clamp_wait_obstruction_exit(expert_trace, tmp_path):
+	"""A threshold no held frame reaches leaves the v1 commands unchanged; a threshold every held frame reaches ends
+	the wait as obstructed after CLAMP_WAIT_OBSTRUCT_FRAMES frames, unclamped (the no_clamp branch)."""
+	from digital_twin_armigo.agent.student_rollout import CLAMP_WAIT_OBSTRUCT_FRAMES
+
+	v1, _, a1 = _run(expert_trace, tmp_path, None, done_when=_closing, name="v1", clamp_wait=True)
+	hi, _, ah = _run(
+		expert_trace, tmp_path, None, done_when=_closing, name="hi", clamp_wait=True, clamp_wait_obstruct_rad=10.0
+	)
+	lo, _, _ = _run(
+		expert_trace, tmp_path, None, done_when=_closing, name="lo", clamp_wait=True, clamp_wait_obstruct_rad=1e-12
+	)
+	try:
+		assert np.array_equal(a1, ah)
+		assert [(e["frames"], e["outcome"]) for e in _clamp_waits(v1)] == [
+			(e["frames"], e["outcome"]) for e in _clamp_waits(hi)
+		]
+		assert all("arm_err_max" in e for e in _clamp_waits(hi)) and not any(
+			"arm_err_max" in e for e in _clamp_waits(v1)
+		)
+		ev = _clamp_waits(lo)[0]
+		assert ev["outcome"] == "obstructed" and ev["frames"] == CLAMP_WAIT_OBSTRUCT_FRAMES - 1
+		assert not lo._clamped
+	finally:
+		for t in (v1, hi, lo):
+			t.close()
+	with pytest.raises(ValueError):
+		_run(expert_trace, tmp_path, None, name="bad", clamp_wait_obstruct_rad=0.05)
