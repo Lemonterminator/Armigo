@@ -431,6 +431,11 @@ def main(argv: list[str] | None = None) -> int:
 	p.add_argument("--val-max-batches", type=int, default=None)
 	p.add_argument("--local-files-only", action="store_true")
 	p.add_argument(
+		"--drop-unsupervised",
+		action="store_true",
+		help="Leave out training samples with no loss (fully masked actions and no end-step label)",
+	)
+	p.add_argument(
 		"--bowl-token",
 		action="store_true",
 		help="ACT: target-bowl one-hot as its own encoder token (docs/vla/BOWL_CHANNEL_PAIRED_PLAN_2026-11-23.md)",
@@ -451,6 +456,7 @@ def main(argv: list[str] | None = None) -> int:
 		horizon=horizon,
 		takeover_weight=args.takeover_weight,
 		augment=not args.no_augment,
+		drop_unsupervised=args.drop_unsupervised,
 	)
 	val_ds = (
 		SegmentChunkDataset(

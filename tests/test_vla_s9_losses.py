@@ -445,6 +445,21 @@ def test_takeover_boundary_cutoff_and_2x_weight():
 	assert end_step_target_from_segment(10, 50, "brick_lost") == IGNORE_INDEX
 
 
+def test_drop_unsupervised_leaves_out_zero_loss_samples():
+	ep = _make_synthetic_episode(
+		0,
+		[("grasp", 0, 3, "done", {}), ("carry_to_bowl", 3, 6, "done", {"bowl": "green"})],
+		supervise_action=[False, False, False, True, True, True],
+	)
+	full = SegmentChunkDataset.from_episodes([ep], horizon=4, return_torch=False)
+	kept = SegmentChunkDataset.from_episodes([ep], horizon=4, return_torch=False, drop_unsupervised=True)
+	dead = [i for i in range(len(full)) if not full[i]["action_mask"].any() and int(full[i]["end_step_target"]) < 0]
+	assert dead and len(kept) == len(full) - len(dead)
+	assert kept.summary()["dropped_unsupervised_samples"] == len(dead)
+	assert full.summary()["dropped_unsupervised_samples"] == 0
+	assert all(kept[i]["action_mask"].any() or int(kept[i]["end_step_target"]) >= 0 for i in range(len(kept)))
+
+
 def test_segment_roll_reaches_state_and_instruction():
 	"""A segment's roll_deg param (meta/segments.json) is fed to every row of that segment, and only to it."""
 	ep = _make_synthetic_episode(

@@ -408,7 +408,11 @@ class SegmentChunkDataset(_BaseDataset):
 		video_backend: str = "pyav",
 		default_image_shape: tuple[int, int] = (64, 64),
 		return_torch: bool | None = None,
+		drop_unsupervised: bool = False,
 	) -> None:
+		"""``drop_unsupervised``: leave out samples that carry no loss at all (every action step masked and no end-step
+		label), e.g. the unsupervised prefix of paired-carry or takeover episodes; otherwise they fill batch slots at
+		zero loss."""
 		if horizon < 1:
 			raise ValueError(f"horizon must be >= 1, got {horizon}")
 		if takeover_weight <= 0:
@@ -440,6 +444,11 @@ class SegmentChunkDataset(_BaseDataset):
 
 		self._samples: list[_SampleSpec] = []
 		self._build_samples()
+		self.dropped_unsupervised = 0
+		if drop_unsupervised:
+			kept = [s for s in self._samples if s.action_mask.any() or s.end_step_target >= 0]
+			self.dropped_unsupervised = len(self._samples) - len(kept)
+			self._samples = kept
 
 	@classmethod
 	def from_episodes(
@@ -452,6 +461,7 @@ class SegmentChunkDataset(_BaseDataset):
 		augmentor: StudentImageAugmentor | None = None,
 		default_image_shape: tuple[int, int] = (64, 64),
 		return_torch: bool | None = None,
+		drop_unsupervised: bool = False,
 	) -> SegmentChunkDataset:
 		return cls(
 			root=None,
@@ -462,6 +472,7 @@ class SegmentChunkDataset(_BaseDataset):
 			augmentor=augmentor,
 			default_image_shape=default_image_shape,
 			return_torch=return_torch,
+			drop_unsupervised=drop_unsupervised,
 		)
 
 	def _load_lerobot(self, root: Path, *, repo_id: str, episodes: list[int] | None) -> list[_EpisodeData]:
@@ -846,6 +857,7 @@ class SegmentChunkDataset(_BaseDataset):
 			"synthesized_zero_frame_samples": synth_count,
 			"takeover_samples": takeover_count,
 			"supervised_end_step_samples": valid_end_count,
+			"dropped_unsupervised_samples": int(getattr(self, "dropped_unsupervised", 0)),
 			"segment_kinds": kind_counts,
 			"bowls": list(BOWL_VOCAB),
 			"state_dim": STATE_DIM,
