@@ -1,22 +1,30 @@
 #!/usr/bin/env python
 """Collect paired opposite-target carry demonstrations on train layouts (vla/paired_carry.py).
 
-Per case: ``<out>/cases/case-XXXX/pair.json`` plus the raw and exportable episodes; existing ``pair.json`` files are
-skipped (resume). Rollouts run in this interpreter (the repo ``.venv``). ``--export`` then exports every accepted
-episode through LeRobot in ``--lerobot-python`` (one shard per ``--shard-size`` episodes) and merges the shards into
-``<out>/lerobot``. Plan: docs/vla/BOWL_CHANNEL_PAIRED_PLAN_2026-11-23.md Tasks 4-5.
+Per case: ``<out>/cases/case-XXXX/pair.json`` plus the two exportable episodes; existing ``pair.json`` files are
+skipped (resume) unless they record an ``error``. Rollouts run in this interpreter (the repo ``.venv``).
+
+With ``--export`` the rollouts run in batches of ``--batch`` cases; after each batch the newly accepted episodes are
+exported through LeRobot in ``--lerobot-python`` into ``<out>/shards/shard-NNN`` (its ``episodes.json`` lists them),
+the shard is read back (episode and frame counts), and only then are those episodes' lossless ``*.mkv`` deleted (a
+pair is ~1 GB of video; 300 layouts do not fit on disk otherwise). Rejected cases keep only ``pair.json``.
+``--merge-out`` merges the ``--merge-with`` datasets (in order) and all shards into one training dataset.
+Plan: docs/vla/BOWL_CHANNEL_PAIRED_PLAN_2026-11-23.md Tasks 4-5.
 """
 
 from __future__ import annotations
 
 import argparse
 import json
+import shutil
 import subprocess
 import sys
 import time
 from concurrent.futures import ProcessPoolExecutor
 from multiprocessing import get_context
 from pathlib import Path
+
+import numpy as np
 
 ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT / "src") not in sys.path:
@@ -49,28 +57,44 @@ def _run_one(task: tuple[int, list, str]) -> dict:
 		rec = run_pair(case, _SCORER, Path(case_dir), crop_size=_CROP)
 	except Exception as exc:  # noqa: BLE001 - one failing layout must not stop the batch
 		rec = {"case": list(case), "skip": "error", "error": f"{type(exc).__name__}: {exc}"}
+	if not (rec.get("episodes") or {}).get("parent"):
+		for sub in ("raw", "parent", "swap"):
+			shutil.rmtree(Path(case_dir) / sub, ignore_errors=True)
 	rec["index"] = idx
 	rec["wall_s"] = round(time.perf_counter() - t0, 1)
 	(Path(case_dir) / "pair.json").write_text(json.dumps(rec, indent=1, allow_nan=False), encoding="utf-8")
 	return rec
 
 
-def collect(cases: list, out: Path, detector: Path, workers: int) -> None:
+def _pending(out: Path, idx: int) -> bool:
+	f = out / "cases" / f"case-{idx:04d}" / "pair.json"
+	if not f.exists():
+		return True
+	return json.loads(f.read_text(encoding="utf-8")).get("skip") == "error"
+
+
+def collect(cases: list, out: Path, detector: Path, workers: int, batch: int | None = None, after_batch=None) -> None:
 	tasks = []
 	for idx, case in enumerate(cases):
-		case_dir = out / "cases" / f"case-{idx:04d}"
-		if (case_dir / "pair.json").exists():
+		if not _pending(out, idx):
 			continue
-		case_dir.mkdir(parents=True, exist_ok=True)
+		case_dir = out / "cases" / f"case-{idx:04d}"
+		if case_dir.exists():
+			shutil.rmtree(case_dir)
+		case_dir.mkdir(parents=True)
 		tasks.append((idx, list(case), str(case_dir)))
 	print(f"{len(tasks)} cases to run ({len(cases) - len(tasks)} already done)", flush=True)
 	if not tasks:
 		return
+	step = batch or len(tasks)
 	if workers <= 1:
 		_init_worker(str(detector))
 		try:
-			for t in tasks:
-				_report(_run_one(t), len(cases))
+			for i in range(0, len(tasks), step):
+				for t in tasks[i : i + step]:
+					_report(_run_one(t), len(cases))
+				if after_batch is not None:
+					after_batch()
 		finally:
 			if hasattr(_SCORER, "close"):
 				_SCORER.close()
@@ -78,8 +102,11 @@ def collect(cases: list, out: Path, detector: Path, workers: int) -> None:
 	with ProcessPoolExecutor(
 		max_workers=workers, mp_context=get_context("spawn"), initializer=_init_worker, initargs=(str(detector),)
 	) as pool:
-		for rec in pool.map(_run_one, tasks):
-			_report(rec, len(cases))
+		for i in range(0, len(tasks), step):
+			for rec in pool.map(_run_one, tasks[i : i + step]):
+				_report(rec, len(cases))
+			if after_batch is not None:
+				after_batch()
 
 
 def _report(rec: dict, n: int) -> None:
@@ -96,24 +123,100 @@ def accepted_episodes(out: Path) -> list[Path]:
 	return eps
 
 
-def export(out: Path, lerobot_python: Path, shard_size: int) -> None:
-	eps = accepted_episodes(out)
-	print(f"exporting {len(eps)} episodes", flush=True)
-	shards = []
-	for i in range(0, len(eps), shard_size):
-		shard = out / "shards" / f"shard-{i // shard_size:03d}"
-		shards.append(shard)
-		if (shard / "meta" / "info.json").exists():
-			continue
-		cmd = [str(lerobot_python), "-m", "digital_twin_armigo.agent.twin_record", "--out", str(shard), "--repo-id"]
-		cmd += [REPO_ID, *map(str, eps[i : i + shard_size])]
-		subprocess.run(cmd, check=True, cwd=ROOT, env=_env())
-	merge = (
+def _shards(out: Path) -> list[Path]:
+	return sorted(d for d in (out / "shards").glob("shard-*") if (d / "episodes.json").exists())
+
+
+def _expected_frames(eps: list[Path]) -> int:
+	from digital_twin_armigo.agent.twin_record import unsupervised_prefix_end
+
+	frames = 0
+	for e in eps:
+		with np.load(e / "branch-0" / "actions.npz", allow_pickle=False) as z:
+			frames += len(z["action"]) - unsupervised_prefix_end(e)
+	return frames
+
+
+def _export_shard(shard: Path, eps: list[Path], lerobot_python: Path) -> None:
+	"""Export ``eps`` (trimmed to their supervised part) into ``shard``, read it back, then delete their ``*.mkv``."""
+	if shard.exists():
+		shutil.rmtree(shard)  # an unfinished export (no episodes.json)
+	log = shard.with_suffix(".log")
+	cmd = [str(lerobot_python), "-m", "digital_twin_armigo.agent.twin_record", "--out", str(shard)]
+	cmd += ["--repo-id", REPO_ID, "--trim-unsupervised-prefix", *map(str, eps)]
+	with log.open("w", encoding="utf-8") as fh:
+		subprocess.run(cmd, check=True, cwd=ROOT, env=_env(), stdout=fh, stderr=subprocess.STDOUT)
+	check = (
+		"import json; from lerobot.datasets.lerobot_dataset import LeRobotDataset; "
+		f"ds = LeRobotDataset('{REPO_ID}', root=r'{shard}', video_backend='pyav'); "
+		"ds[0]; ds[len(ds) - 1]; print(json.dumps([ds.num_episodes, ds.num_frames]))"
+	)
+	got = subprocess.run(
+		[str(lerobot_python), "-c", check], check=True, cwd=ROOT, env=_env(), capture_output=True, text=True
+	)
+	n_eps, n_frames = json.loads(got.stdout.strip().splitlines()[-1])
+	want = (len(eps), _expected_frames(eps))
+	if (n_eps, n_frames) != want:
+		raise RuntimeError(f"{shard}: read back {n_eps} episodes / {n_frames} frames, expected {want}")
+	(shard / "episodes.json").write_text(json.dumps([str(e) for e in eps], indent=1), encoding="utf-8")
+	mkvs = [m for e in eps for m in e.rglob("*.mkv")]
+	for m in mkvs:
+		m.unlink()
+	print(f"[export] {shard.name}: {n_eps} episodes / {n_frames} frames verified; deleted {len(mkvs)} mkv", flush=True)
+
+
+def export_pending(out: Path, lerobot_python: Path, jobs: int = 1) -> list[Path]:
+	"""Export accepted episodes not yet in a shard into new shards (``jobs`` exporters at once, pairs kept together)."""
+	from concurrent.futures import ThreadPoolExecutor
+
+	done = {e for d in _shards(out) for e in json.loads((d / "episodes.json").read_text(encoding="utf-8"))}
+	eps = [e for e in accepted_episodes(out) if str(e) not in done]
+	if not eps:
+		return []
+	pairs = [eps[i : i + 2] for i in range(0, len(eps), 2)]
+	parts = [p for p in (pairs[k::jobs] for k in range(jobs)) if p]
+	first = len(_shards(out))
+	shards = [out / "shards" / f"shard-{first + k:03d}" for k in range(len(parts))]
+	print(f"[export] {len(eps)} episodes -> {len(parts)} shards from {shards[0].name}", flush=True)
+	shards[0].parent.mkdir(parents=True, exist_ok=True)
+	with ThreadPoolExecutor(len(parts)) as pool:
+		futs = [
+			pool.submit(_export_shard, s, [e for pair in part for e in pair], lerobot_python)
+			for s, part in zip(shards, parts, strict=True)
+		]
+		for f in futs:
+			f.result()
+	return shards
+
+
+class BackgroundExport:
+	"""Runs :func:`export_pending` after each rollout batch without blocking the next batch (one export at a time)."""
+
+	def __init__(self, out: Path, lerobot_python: Path, jobs: int):
+		from concurrent.futures import ThreadPoolExecutor
+
+		self.out, self.lerobot_python, self.jobs = out, lerobot_python, jobs
+		self.pool = ThreadPoolExecutor(1)
+		self.pending = None
+
+	def __call__(self) -> None:
+		self.wait()
+		self.pending = self.pool.submit(export_pending, self.out, self.lerobot_python, self.jobs)
+
+	def wait(self) -> None:
+		if self.pending is not None:
+			self.pending.result()
+			self.pending = None
+
+
+def merge(out_dir: Path, inputs: list[Path], lerobot_python: Path) -> None:
+	code = (
 		"import sys; from pathlib import Path; sys.path.insert(0, 'scripts/vla'); "
 		"from rollout_and_export import merge_shards_cmd; "
-		f"merge_shards_cmd(Path(r'{out / 'lerobot'}'), '{REPO_ID}', [Path(p) for p in {[str(s) for s in shards]!r}])"
+		f"merge_shards_cmd(Path(r'{out_dir}'), '{REPO_ID}', [Path(p) for p in {[str(s) for s in inputs]!r}])"
 	)
-	subprocess.run([str(lerobot_python), "-c", merge], check=True, cwd=ROOT, env=_env())
+	print(f"[merge] {len(inputs)} datasets -> {out_dir}", flush=True)
+	subprocess.run([str(lerobot_python), "-c", code], check=True, cwd=ROOT, env=_env())
 
 
 def _env() -> dict:
@@ -131,10 +234,13 @@ def main(argv=None) -> int:
 	p.add_argument("--detector", type=Path, default=DEFAULT_DETECTOR)
 	p.add_argument("--max-episodes", type=int, default=None)
 	p.add_argument("--workers", type=int, default=1)
-	p.add_argument("--export", action="store_true", help="Export accepted episodes and merge into <out>/lerobot")
+	p.add_argument("--export", action="store_true", help="Export and verify each batch, then delete its *.mkv")
 	p.add_argument("--export-only", action="store_true", help="Skip rollouts; export what is there")
+	p.add_argument("--batch", type=int, default=24, help="Cases per rollout batch when exporting")
+	p.add_argument("--export-jobs", type=int, default=6, help="Concurrent LeRobot exporters per export round")
+	p.add_argument("--merge-out", type=Path, default=None, help="Merge --merge-with datasets and all shards here")
+	p.add_argument("--merge-with", type=Path, nargs="*", default=[], help="Datasets merged before the shards")
 	p.add_argument("--lerobot-python", type=Path, default=LEROBOT_PYTHON)
-	p.add_argument("--shard-size", type=int, default=40)
 	args = p.parse_args(argv)
 
 	from digital_twin_armigo.vla.dagger import DEFAULT_FORBID_SUITES, assert_train_layouts_only
@@ -146,10 +252,15 @@ def main(argv=None) -> int:
 	if args.max_episodes is not None:
 		cases = cases[: args.max_episodes]
 	args.out.mkdir(parents=True, exist_ok=True)
+	exporting = args.export or args.export_only
+	hook = BackgroundExport(args.out, args.lerobot_python, args.export_jobs) if exporting else None
 	if not args.export_only:
-		collect(cases, args.out, args.detector, args.workers)
-	if args.export or args.export_only:
-		export(args.out, args.lerobot_python, args.shard_size)
+		collect(cases, args.out, args.detector, args.workers, args.batch if exporting else None, hook)
+	if exporting:
+		hook.wait()
+		export_pending(args.out, args.lerobot_python, args.export_jobs)
+	if args.merge_out is not None:
+		merge(args.merge_out, [*args.merge_with, *_shards(args.out)], args.lerobot_python)
 	return 0
 
 

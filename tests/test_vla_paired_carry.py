@@ -47,3 +47,32 @@ def test_restrict_supervision_respects_existing_false_and_unlabelled_frames():
 	assert out["supervise_action"].tolist() == [False, True, False]
 	no_col = restrict_supervision({"segment": np.array([2, 0])}, ["a", "b", "carry_to_bowl"])
 	assert no_col["supervise_action"].tolist() == [True, False]
+
+
+def test_unsupervised_prefix_end_keeps_one_row_before_supervision(tmp_path):
+	from digital_twin_armigo.agent.twin_record import unsupervised_prefix_end
+
+	(tmp_path / "branch-0").mkdir()
+	sup = np.zeros(10, dtype=bool)
+	sup[6:9] = True
+	np.savez(tmp_path / "branch-0" / "actions.npz", supervise_action=sup, action=np.zeros((10, 6)))
+	assert unsupervised_prefix_end(tmp_path) == 5
+	np.savez(tmp_path / "branch-0" / "actions.npz", supervise_action=np.zeros(10, bool), action=np.zeros((10, 6)))
+	assert unsupervised_prefix_end(tmp_path) == 0
+	np.savez(tmp_path / "branch-0" / "actions.npz", action=np.zeros((10, 6)))
+	assert unsupervised_prefix_end(tmp_path) == 0
+
+
+def test_trimmed_segments_rebase_and_drop_earlier_ones():
+	from digital_twin_armigo.agent.twin_record import _trimmed_segments
+
+	segs = [
+		{"id": 0, "start": 0, "end": 4},
+		{"id": 1, "start": 4, "end": 4},
+		{"id": 2, "start": 4, "end": 9},
+		{"id": 3, "start": 9, "end": 12},
+		{"id": 4, "start": 12, "end": 12},
+	]
+	got = _trimmed_segments(segs, 5)
+	assert [(s["id"], s["start"], s["end"]) for s in got] == [(2, 0, 4), (3, 4, 7), (4, 7, 7)]
+	assert _trimmed_segments(segs, 0) == segs

@@ -626,11 +626,12 @@ def segment_labels(episode: Path) -> dict:
 	}
 
 
-def student_frames(episode: Path):
+def student_frames(episode: Path, start_frame: int = 0):
 	"""Yield only contiguous, successful unrewound samples for the LeRobot exporter. In-place retries are allowed
 	(one continuous branch: a recovery demonstration); a physics rewind is not. Joints are in radians. Each frame
 	carries its segment and mask columns (SEGMENT_FEATURES), D1 input vectors (INPUT_FEATURES) and the segment
-	instruction as ``task``; an episode with frames outside any segment is rejected (:class:`SegmentLabelError`)."""
+	instruction as ``task``; an episode with frames outside any segment is rejected (:class:`SegmentLabelError`).
+	Rows before ``start_frame`` are checked and decoded but not yielded (see :func:`unsupervised_prefix_end`)."""
 	from contextlib import ExitStack
 
 	episode = Path(episode)
@@ -710,12 +711,34 @@ def student_frames(episode: Path):
 				elif name == "top_depth":
 					key = "top_depth_v2"
 				frame[f"observation.images.{key}"] = image
-			yield frame
+			if row_index >= start_frame:
+				yield frame
 		if any(next(reader, None) is not None for reader in readers.values()):
 			raise ValueError("camera stream has frames with no matching action")
 
 
-def export_lerobot(episodes: list[Path], out: Path, repo_id: str):
+def unsupervised_prefix_end(episode: Path) -> int:
+	"""First row worth exporting when only the supervised part of an episode is wanted: one row before the first
+	``supervise_action`` row (that row's previous state is still in the data), 0 without the column or such rows."""
+	with np.load(Path(episode) / "branch-0" / "actions.npz", allow_pickle=False) as rows:
+		if "supervise_action" not in rows.files:
+			return 0
+		sup = np.flatnonzero(rows["supervise_action"])
+	return max(int(sup[0]) - 1, 0) if sup.size else 0
+
+
+def _trimmed_segments(segments: list[dict], start: int) -> list[dict]:
+	"""Segments re-based to an export that starts at row ``start``; segments wholly before it are dropped."""
+	out = []
+	for seg in segments:
+		if seg["end"] > start or (seg["start"] == seg["end"] and seg["start"] >= start):
+			out.append({**seg, "start": max(seg["start"] - start, 0), "end": seg["end"] - start})
+	return out
+
+
+def export_lerobot(episodes: list[Path], out: Path, repo_id: str, trim_unsupervised_prefix: bool = False):
+	"""Export ``episodes`` as a LeRobot dataset. With ``trim_unsupervised_prefix`` each episode starts at
+	:func:`unsupervised_prefix_end` (paired carry episodes: the shared prefix carries no supervision)."""
 	from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
 	from ..constants import CAMERA_SHAPES
@@ -745,9 +768,10 @@ def export_lerobot(episodes: list[Path], out: Path, repo_id: str):
 		| {key: dict(spec) for key, spec in INPUT_FEATURES.items()}
 		| {key: dict(spec) for key, spec in SEGMENT_FEATURES.items()},
 	)
+	starts = [unsupervised_prefix_end(p) if trim_unsupervised_prefix else 0 for p in episodes]
 	try:
-		for path in episodes:
-			for frame in student_frames(path):
+		for path, start in zip(episodes, starts, strict=True):
+			for frame in student_frames(path, start):
 				dataset.add_frame(frame)
 			dataset.save_episode()
 	finally:
@@ -756,7 +780,10 @@ def export_lerobot(episodes: list[Path], out: Path, repo_id: str):
 		out / "meta/source.json",
 		{
 			"schema": "armigo-student-provenance/v1",
-			"episodes": [{"episode_index": i, "source": path.name} for i, path in enumerate(episodes)],
+			"episodes": [
+				{"episode_index": i, "source": path.name, **({"start_frame": st} if st else {})}
+				for i, (path, st) in enumerate(zip(episodes, starts, strict=True))
+			],
 			"sampling": "pre-action RGB and proprioception; next policy command; joint angles in radians",
 			"joint_units": joint_normalization(STATE_NAMES),
 			"decision_camera": "top_full or wrist at recorded frame index",
@@ -772,8 +799,13 @@ def export_lerobot(episodes: list[Path], out: Path, repo_id: str):
 			"segment_done": SEGMENT_DONE_CONVENTION,
 			"chunk_valid_len": CHUNK_VALID_LEN_CONVENTION,
 			"episodes": [
-				{"episode_index": i, "source": str(path), "segments": segment_labels(path)["segments"]}
-				for i, path in enumerate(episodes)
+				{
+					"episode_index": i,
+					"source": str(path),
+					"segments": _trimmed_segments(segment_labels(path)["segments"], st),
+					**({"start_frame": st} if st else {}),
+				}
+				for i, (path, st) in enumerate(zip(episodes, starts, strict=True))
 			],
 		},
 	)
@@ -1133,9 +1165,14 @@ def main():
 	parser = argparse.ArgumentParser(description="Export accepted Armigo recordings through LeRobot.")
 	parser.add_argument("--out", type=Path, required=True)
 	parser.add_argument("--repo-id", default="local/armigo-six-face")
+	parser.add_argument(
+		"--trim-unsupervised-prefix",
+		action="store_true",
+		help="Start each episode one row before its first supervised row (paired carry episodes)",
+	)
 	parser.add_argument("episodes", nargs="+", type=Path)
 	args = parser.parse_args()
-	export_lerobot(args.episodes, args.out, args.repo_id)
+	export_lerobot(args.episodes, args.out, args.repo_id, trim_unsupervised_prefix=args.trim_unsupervised_prefix)
 
 
 if __name__ == "__main__":

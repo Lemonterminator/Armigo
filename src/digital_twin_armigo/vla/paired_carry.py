@@ -77,14 +77,6 @@ def restrict_supervision(
 	return out
 
 
-def _copy_episode(src, dst) -> None:
-	import shutil
-
-	if dst.exists():
-		shutil.rmtree(dst)
-	shutil.copytree(src, dst)
-
-
 def _carry_only(ep_dir, from_frame: int) -> dict:
 	"""Rewrite ``branch-0/actions.npz`` of an exportable episode so only carry/release frames from ``from_frame`` on
 	are supervised; returns the supervised frame count and the carry segment's bowl."""
@@ -109,9 +101,11 @@ def run_pair(case, scorer, out_dir, *, crop_size: int, sensing: str = "realistic
 
 	``out_dir/raw/parent``: the expert episode (by label, held checkpoint after ``present_bottom``);
 	``out_dir/raw/swap``: the swapped branch resumed from that checkpoint in a fresh twin;
-	``out_dir/parent`` and ``out_dir/swap``: the exportable single-branch episodes (the swap stitched onto the parent
-	prefix), both supervised on carry/release frames after the fork only. Returns the pair record (``pair.json``)."""
+	``out_dir/parent`` and ``out_dir/swap``: the exportable single-branch episodes (the parent moved out of ``raw``, the
+	swap stitched onto the parent prefix), both supervised on carry/release frames after the fork only; ``raw`` is
+	removed once they exist. Returns the pair record (``pair.json``)."""
 	import json
+	import shutil
 	from pathlib import Path
 
 	from langgraph.checkpoint.memory import InMemorySaver
@@ -188,12 +182,17 @@ def run_pair(case, scorer, out_dir, *, crop_size: int, sensing: str = "realistic
 	rec["fork_state_match"] = diff <= 1e-6
 
 	ep_parent, ep_swap = out_dir / "parent", out_dir / "swap"
-	_copy_episode(raw_parent, ep_parent)
-	if ep_swap.exists():
-		import shutil
-
-		shutil.rmtree(ep_swap)
+	for ep in (ep_parent, ep_swap):
+		if ep.exists():
+			shutil.rmtree(ep)
 	stitch_perturbation_episode(raw_parent, ck.branch, ep_swap, branch_episode=raw_swap)
+	# Disk: the parent episode is moved (not copied) out of raw/, the raw swap branch is dropped once stitched, and
+	# the lossy review video is not needed by the exporter.
+	shutil.move(str(raw_parent), str(ep_parent))
+	shutil.rmtree(out_dir / "raw")
+	for ep in (ep_parent, ep_swap):
+		for mp4 in ep.rglob("replay.mp4"):
+			mp4.unlink()
 	rec["parent"] = _carry_only(ep_parent, ck.frame)
 	rec["swap"] = _carry_only(ep_swap, ck.frame)
 	swap_manifest = json.loads((ep_swap / "episode.json").read_text(encoding="utf-8"))
