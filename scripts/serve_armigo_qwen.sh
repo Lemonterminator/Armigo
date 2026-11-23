@@ -4,7 +4,7 @@ set -euo pipefail
 # Run in the WSL environment provisioned by the local vLLM launcher skill.
 # Every knob is an environment variable; the first argument is still the port (default 8038).
 #   ARMIGO_VLLM_RUNTIME       vLLM runtime directory                         (~/.local/share/vllm-qwen)
-#   ARMIGO_VLLM_MAX_LEN       --max-model-len                                (4096)
+#   ARMIGO_VLLM_MAX_LEN       --max-model-len                                (16384)
 #   ARMIGO_VLLM_MAX_SEQS      --max-num-seqs; 4 lets parallel episode workers share the server   (4)
 #   ARMIGO_VLLM_GPU_UTIL      --gpu-memory-utilization; 0.76 leaves ~7 GB of the 32 GB RTX 5090 for the
 #                             detector process. Raise it only after checking nvidia-smi with the detector loaded.  (0.76)
@@ -15,7 +15,7 @@ set -euo pipefail
 #   ARMIGO_VLLM_EXTRA         extra arguments appended verbatim
 runtime="${ARMIGO_VLLM_RUNTIME:-$HOME/.local/share/vllm-qwen}"
 port="${1:-8038}"
-max_len="${ARMIGO_VLLM_MAX_LEN:-4096}"
+max_len="${ARMIGO_VLLM_MAX_LEN:-16384}"
 max_seqs="${ARMIGO_VLLM_MAX_SEQS:-4}"
 gpu_util="${ARMIGO_VLLM_GPU_UTIL:-0.76}"
 export CUDA_HOME="$runtime/venv/lib/python3.12/site-packages/nvidia/cu13"
@@ -29,6 +29,7 @@ args=(
   --served-model-name qwen3.8-vllm --host 127.0.0.1 --port "$port"
   --max-model-len "$max_len" --max-num-seqs "$max_seqs" --gpu-memory-utilization "$gpu_util"
   --kv-cache-dtype nvfp4
+  --enable-prompt-tokens-details
   --limit-mm-per-prompt '{"image":1,"video":0}'
 )
 if [ "${ARMIGO_VLLM_PREFIX_CACHE:-1}" = "1" ]; then
