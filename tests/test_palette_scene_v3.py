@@ -254,7 +254,7 @@ def test_v3_load_suite_and_realistic_clutter(tmp_path):
 			trace,
 			sensing="realistic",
 		)
-		assert set(twin.bowls) == {"green", "pink"}
+		assert set(twin.bowls) == {"green", "pink", *(f"extra:{i}" for i in range(len(lay_clutter.extra_bowls)))}
 	finally:
 		if twin is not None:
 			twin.cell.close()

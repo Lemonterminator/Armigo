@@ -42,6 +42,7 @@ from .bowl_clearance import PerceivedBowlClearance, with_perceived_bowl_clearanc
 from .perception import (
 	BrickEstimate,
 	PerceptionCfg,
+	bands_for,
 	bowl_fill,
 	bowl_filled,
 	locate_bowls,
@@ -635,6 +636,7 @@ class TwinMujoco:
 		self.bowls = {
 			"green": np.asarray(layout.green, dtype=np.float64),
 			"pink": np.asarray(layout.pink, dtype=np.float64),
+			**{f"extra:{i}": np.asarray((x, y), dtype=np.float64) for i, (_, x, y, _) in enumerate(layout.extra_bowls)},
 		}
 		self.expert_type = ContinuousCarryExpert if smooth_carry else RelocateExpert
 		if self.realistic:
@@ -718,9 +720,23 @@ class TwinMujoco:
 		return self.rewinds + self.retries
 
 	def _sense_bowls(self):
-		"""Locate both bowls in the top images and keep the depth image as the empty-bowl reference."""
+		"""Locate all bowls in the top images and keep the depth image as the empty-bowl reference."""
 		depth = self._top_depth()
-		found = locate_bowls(self.cell.rgb("top"), depth, self._cam_k, self._cam_est, engine=self.engine)
+		if self.layout.bowl_rgb is not None:
+			rgb_by_slot = {
+				**self.layout.bowl_rgb,
+				**{f"extra:{i}": rgb for i, (_, _, _, rgb) in enumerate(self.layout.extra_bowls)},
+			}
+			found = locate_bowls(
+				self.cell.rgb("top"),
+				depth,
+				self._cam_k,
+				self._cam_est,
+				engine=self.engine,
+				bands=bands_for(rgb_by_slot, engine=self.engine),
+			)
+		else:
+			found = locate_bowls(self.cell.rgb("top"), depth, self._cam_k, self._cam_est, engine=self.engine)
 		self._baseline_depth = depth
 		errors = {}
 		for name, est in found.items():
@@ -728,7 +744,10 @@ class TwinMujoco:
 				self.scene_error = "BOWL_NOT_FOUND"
 				continue
 			self.bowls[name] = est.xy
-			truth = np.asarray(getattr(self.layout, name))
+			if name.startswith("extra:"):
+				truth = np.asarray(self.layout.extra_bowls[int(name.split(":", 1)[1])][1:3])
+			else:
+				truth = np.asarray(getattr(self.layout, name))
 			errors[name] = round(float(np.linalg.norm(est.xy - truth) * 1000), 3)  # scoring only
 		self.event(
 			"bowls_perceived",
@@ -881,6 +900,11 @@ class TwinMujoco:
 			lay.brick_size = size
 			lay.green = tuple(float(v) for v in self.bowls["green"][:2])
 			lay.pink = tuple(float(v) for v in self.bowls["pink"][:2])
+			if lay.extra_bowls:
+				lay.extra_bowls = [
+					(cname, float(self.bowls[f"extra:{i}"][0]), float(self.bowls[f"extra:{i}"][1]), rgb)
+					for i, (cname, _, _, rgb) in enumerate(lay.extra_bowls)
+				]
 			lay.wrist_cam_offset = None
 			lay.clutter, lay.distractors = [], []
 			bc = Cell(

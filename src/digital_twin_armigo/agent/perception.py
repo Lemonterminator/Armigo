@@ -21,9 +21,11 @@ The brick is assumed to rest upright on the table, so its height comes from the 
 
 from __future__ import annotations
 
+import colorsys
 import json
 import math
 import os
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -218,40 +220,102 @@ def _plane_heights(p: np.ndarray, bowls_hint=()) -> np.ndarray | None:
 	return p[:, 2] - (p[:, :2] @ plane[:2] + plane[2])
 
 
-def locate_bowls(
-	rgb: np.ndarray, depth: np.ndarray, k: np.ndarray, world_from_cam: np.ndarray, *, engine: str = "mujoco"
-) -> dict[str, BowlEstimate | None]:
-	"""The green and pink bowls in a top image: the largest blob of each colour, then a circle fitted to the 3D points
-	of its outer contour that stand on the rim (the contour also runs along occluders and the image edge; those
-	points sit lower or off the circle and are dropped by the height cut and the inlier refit)."""
+def _circular_hue_deg_dist(a_deg: float, b_deg: float) -> float:
+	d = abs(a_deg - b_deg) % 360.0
+	return min(d, 360.0 - d)
+
+
+def bands_for(
+	rgb_by_slot: Mapping[str, Sequence[float]], *, engine: str = "mujoco"
+) -> dict[str, tuple[int, int, int, int]]:
+	"""Compute OpenCV HSV bowl bands per slot from scene RGB colours.
+
+	Returns ``(lo, hi, p3, p4)`` per slot:
+	- Chromatic: ``(h_lo, h_hi, s_min, v_min)`` with OpenCV H in [0, 179] (``h_lo > h_hi`` wraps around 180/0).
+	- White: ``(-1, -1, s_max, v_min)`` meaning ``S < s_max`` and ``V > v_min``.
+	- Black: ``(-2, -2, s_max, v_max)`` meaning ``S <= s_max`` and ``V < v_max``.
+	"""
+	if engine not in ("mujoco", "isaac"):
+		raise ValueError(f"unknown engine {engine!r}")
+	out: dict[str, tuple[int, int, int, int]] = {}
+	for slot, rgb in rgb_by_slot.items():
+		r, g, b = (float(rgb[0]), float(rgb[1]), float(rgb[2]))
+		h_turn, s, v = colorsys.rgb_to_hsv(r, g, b)
+		hue_deg = h_turn * 360.0
+		if engine == "isaac":
+			if s >= 0.15 and v >= 0.25 and _circular_hue_deg_dist(hue_deg, 127.5) <= 10.0:
+				out[slot] = BOWL_HSV["green"]
+			elif s >= 0.15 and v >= 0.25 and _circular_hue_deg_dist(hue_deg, 334.5) <= 10.0:
+				out[slot] = BOWL_HSV_BY_ENGINE["isaac"]["pink"]
+			else:
+				raise NotImplementedError(f"Isaac HSV band not calibrated for slot {slot!r}; see Task 3b")
+		elif s < 0.15 and v > 0.70:
+			out[slot] = (-1, -1, 40, 200)
+		elif v < 0.25:
+			out[slot] = (-2, -2, 255, 50)
+		else:
+			lo = math.floor((hue_deg - 14.0) / 2.0) % 180
+			hi = math.ceil((hue_deg + 14.0) / 2.0) % 180
+			smin = max(35, min(70, round(s * 255 * 0.45)))
+			out[slot] = (lo, hi, smin, 30)
+	return out
+
+
+def _locate_bowl_from_band(
+	hsv: np.ndarray,
+	pts: np.ndarray,
+	h2d: np.ndarray | None,
+	workspace: np.ndarray,
+	band: tuple[int, int, int, int],
+) -> BowlEstimate | None:
+	"""Locate one bowl matching ``band`` by testing connected components largest-first."""
 	import cv2
 
-	hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
-	pts = depth_points(depth, k, world_from_cam)
-	heights = _plane_heights(pts.reshape(-1, 3))
-	out: dict[str, BowlEstimate | None] = {}
-	for name, (lo, hi, smin, vmin) in {**BOWL_HSV, **BOWL_HSV_BY_ENGINE.get(engine, {})}.items():
-		out[name] = None
-		mask = (hsv[..., 0] >= lo) & (hsv[..., 0] <= hi) & (hsv[..., 1] >= smin) & (hsv[..., 2] >= vmin)
-		n, labels, stats, _ = cv2.connectedComponentsWithStats(mask.astype(np.uint8), connectivity=8)
-		if n < 2:
-			continue
-		best = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
-		area = int(stats[best, cv2.CC_STAT_AREA])
-		if area < BOWL_MIN_PIXELS:
-			continue
-		comp = labels == best
+	lo, hi, p3, p4 = band
+	if lo == -1 and hi == -1:
+		mask = (hsv[..., 1] < p3) & (hsv[..., 2] > p4)
+	elif lo == -2 and hi == -2:
+		mask = (hsv[..., 1] <= p3) & (hsv[..., 2] < p4)
+	else:
+		if lo <= hi:
+			h_mask = (hsv[..., 0] >= lo) & (hsv[..., 0] <= hi)
+		else:
+			h_mask = (hsv[..., 0] >= lo) | (hsv[..., 0] <= hi)
+		mask = h_mask & (hsv[..., 1] >= p3) & (hsv[..., 2] >= p4)
+	mask &= workspace
+	if lo < 0 and h2d is not None:
+		if lo == -2:
+			mask &= np.isfinite(h2d) & (h2d > 0.004) & (h2d < 0.028)
+		else:
+			mask &= np.isfinite(h2d) & (h2d > 0.002) & (h2d < 0.030)
+	n, labels, stats, _ = cv2.connectedComponentsWithStats(mask.astype(np.uint8), connectivity=8)
+	if n < 2:
+		return None
+	candidates = [
+		(int(stats[cid, cv2.CC_STAT_AREA]), cid)
+		for cid in range(1, n)
+		if int(stats[cid, cv2.CC_STAT_AREA]) >= BOWL_MIN_PIXELS
+	]
+	candidates.sort(key=lambda item: item[0], reverse=True)
+	for area, cid in candidates:
+		comp = labels == cid
 		contours, _ = cv2.findContours(comp.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+		if not contours:
+			continue
 		edge = max(contours, key=len)[:, 0]
 		rim = pts[edge[:, 1], edge[:, 0]]
-		if heights is not None:
-			h = heights.reshape(depth.shape)
-			blob_top = float(np.percentile(h[comp], 95))
-			rim = rim[h[edge[:, 1], edge[:, 0]] > 0.6 * blob_top]
+		if h2d is not None:
+			edge_h = h2d[edge[:, 1], edge[:, 0]]
+			if lo >= 0:
+				blob_top = float(np.percentile(h2d[comp], 95))
+				rim = rim[edge_h > 0.6 * blob_top]
+			else:
+				rim = rim[(edge_h > 0.004) & (edge_h < 0.028)]
 		rim = rim[np.isfinite(rim).all(axis=1)]
 		if len(rim) < 20:
 			continue
 		keep = np.ones(len(rim), bool)
+		cx = cy = radius = 0.0
 		for _ in range(4):
 			a = np.column_stack([2 * rim[keep, :2], np.ones(int(keep.sum()))])
 			(cx, cy, c), *_ = np.linalg.lstsq(a, (rim[keep, :2] ** 2).sum(axis=1), rcond=None)
@@ -259,9 +323,67 @@ def locate_bowls(
 			keep = np.abs(np.hypot(rim[:, 0] - cx, rim[:, 1] - cy) - radius) < RIM_INLIER_M
 			if keep.sum() < 10:
 				break
-		if abs(radius - BOWL_R) > 0.015:
+		if keep.sum() < 10 or abs(radius - BOWL_R) > 0.015:
 			continue
-		out[name] = BowlEstimate(np.array([cx, cy]), float(radius), area, int(keep.sum()))
+		return BowlEstimate(np.array([cx, cy]), float(radius), area, int(keep.sum()))
+	return None
+
+
+def locate_bowls(
+	rgb: np.ndarray,
+	depth: np.ndarray,
+	k: np.ndarray,
+	world_from_cam: np.ndarray,
+	*,
+	engine: str = "mujoco",
+	bands: Mapping[str, tuple[int, int, int, int]] | None = None,
+) -> dict[str, BowlEstimate | None]:
+	"""Locate bowls in a top image: by default the green and pink bowls via ``BOWL_HSV``, or per-slot ``bands``."""
+	import cv2
+
+	hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
+	pts = depth_points(depth, k, world_from_cam)
+	heights = _plane_heights(pts.reshape(-1, 3))
+	out: dict[str, BowlEstimate | None] = {}
+	if bands is None:
+		for name, (lo, hi, smin, vmin) in {**BOWL_HSV, **BOWL_HSV_BY_ENGINE.get(engine, {})}.items():
+			out[name] = None
+			mask = (hsv[..., 0] >= lo) & (hsv[..., 0] <= hi) & (hsv[..., 1] >= smin) & (hsv[..., 2] >= vmin)
+			n, labels, stats, _ = cv2.connectedComponentsWithStats(mask.astype(np.uint8), connectivity=8)
+			if n < 2:
+				continue
+			best = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+			area = int(stats[best, cv2.CC_STAT_AREA])
+			if area < BOWL_MIN_PIXELS:
+				continue
+			comp = labels == best
+			contours, _ = cv2.findContours(comp.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+			edge = max(contours, key=len)[:, 0]
+			rim = pts[edge[:, 1], edge[:, 0]]
+			if heights is not None:
+				h = heights.reshape(depth.shape)
+				blob_top = float(np.percentile(h[comp], 95))
+				rim = rim[h[edge[:, 1], edge[:, 0]] > 0.6 * blob_top]
+			rim = rim[np.isfinite(rim).all(axis=1)]
+			if len(rim) < 20:
+				continue
+			keep = np.ones(len(rim), bool)
+			for _ in range(4):
+				a = np.column_stack([2 * rim[keep, :2], np.ones(int(keep.sum()))])
+				(cx, cy, c), *_ = np.linalg.lstsq(a, (rim[keep, :2] ** 2).sum(axis=1), rcond=None)
+				radius = math.sqrt(max(c + cx * cx + cy * cy, 0.0))
+				keep = np.abs(np.hypot(rim[:, 0] - cx, rim[:, 1] - cy) - radius) < RIM_INLIER_M
+				if keep.sum() < 10:
+					break
+			if abs(radius - BOWL_R) > 0.015:
+				continue
+			out[name] = BowlEstimate(np.array([cx, cy]), float(radius), area, int(keep.sum()))
+		return out
+
+	workspace = np.hypot(pts[..., 0], pts[..., 1]) < 0.42
+	h2d = heights.reshape(depth.shape) if heights is not None else None
+	for name, band in bands.items():
+		out[name] = _locate_bowl_from_band(hsv, pts, h2d, workspace, band)
 	return out
 
 
