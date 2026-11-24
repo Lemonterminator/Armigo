@@ -35,8 +35,9 @@ from ..mujoco_cell.inspection_views import DETECTOR_PAD, capture_view, crop_coun
 from ..mujoco_cell.layout import sample_layout
 from ..mujoco_cell.orbit_scan import OrbitParams, plan_orbit_scan
 from ..mujoco_cell.physics_expert import MIN_JERK_PEAK_RATIO, ExpertParams, _min_jerk
-from ..mujoco_cell.scene_v3 import SPLITS, apply_scene_v3, sample_scene_v3
+from ..mujoco_cell.scene_v3 import SPLITS, SceneV3, apply_scene_v3, draw_camera_v3, sample_scene_v3
 from ..mujoco_cell.table_relocation import RelocateExpert, RelocateParams, plan_bottom_view, plan_table_scan
+from ..mujoco_cell.visibility import workspace_visible
 from ..physics import NonIdealityCfg, load_physics_spec
 from .bowl_clearance import PerceivedBowlClearance, with_perceived_bowl_clearance
 from .perception import (
@@ -77,7 +78,7 @@ BOTTOM_BORDER_PX = 40  # realistic bottom views keep the believed brick this far
 
 # Case options (the optional 4th element of a case, see sample_case / load_suite).
 CASE_OPTIONS = ("prior", "cameras", "scene", "split")
-CAMERA_MODES = ("fixed", "jitter", "jitter_extrinsic", "drift")
+CAMERA_MODES = ("fixed", "jitter", "jitter_extrinsic", "drift", "wide")
 # Plan 2026-11-24 camera conditions: ``jitter_extrinsic`` draws exactly the ``jitter`` sample but keeps every focal
 # length nominal (intrinsics known), so only the mounts move; ``drift`` is ``jitter_extrinsic`` after a calibration
 # made on the nominal rig: the hand-eye estimate is solved on ``FIXED_TOP`` (``Layout.calib_top``) and kept while the
@@ -113,12 +114,13 @@ def _case_options(options) -> dict:
 		return {"prior": None, "cameras": "fixed"}
 	if not isinstance(options, dict) or set(options) - set(CASE_OPTIONS):
 		raise ValueError(f"case options must be a dict with keys from {CASE_OPTIONS}")
-	prior, cameras = options.get("prior"), options.get("cameras", "fixed")
+	prior = options.get("prior")
 	if prior is not None and (type(prior) is not str or not prior):
 		raise ValueError("case option prior must be a layout prior JSON path")
+	scene = options.get("scene")
+	cameras = options.get("cameras", "wide" if scene == "v3" else "fixed")
 	if cameras not in CAMERA_MODES:
 		raise ValueError(f"case option cameras must be one of {CAMERA_MODES}")
-	scene = options.get("scene")
 	if scene is None:
 		if "split" in options:
 			raise ValueError("case option split requires scene='v3'")
@@ -131,11 +133,42 @@ def _case_options(options) -> dict:
 	return {"prior": prior, "cameras": cameras, "scene": "v3", "split": split}
 
 
-def case_cameras(seed: int, cameras: str = "fixed") -> tuple[CameraPose, CameraPose]:
-	"""Top and front camera of a case: the fixed rig, or its per-seed perturbation (``cameras="jitter"``)."""
+def _wide_top_pose(cam: dict[str, float]) -> CameraPose:
+	return CameraPose(
+		x=FIXED_TOP.x + cam["dx_m"],
+		y=FIXED_TOP.y + cam["dy_m"],
+		height=FIXED_TOP.height + cam["dz_m"],
+		yaw_deg=FIXED_TOP.yaw_deg + cam["dyaw_deg"],
+		tilt_deg=FIXED_TOP.tilt_deg + cam["dtilt_deg"],
+		roll_deg=FIXED_TOP.roll_deg + cam["droll_deg"],
+		focal_px=FIXED_TOP.focal_px * (1.0 + cam["dfocal_rel"]),
+	)
+
+
+def case_cameras(
+	seed: int, cameras: str = "fixed", *, scene_v3: SceneV3 | None = None
+) -> tuple[CameraPose, CameraPose]:
+	"""Top and front camera of a case: fixed, perturbed (``jitter``/``drift``), or wide v3 sampling."""
 	f = FIXED_FRONT
 	if cameras == "fixed":
 		return FIXED_TOP, look_from((0.20, 0.0), f["distance_m"], f["height_m"], f["yaw_deg"], focal_px=f["focal_px"])
+	if cameras == "wide":
+		cam = (
+			draw_camera_v3(np.random.default_rng([seed, CAMERA_STREAM, 3]), "train")
+			if scene_v3 is None
+			else scene_v3.camera
+		)
+		top = _wide_top_pose(cam)
+		rng_front = np.random.default_rng([seed, CAMERA_STREAM, 2])
+		j = FRONT_JITTER
+		front = look_from(
+			(0.20, 0.0),
+			f["distance_m"] + rng_front.uniform(-j["distance_m"], j["distance_m"]),
+			f["height_m"] + rng_front.uniform(-j["height_m"], j["height_m"]),
+			f["yaw_deg"] + rng_front.uniform(-j["yaw_deg"], j["yaw_deg"]),
+			focal_px=f["focal_px"] * (1 + rng_front.uniform(-j["focal_rel"], j["focal_rel"])),
+		)
+		return top, front
 	rng = np.random.default_rng([seed, CAMERA_STREAM])
 	keep_focal = cameras in EXTRINSIC_ONLY  # the focal draws still happen so the extrinsic draws stay identical
 	t, j = FIXED_TOP, TOP_JITTER
@@ -160,10 +193,14 @@ def case_cameras(seed: int, cameras: str = "fixed") -> tuple[CameraPose, CameraP
 	return top, front
 
 
-def case_wrist_offset(seed: int, cameras: str = "fixed") -> tuple[float, ...] | None:
+def case_wrist_offset(
+	seed: int, cameras: str = "fixed", *, scene_v3: SceneV3 | None = None
+) -> tuple[float, ...] | None:
 	"""Wrist camera mount error of a case (``Layout.wrist_cam_offset``): None for the fixed rig."""
 	if cameras == "fixed":
 		return None
+	if cameras == "wide":
+		return tuple(float(v) for v in scene_v3.wrist) if scene_v3 is not None else None
 	rng = np.random.default_rng([seed, CAMERA_STREAM, WRIST_STREAM])
 	p, r = WRIST_JITTER["pos_m"], WRIST_JITTER["rot_deg"]
 	return tuple(float(v) for v in (*rng.uniform(-p, p, 3), *rng.uniform(-r, r, 3)))
@@ -191,17 +228,38 @@ def sample_case(seed: int, positive: bool, face: int, options: dict | None = Non
 	raw = json.loads((ROOT / "config/sim/top_camera_joint.json").read_text(encoding="utf-8"))
 	prior = list(_layout_prior(opts["prior"])) if opts["prior"] else None
 	layout = sample_layout(np.random.default_rng(seed), CameraPose(**raw["camera"]), defective=positive, prior=prior)
-	layout.top, layout.front = case_cameras(seed, opts["cameras"])
-	layout.wrist_cam_offset = case_wrist_offset(seed, opts["cameras"])
-	# The pose the hand-eye calibration is solved on: the real top camera, except under ``drift``.
-	layout.calib_top = FIXED_TOP if opts["cameras"] == "drift" else None
 	layout.defect_kind = "cross_var"
 	layout.defect_face = face
 	layout.defect_seed = 19_199 + seed * 100_019
 	layout.clutter = []
 	layout.distractors = []
 	if opts.get("scene") == "v3":
-		apply_scene_v3(layout, sample_scene_v3(seed, opts["split"]))
+		layout.top, layout.front = case_cameras(seed, "fixed")
+		scene = sample_scene_v3(seed, opts["split"])
+		apply_scene_v3(layout, scene)
+		layout.top, layout.front = case_cameras(seed, opts["cameras"], scene_v3=scene)
+		layout.wrist_cam_offset = case_wrist_offset(seed, opts["cameras"], scene_v3=scene)
+		layout.calib_top = FIXED_TOP if opts["cameras"] == "drift" else None
+		if opts["cameras"] == "wide":
+			resamples = 0
+			ok, _ = workspace_visible(layout)
+			while not ok:
+				resamples += 1
+				if resamples > 20:
+					raise RuntimeError(
+						f"v3 wide camera failed workspace_visible after 20 resamples (seed={seed}, split={opts['split']})"
+					)
+				rng_cam = np.random.default_rng([int(seed), 0x5C3, SPLITS.index(opts["split"]), 0xCA4, resamples])
+				cam = draw_camera_v3(rng_cam, opts["split"])
+				layout.top = _wide_top_pose(cam)
+				layout._scene_v3 = replace(scene, camera=cam)
+				ok, _ = workspace_visible(layout)
+			layout._visibility_resamples = resamples
+	else:
+		layout.top, layout.front = case_cameras(seed, opts["cameras"])
+		layout.wrist_cam_offset = case_wrist_offset(seed, opts["cameras"])
+		# The pose the hand-eye calibration is solved on: the real top camera, except under ``drift``.
+		layout.calib_top = FIXED_TOP if opts["cameras"] == "drift" else None
 	return layout
 
 

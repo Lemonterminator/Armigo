@@ -11,10 +11,11 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from digital_twin_armigo.agent.twin_mujoco import sample_case
+from digital_twin_armigo.agent.twin_mujoco import FIXED_TOP, sample_case
 from digital_twin_armigo.mujoco_cell.palette import HELD_OUT_PAIRS, PALETTE, hue_gap, jitter_rgb
 from digital_twin_armigo.mujoco_cell.scene import scene_xml
-from digital_twin_armigo.mujoco_cell.scene_v3 import SPLITS, sample_scene_v3
+from digital_twin_armigo.mujoco_cell.scene_v3 import SPLITS, draw_camera_v3, sample_scene_v3
+from digital_twin_armigo.mujoco_cell.visibility import workspace_visible
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -237,7 +238,7 @@ def test_v3_load_suite_and_realistic_clutter(tmp_path):
 		encoding="utf-8",
 	)
 	cases = load_suite(suite_path)
-	assert cases == [(3000001, True, 2, {"scene": "v3", "split": "train"})]
+	assert cases == [(3000001, True, 2, {"cameras": "wide", "scene": "v3", "split": "train"})]
 
 	lay_clutter = next(
 		c
@@ -259,3 +260,46 @@ def test_v3_load_suite_and_realistic_clutter(tmp_path):
 		if twin is not None:
 			twin.cell.close()
 		trace.close()
+
+
+def test_workspace_visible_fixed_and_rotated():
+	lay = sample_case(1100001, False, 5)
+	assert lay.top == FIXED_TOP
+	assert workspace_visible(lay) == (True, [])
+
+	rotated = dataclasses.replace(lay, top=dataclasses.replace(lay.top, yaw_deg=lay.top.yaw_deg + 40.0))
+	ok, bad = workspace_visible(rotated)
+	assert not ok
+	assert len(bad) > 0
+	assert any(name.startswith("table_corner_") or name in {"green_bowl", "pink_bowl", "brick"} for name in bad)
+
+
+def test_v3_wide_camera_and_visibility_resamples():
+	lays = [sample_case(seed, True, 2, {"scene": "v3", "split": "train"}) for seed in range(3000001, 3000501)]
+	for lay in lays:
+		assert lay.top != FIXED_TOP
+		assert lay.wrist_cam_offset is not None
+		ok, bad = workspace_visible(lay)
+		assert ok, f"expected workspace visible, got {bad}"
+	assert np.median([lay._visibility_resamples for lay in lays]) == 0
+
+	lay_a = sample_case(3000001, True, 2, {"scene": "v3", "split": "train"})
+	lay_b = sample_case(3000001, True, 2, {"scene": "v3", "split": "train"})
+	assert lay_a.top == lay_b.top
+	assert lay_a.front == lay_b.front
+	assert lay_a.wrist_cam_offset == lay_b.wrist_cam_offset
+	assert lay_a._visibility_resamples == lay_b._visibility_resamples
+
+	for seed in range(3000001, 3000101):
+		cam = draw_camera_v3(np.random.default_rng([seed, 1]), "ood-cam")
+		ratio = max(abs(cam["dx_m"]) / 0.03, abs(cam["dyaw_deg"]) / 8.0, abs(cam["dtilt_deg"]) / 5.0)
+		assert 1.0 - 1e-9 <= ratio <= 1.5 + 1e-9
+
+		lay_ood = sample_case(seed, False, 4, {"scene": "v3", "split": "ood-cam"})
+		assert workspace_visible(lay_ood)[0]
+		ood_ratio = max(
+			abs(lay_ood.top.x - FIXED_TOP.x) / 0.03,
+			abs(lay_ood.top.yaw_deg - FIXED_TOP.yaw_deg) / 8.0,
+			abs(lay_ood.top.tilt_deg - FIXED_TOP.tilt_deg) / 5.0,
+		)
+		assert 1.0 - 1e-9 <= ood_ratio <= 1.5 + 1e-9
