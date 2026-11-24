@@ -1,5 +1,15 @@
+import json
+from importlib import util
+from pathlib import Path
+
 from digital_twin_armigo.experiments.attribution import first_error
-from digital_twin_armigo.experiments.precursors import DEFAULT_THRESHOLDS, MECHANISMS, explain, precursors
+from digital_twin_armigo.experiments.precursors import (
+	DEFAULT_THRESHOLDS,
+	MECHANISMS,
+	explain,
+	load_thresholds,
+	precursors,
+)
 from digital_twin_armigo.experiments.report import build_summary, mechanism_table, render_markdown
 from digital_twin_armigo.experiments.scoring import score_episode
 
@@ -48,7 +58,8 @@ def view(seq, i, faces, px):
 	return [truth, {"seq": seq + 1, "kind": "view", "observation": obs, **base}]
 
 
-def test_precursor_rules_and_thresholds():
+def test_precursor_rules_and_thresholds(tmp_path, monkeypatch):
+	monkeypatch.setattr("digital_twin_armigo.experiments.precursors.THRESHOLDS_FILE", tmp_path / "missing.json")
 	found = precursors(
 		[
 			CALIB_DRIFT,
@@ -161,3 +172,42 @@ def test_score_episode_and_report_include_mechanisms(tmp_path):
 	assert "## 症状 × 机制（前兆，未经反事实证实）" in md
 	assert "| 症状 | " + " | ".join([*MECHANISMS, "(none)"]) + " |" in md
 	assert "| recovery_failure | 0 | 1 | 0 | 0 | 0 | 0 |" in md
+
+
+_spec = util.spec_from_file_location(
+	"calibrate_precursors", Path(__file__).resolve().parents[1] / "scripts/experiments/calibrate_precursors.py"
+)
+cp = util.module_from_spec(_spec)
+_spec.loader.exec_module(cp)
+
+
+def test_youden_threshold_respects_negative_rate_and_reports_auc():
+	r = cp.youden_threshold([20, 22, 25, 30], [1, 2, 3, 2.5, 21], max_neg_rate=0.10)
+	assert r["threshold"] == 21 and r["tpr"] == 0.75 and r["fpr"] == 0.0
+	assert abs(r["auc"] - 0.95) < 1e-9 and (r["n_pos"], r["n_neg"]) == (4, 5)
+
+
+def test_youden_threshold_ties_count_half_in_auc():
+	assert cp.youden_threshold([5.0], [5.0])["auc"] == 0.5
+
+
+def test_metric_values_take_first_brick_and_max_bowl():
+	events = [
+		{"kind": "brick_perceived", "found": True, "error_xy_mm": 3.0, "error_yaw_deg": 1.0},
+		{"kind": "brick_perceived", "found": True, "error_xy_mm": 9.0, "error_yaw_deg": 9.0},
+		{"kind": "bowls_perceived", "error_xy_mm": {"green": 2.0, "pink": 7.0}},
+	]
+	assert cp.metric_values(events) == {"brick_xy_mm": 3.0, "brick_yaw_deg": 1.0, "bowl_xy_mm": 7.0}
+
+
+def test_load_thresholds_reads_calibrated_file(tmp_path, monkeypatch):
+	p = tmp_path / "precursor_thresholds.json"
+	p.write_text(
+		json.dumps({"metrics": {"brick_xy_mm": {"threshold": 14.21}, "cam_pos_mm": {"threshold": 9.5}}}),
+		encoding="utf-8",
+	)
+	monkeypatch.setattr("digital_twin_armigo.experiments.precursors.THRESHOLDS_FILE", p)
+	loaded = load_thresholds()
+	assert loaded["brick_xy_mm"] == 14.21
+	assert loaded["cam_pos_mm"] == 9.5
+	assert loaded["view_belief_mm"] == DEFAULT_THRESHOLDS["view_belief_mm"]
