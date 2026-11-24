@@ -387,6 +387,14 @@ class ExpertTracer(_SegmentMixin, TwinMujoco):
 		return super()._segment_begin(seg)
 
 	def _segment_end(self, reason: str):
+		if self._open_segment is not None and self._open_segment["kind"] == "carry_to_bowl":
+			from ..mujoco_cell.grasp_geometry import Kinematics
+
+			kin = getattr(self, "_carry_fk", None)
+			if kin is None or kin.model is not self.cell.model:
+				kin = self._carry_fk = Kinematics(self.cell)
+			pos, _ = kin.site_pose(self.cell.joints())
+			self._last_carry_tcp = pos.copy()
 		if self._ou_noise is not None:
 			self._ou_noise.reset()
 		super()._segment_end(reason)

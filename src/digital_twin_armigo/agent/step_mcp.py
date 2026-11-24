@@ -277,6 +277,7 @@ class StepSession:
 		return self._inspect("present_bottom")
 
 	def _inspect(self, node: str) -> dict:
+		covered_before = decision(self.views)[1]
 		new: list[dict] = []
 
 		def run():
@@ -286,7 +287,23 @@ class StepSession:
 
 		error = self._run(node, run)
 		self.views.extend(new)
-		return {"new_views": [self._view(v) for v in new], "error": error}
+		target_faces = range(5) if node == "scan_wrist" else (5,)
+		faces_clear = sorted(
+			{
+				f
+				for v in new
+				if v.get("crop_bbox") is not None and v.get("score") is not None
+				for f in v["faces"]
+				if f in target_faces
+			}
+		)
+		faces_unclear = sorted((set(target_faces) - covered_before) - set(faces_clear))
+		return {
+			"new_views": [self._view(v) for v in new],
+			"error": error,
+			"faces_clear": faces_clear,
+			"faces_unclear": faces_unclear,
+		}
 
 	def place(self, label: str) -> dict:
 		self._check_open()
@@ -295,9 +312,15 @@ class StepSession:
 		if self.placed:
 			raise ValueError("the brick is already placed")
 		self.label = label
+		self.backend._last_carry_tcp = None
 		error = self._run("place", self.backend.place, label)
 		self.placed = not error
-		return {"error": error}
+		carry_target_dist_m = None
+		if label in ("defective", "normal") and getattr(self.backend, "_last_carry_tcp", None) is not None:
+			target_bowl = self.backend.target_bowl(label)
+			bowl_xy = np.asarray(self.backend.bowls[target_bowl], dtype=np.float64)
+			carry_target_dist_m = round(float(np.linalg.norm(self.backend._last_carry_tcp[:2] - bowl_xy[:2])), 5)
+		return {"error": error, "carry_target_dist_m": carry_target_dist_m}
 
 	def recover(self, choice: str) -> dict:
 		self._check_open(allow_pending=True)
@@ -367,6 +390,7 @@ class StepSession:
 			"world_from_camera": _round(b._cam_est),
 			"convention": "OpenCV (x right, y down, z forward); robot base frame",
 			"reprojection_rms_px": event["rms_px"],
+			"reprojection_px": float(event["rms_px"]),
 			"poses_used": event["poses"],
 		}
 
@@ -386,11 +410,22 @@ class StepSession:
 			"size_m": list(est.size),
 			"footprint_mm": [round(v * 1000, 2) for v in est.footprint_m],
 			"occlusion_correction_mm": list(est.extended_mm),
+			"yaw_ambiguity_deg": round(float(est.yaw_ambiguity_deg), 3),
+			"footprint_occluded_frac": round(float(est.footprint_occluded_frac), 4),
 		}
 
 	def locate_bowls(self) -> dict:
 		"""realistic: the bowl centres found in the top image at the start of the session."""
-		return {"bowls_m": {n: _round(xy) for n, xy in self.backend.bowls.items()}, "found_at": "session start"}
+		b = self.backend
+		ests = getattr(b, "_bowl_estimates", None) or {}
+		return {
+			"bowls_m": {n: _round(xy) for n, xy in b.bowls.items()},
+			"found_at": "session start",
+			"rim_inliers": {n: (0 if ests.get(n) is None else int(ests[n].rim_points)) for n in b.bowls},
+			"fit_residual_m": {
+				n: (None if ests.get(n) is None else round(float(ests[n].fit_residual_m), 6)) for n in b.bowls
+			},
+		}
 
 
 class StepService:

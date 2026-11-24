@@ -41,6 +41,7 @@ from ..mujoco_cell.visibility import workspace_visible
 from ..physics import NonIdealityCfg, load_physics_spec
 from .bowl_clearance import PerceivedBowlClearance, with_perceived_bowl_clearance
 from .perception import (
+	BowlEstimate,
 	BrickEstimate,
 	PerceptionCfg,
 	bands_for,
@@ -360,6 +361,8 @@ def brick_to_json(est: BrickEstimate | None) -> dict | None:
 		"footprint_m": [float(v) for v in est.footprint_m],
 		"top_points": int(est.top_points),
 		"extended_mm": [float(v) for v in est.extended_mm],
+		"yaw_ambiguity_deg": float(est.yaw_ambiguity_deg),
+		"footprint_occluded_frac": float(est.footprint_occluded_frac),
 	}
 
 
@@ -373,6 +376,8 @@ def brick_from_json(raw: dict | None) -> BrickEstimate | None:
 		tuple(raw["footprint_m"]),
 		raw["top_points"],
 		tuple(raw["extended_mm"]),
+		float(raw.get("yaw_ambiguity_deg", 0.0)),
+		float(raw.get("footprint_occluded_frac", 0.0)),
 	)
 
 
@@ -736,6 +741,8 @@ class TwinMujoco:
 		if self.realistic and self.perception is None:
 			self.perception = PerceptionCfg.realistic()
 		self.brick_est = None
+		self._bowl_estimates: dict[str, BowlEstimate | None] = {}
+		self._last_carry_tcp: np.ndarray | None = None
 		self._perceived_size = None  # realistic: the size class of the last brick perception (kept after a release)
 		self._belief_obs = False
 		self._grip_from_brick = None  # realistic: the carried brick in the gripper frame, believed at the grasp
@@ -796,6 +803,7 @@ class TwinMujoco:
 		else:
 			found = locate_bowls(self.cell.rgb("top"), depth, self._cam_k, self._cam_est, engine=self.engine)
 		self._baseline_depth = depth
+		self._bowl_estimates = dict(found)
 		errors = {}
 		for name, est in found.items():
 			if est is None:
@@ -1117,6 +1125,18 @@ class TwinMujoco:
 			"brick_est": brick_to_json(self.brick_est),
 			"perceived_size": None if self._perceived_size is None else [float(v) for v in self._perceived_size],
 			"bowls": {name: np.asarray(xy, dtype=np.float64).tolist() for name, xy in self.bowls.items()},
+			"bowl_estimates": {
+				name: None
+				if est is None
+				else {
+					"xy": np.asarray(est.xy, dtype=np.float64).tolist(),
+					"radius_m": float(est.radius_m),
+					"pixels": int(est.pixels),
+					"rim_points": int(est.rim_points),
+					"fit_residual_m": float(est.fit_residual_m),
+				}
+				for name, est in self._bowl_estimates.items()
+			},
 			"expert_params": asdict(ex.p),
 			"relocate_params": asdict(ex.rp),
 			"base_params": None if base is None else [asdict(base[0]), asdict(base[1])],
@@ -2044,6 +2064,19 @@ class TwinMujoco:
 		if agent.get("bowls") is not None:
 			for name, xy in agent["bowls"].items():
 				self.bowls[name] = np.array(xy, dtype=np.float64)  # in place: the clearance proxy reads this mapping
+		if agent.get("bowl_estimates") is not None:
+			self._bowl_estimates = {
+				name: None
+				if raw is None
+				else BowlEstimate(
+					np.array(raw["xy"], dtype=np.float64),
+					float(raw["radius_m"]),
+					int(raw["pixels"]),
+					int(raw["rim_points"]),
+					float(raw.get("fit_residual_m", 0.0)),
+				)
+				for name, raw in agent["bowl_estimates"].items()
+			}
 		if agent.get("camera") is not None and self.perception is not None:
 			self._cam_k = np.array(agent["camera"]["k"], dtype=np.float64)
 			self._cam_est = np.array(agent["camera"]["world_from_cam"], dtype=np.float64)

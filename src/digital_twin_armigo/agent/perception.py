@@ -84,6 +84,8 @@ class BrickEstimate:
 	footprint_m: tuple[float, float]  # fitted top-face rectangle, long side first
 	top_points: int
 	extended_mm: tuple[float, float] = (0.0, 0.0)  # occlusion correction along the long and short axes
+	yaw_ambiguity_deg: float = 0.0
+	footprint_occluded_frac: float = 0.0
 
 	def quat_xyzw(self) -> np.ndarray:
 		return np.array([0.0, 0.0, math.sin(self.yaw / 2), math.cos(self.yaw / 2)])
@@ -199,7 +201,31 @@ def locate_brick(
 		extended.append(round(deficit * 1000, 2))
 	table_z = float(centre @ plane[:2] + plane[2])
 	pos = np.array([centre[0], centre[1], table_z + size[2] / 2 + 0.0005])  # resting upright on the table
-	return BrickEstimate(pos, yaw, size, (float(long_side), float(short_side)), len(top), tuple(extended))
+	n_long = 12 if size[0] > 0.048 else 8
+	a = np.linspace(-0.45 * size[0], 0.45 * size[0], n_long)
+	b = np.linspace(-0.45 * size[1], 0.45 * size[1], 8)
+	xy = centre + a[:, None, None] * axes[0] + b[None, :, None] * axes[1]
+	xy = xy.reshape(-1, 2)
+	grid_pts = np.column_stack([xy, xy @ plane[:2] + plane[2] + z_top])
+	depth_occ = _covered_fraction(grid_pts, depth, k, cam_from_world)
+	rect_shortfall = 1.0 - (min(long_side, size[0]) * min(short_side, size[1])) / (size[0] * size[1])
+	occluded_frac = round(float(np.clip(max(depth_occ, rect_shortfall), 0.0, 1.0)), 4)
+
+	rel0 = (top[:, :2] - centre) @ axes[0]
+	rel1 = (top[:, :2] - centre) @ axes[1]
+	out0 = np.maximum(0.0, np.abs(rel0) - size[0] / 2.0)
+	out1 = np.maximum(0.0, np.abs(rel1) - size[1] / 2.0)
+	outside_rms = float(np.sqrt(np.mean(out0**2 + out1**2)))
+	side_res = math.hypot(long_side - size[0], short_side - size[1])
+	occ_res = occluded_frac * 0.5 * min(size[0], size[1])
+	residual_m = math.sqrt(side_res**2 + outside_rms**2 + occ_res**2)
+	half_span = max(long_side, short_side, size[0]) / 2.0
+	sparsity = math.sqrt(max(1.0, 200.0 / len(top)))
+	max_amb = 45.0 if size[0] == size[1] else 90.0
+	yaw_amb = round(min(max_amb, math.degrees(math.atan2(residual_m, half_span)) * sparsity), 3)
+	return BrickEstimate(
+		pos, yaw, size, (float(long_side), float(short_side)), len(top), tuple(extended), yaw_amb, occluded_frac
+	)
 
 
 @dataclass
@@ -208,6 +234,7 @@ class BowlEstimate:
 	radius_m: float
 	pixels: int
 	rim_points: int
+	fit_residual_m: float = 0.0
 
 
 def _plane_heights(p: np.ndarray, bowls_hint=()) -> np.ndarray | None:
@@ -261,6 +288,26 @@ def bands_for(
 	return out
 
 
+def _fit_bowl_rim(rim: np.ndarray, area: int) -> BowlEstimate | None:
+	"""Fit a circle of radius ~``BOWL_R`` to 3D rim points and return its :class:`BowlEstimate`."""
+	if len(rim) < 20:
+		return None
+	keep = np.ones(len(rim), bool)
+	cx = cy = radius = 0.0
+	for _ in range(4):
+		a = np.column_stack([2 * rim[keep, :2], np.ones(int(keep.sum()))])
+		(cx, cy, c), *_ = np.linalg.lstsq(a, (rim[keep, :2] ** 2).sum(axis=1), rcond=None)
+		radius = math.sqrt(max(c + cx * cx + cy * cy, 0.0))
+		keep = np.abs(np.hypot(rim[:, 0] - cx, rim[:, 1] - cy) - radius) < RIM_INLIER_M
+		if keep.sum() < 10:
+			break
+	if keep.sum() < 10 or abs(radius - BOWL_R) > 0.015:
+		return None
+	residuals = np.abs(np.hypot(rim[keep, 0] - cx, rim[keep, 1] - cy) - radius)
+	fit_residual = float(np.sqrt(np.mean(residuals**2)))
+	return BowlEstimate(np.array([cx, cy]), float(radius), area, int(keep.sum()), fit_residual)
+
+
 def _locate_bowl_from_band(
 	hsv: np.ndarray,
 	pts: np.ndarray,
@@ -312,20 +359,9 @@ def _locate_bowl_from_band(
 			else:
 				rim = rim[(edge_h > 0.004) & (edge_h < 0.028)]
 		rim = rim[np.isfinite(rim).all(axis=1)]
-		if len(rim) < 20:
-			continue
-		keep = np.ones(len(rim), bool)
-		cx = cy = radius = 0.0
-		for _ in range(4):
-			a = np.column_stack([2 * rim[keep, :2], np.ones(int(keep.sum()))])
-			(cx, cy, c), *_ = np.linalg.lstsq(a, (rim[keep, :2] ** 2).sum(axis=1), rcond=None)
-			radius = math.sqrt(max(c + cx * cx + cy * cy, 0.0))
-			keep = np.abs(np.hypot(rim[:, 0] - cx, rim[:, 1] - cy) - radius) < RIM_INLIER_M
-			if keep.sum() < 10:
-				break
-		if keep.sum() < 10 or abs(radius - BOWL_R) > 0.015:
-			continue
-		return BowlEstimate(np.array([cx, cy]), float(radius), area, int(keep.sum()))
+		est = _fit_bowl_rim(rim, area)
+		if est is not None:
+			return est
 	return None
 
 
@@ -365,19 +401,7 @@ def locate_bowls(
 				blob_top = float(np.percentile(h[comp], 95))
 				rim = rim[h[edge[:, 1], edge[:, 0]] > 0.6 * blob_top]
 			rim = rim[np.isfinite(rim).all(axis=1)]
-			if len(rim) < 20:
-				continue
-			keep = np.ones(len(rim), bool)
-			for _ in range(4):
-				a = np.column_stack([2 * rim[keep, :2], np.ones(int(keep.sum()))])
-				(cx, cy, c), *_ = np.linalg.lstsq(a, (rim[keep, :2] ** 2).sum(axis=1), rcond=None)
-				radius = math.sqrt(max(c + cx * cx + cy * cy, 0.0))
-				keep = np.abs(np.hypot(rim[:, 0] - cx, rim[:, 1] - cy) - radius) < RIM_INLIER_M
-				if keep.sum() < 10:
-					break
-			if abs(radius - BOWL_R) > 0.015:
-				continue
-			out[name] = BowlEstimate(np.array([cx, cy]), float(radius), area, int(keep.sum()))
+			out[name] = _fit_bowl_rim(rim, area)
 		return out
 
 	workspace = np.hypot(pts[..., 0], pts[..., 1]) < 0.42
