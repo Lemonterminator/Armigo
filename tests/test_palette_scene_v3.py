@@ -159,7 +159,8 @@ def test_old_cases_unchanged_by_v3_fields():
 		for key, expected in entry["layout"].items():
 			actual = _to_json_comparable(getattr(lay, key))
 			assert actual == expected, f"mismatch on {entry['tag']} {entry['case']} field {key}"
-		assert hashlib.sha256(scene_xml(lay).encode("utf-8")).hexdigest() == entry["xml_sha256"]
+		xml = scene_xml(lay).replace(ROOT.as_posix(), "E:/digital_twin_armigo-v3")
+		assert hashlib.sha256(xml.encode("utf-8")).hexdigest() == entry["xml_sha256"]
 
 
 def test_v3_case_paints_bowls_by_scene():
