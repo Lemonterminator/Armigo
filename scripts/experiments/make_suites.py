@@ -20,6 +20,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -82,6 +83,56 @@ def _dump(cases: list) -> str:
 	return "[\n" + ",\n".join("  " + json.dumps(c) for c in cases) + "\n]\n"
 
 
+def suite_manifest_entry(
+	suite_path: Path,
+	cases: list,
+	*,
+	sealed: bool = False,
+	manifest_dir: Path | None = None,
+	name: str | None = None,
+) -> dict:
+	entry: dict = {
+		"sha256": hashlib.sha256(suite_path.read_bytes()).hexdigest(),
+		"cases": len(cases),
+		"layouts": len({c[0] for c in cases}),
+		"sealed": bool(sealed),
+	}
+	if manifest_dir is not None:
+		resolved_suite = suite_path.resolve()
+		default_name = f"{name}.json" if name else resolved_suite.name
+		if resolved_suite != (manifest_dir.resolve() / default_name):
+			entry["path"] = Path(os.path.relpath(resolved_suite, manifest_dir.resolve())).as_posix()
+	return entry
+
+
+def register_suite(
+	manifest_path: Path,
+	name: str,
+	suite_path: Path,
+	cases: list | None = None,
+	*,
+	sealed: bool = False,
+) -> dict:
+	manifest_path = Path(manifest_path)
+	suite_path = Path(suite_path)
+	if cases is None:
+		raw = json.loads(suite_path.read_text(encoding="utf-8-sig"))
+		cases = raw["cases"] if isinstance(raw, dict) else raw
+	manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.is_file() else {"suites": {}}
+	suites = manifest.setdefault("suites", {})
+	entry = suite_manifest_entry(
+		suite_path,
+		cases,
+		sealed=sealed,
+		manifest_dir=manifest_path.parent,
+		name=name,
+	)
+	suites[name] = entry
+	manifest_path.parent.mkdir(parents=True, exist_ok=True)
+	manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n")
+	return entry
+
+
 def main() -> None:
 	p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
 	p.add_argument("--check", action="store_true")
@@ -109,13 +160,15 @@ def main() -> None:
 	}
 	for name, cases in suites.items():
 		text = _dump(cases)
-		(OUT / f"{name}.json").write_text(text, encoding="utf-8", newline="\n")
-		manifest["suites"][name] = {
-			"sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
-			"cases": len(cases),
-			"layouts": len({c[0] for c in cases}),
-			"sealed": name.endswith("_sealed"),
-		}
+		suite_file = OUT / f"{name}.json"
+		suite_file.write_text(text, encoding="utf-8", newline="\n")
+		manifest["suites"][name] = suite_manifest_entry(
+			suite_file,
+			cases,
+			sealed=name.endswith("_sealed"),
+			manifest_dir=OUT,
+			name=name,
+		)
 	manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n")
 	print(json.dumps(manifest["suites"], indent=2))
 

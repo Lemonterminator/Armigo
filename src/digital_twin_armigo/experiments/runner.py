@@ -93,13 +93,28 @@ def _attempts(group_dir: Path, cid: str) -> list[tuple[int, Path, dict]]:
 	return out
 
 
-def _freeze_suite(root: Path, name: str) -> tuple[Path, str, bool]:
+def _resolve_suite_src(suites_dir: Path, name: str, meta: dict) -> Path:
+	rel = meta.get("path")
+	if not rel:
+		return suites_dir / f"{name}.json"
+	p = Path(rel)
+	if p.is_absolute():
+		return p
+	candidate = (suites_dir / p).resolve()
+	if candidate.is_file():
+		return candidate
+	repo_candidate = (REPO / p).resolve()
+	return repo_candidate if repo_candidate.is_file() else candidate
+
+
+def _freeze_suite(root: Path, name: str, *, suites_dir: Path | None = None) -> tuple[Path, str, bool]:
 	"""Copy the suite into ``<root>/suites`` (once) and check it against the repository manifest."""
-	manifest = json.loads((SUITES / "manifest.json").read_text(encoding="utf-8"))
+	sdir = SUITES if suites_dir is None else Path(suites_dir)
+	manifest = json.loads((sdir / "manifest.json").read_text(encoding="utf-8"))
 	meta = manifest["suites"].get(name)
 	if meta is None:
 		raise SystemExit(f"unknown suite {name!r}; known: {sorted(manifest['suites'])}")
-	src = SUITES / f"{name}.json"
+	src = _resolve_suite_src(sdir, name, meta)
 	if _sha256(src) != meta["sha256"]:
 		raise SystemExit(f"{src} does not match its manifest sha256")
 	dst_dir = root / "suites"
