@@ -524,6 +524,39 @@ def scene_xml(
 	table = " ".join(f"{c:.3f}" for c in layout.table_rgb)
 	tile2 = " ".join(f"{0.97 * c:.3f}" for c in layout.table_rgb)
 	grout = " ".join(f"{0.72 * c:.3f}" for c in layout.table_rgb)
+	if layout.table_texture in (None, "checker"):
+		table_tex = (
+			f'<texture name="table" type="2d" builtin="checker" rgb1="{table}" rgb2="{tile2}" '
+			f'mark="edge" markrgb="{grout}" width="512" height="512"/>'
+		)
+	elif layout.table_texture == "plain":
+		table_tex = (
+			f'<texture name="table" type="2d" builtin="flat" rgb1="{table}" rgb2="{table}" width="512" height="512"/>'
+		)
+	elif layout.table_texture == "noise":
+		mark_noise = " ".join(f"{0.85 * c:.3f}" for c in layout.table_rgb)
+		table_tex = (
+			f'<texture name="table" type="2d" builtin="flat" rgb1="{table}" rgb2="{table}" '
+			f'mark="random" random="0.02" markrgb="{mark_noise}" width="512" height="512"/>'
+		)
+	else:
+		raise ValueError(f"unknown table_texture {layout.table_texture!r}")
+	if layout.bowl_rgb is None:
+		green_rgba = "0.25 0.65 0.3 1"
+		pink_rgba = "0.95 0.55 0.72 1"
+	else:
+		green_rgba = " ".join(f"{c:.3f}" for c in layout.bowl_rgb["green"]) + " 1"
+		pink_rgba = " ".join(f"{c:.3f}" for c in layout.bowl_rgb["pink"]) + " 1"
+	extra_bowls = "".join(
+		_bowl(
+			f"extra_bowl_{i}",
+			(ex, ey),
+			" ".join(f"{c:.3f}" for c in ergb) + " 1",
+			use_visual_mesh=use_visual_meshes,
+			torsional=physics is not None,
+		)
+		for i, (_cname, ex, ey, ergb) in enumerate(layout.extra_bowls)
+	)
 	ld = " ".join(f"{c:.3f}" for c in layout.light_dir)
 	lv = layout.light_level
 	distractors = "".join(
@@ -571,7 +604,7 @@ def scene_xml(
     <global offwidth="640" offheight="480"/><quality shadowsize="1024"/></visual>
   <asset>
     <texture name="sky" type="skybox" builtin="gradient" rgb1="0.75 0.75 0.78" rgb2="0.45 0.45 0.5" width="256" height="1536"/>
-    <texture name="table" type="2d" builtin="checker" rgb1="{table}" rgb2="{tile2}" mark="edge" markrgb="{grout}" width="512" height="512"/>
+    {table_tex}
     <material name="table" texture="table" texuniform="true" texrepeat="{1 / (2 * layout.tile_m):.3f} {1 / (2 * layout.tile_m):.3f}" reflectance="0"/>
     {mesh_assets}
     {marker_assets}
@@ -580,8 +613,8 @@ def scene_xml(
   <worldbody>
     <light pos="0.2 0 1.2" dir="{ld}" directional="true" diffuse="{0.6 * lv:.2f} {0.6 * lv:.2f} {0.6 * lv:.2f}" castshadow="true"/>
     <geom name="table" type="plane" size="3 3 0.05" material="table"/>
-    {_bowl("green_bowl", layout.green, "0.25 0.65 0.3 1", use_visual_mesh=use_visual_meshes, torsional=physics is not None)}
-    {_bowl("pink_bowl", layout.pink, "0.95 0.55 0.72 1", use_visual_mesh=use_visual_meshes, torsional=physics is not None)}
+    {_bowl("green_bowl", layout.green, green_rgba, use_visual_mesh=use_visual_meshes, torsional=physics is not None)}
+    {_bowl("pink_bowl", layout.pink, pink_rgba, use_visual_mesh=use_visual_meshes, torsional=physics is not None)}{extra_bowls}
     {_brick(layout, use_visual_mesh=use_visual_meshes, physics=physics, mass_scale=mass_scale, friction_scale=friction_scale, face_probes=face_probes)}
     {distractors}
     {clutter}

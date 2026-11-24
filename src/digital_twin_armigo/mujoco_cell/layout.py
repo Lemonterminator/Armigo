@@ -37,6 +37,10 @@ class Layout:
 	wrist_cam_offset: tuple[float, float, float, float, float, float] | None = None
 	defect_kind: str = "cross"  # one of scene.DEFECT_KINDS: cross, tape, chip, scuff, discolor, cross_var
 	defect_seed: int = 0  # the defect's shape / colour is a deterministic function of this, the face and the kind
+	bowl_rgb: dict[str, tuple[float, float, float]] | None = None
+	bowl_names: dict[str, str] | None = None
+	extra_bowls: list[tuple[str, float, float, tuple[float, float, float]]] = field(default_factory=list)
+	table_texture: str | None = None
 
 
 RELEASE_REACH_M = 0.34

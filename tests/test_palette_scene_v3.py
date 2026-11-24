@@ -1,14 +1,22 @@
 import colorsys
+import dataclasses
+import hashlib
 import itertools
 import json
 import os
 import subprocess
 import sys
+from pathlib import Path
 
+import numpy as np
 import pytest
 
+from digital_twin_armigo.agent.twin_mujoco import sample_case
 from digital_twin_armigo.mujoco_cell.palette import HELD_OUT_PAIRS, PALETTE, hue_gap, jitter_rgb
+from digital_twin_armigo.mujoco_cell.scene import scene_xml
 from digital_twin_armigo.mujoco_cell.scene_v3 import SPLITS, sample_scene_v3
+
+ROOT = Path(__file__).resolve().parents[1]
 
 
 def test_palette_has_eight_colours_and_four_held_out_pairs():
@@ -127,3 +135,127 @@ def test_ood_appearance_and_ood_lang_constraints():
 			s = sample_scene_v3(seed, split)
 			assert s.variant in range(5)
 			assert s.table_texture in {"checker", "plain", "noise"}
+
+
+def _to_json_comparable(val):
+	if dataclasses.is_dataclass(val):
+		return {k: _to_json_comparable(v) for k, v in dataclasses.asdict(val).items()}
+	if isinstance(val, tuple):
+		return [_to_json_comparable(v) for v in val]
+	if isinstance(val, list):
+		return [_to_json_comparable(v) for v in val]
+	return val
+
+
+def test_old_cases_unchanged_by_v3_fields():
+	lay = sample_case(1100001, False, 5)
+	assert lay.bowl_rgb is None and lay.bowl_names is None and lay.extra_bowls == [] and lay.table_texture is None
+	assert 'rgba="0.25 0.65 0.3 1"' in scene_xml(lay)
+
+	data = json.loads((ROOT / "tests/data/legacy_7cc24e2.json").read_text(encoding="utf-8"))
+	for entry in data["cases"]:
+		lay = sample_case(*entry["case"])
+		for key, expected in entry["layout"].items():
+			actual = _to_json_comparable(getattr(lay, key))
+			assert actual == expected, f"mismatch on {entry['tag']} {entry['case']} field {key}"
+		assert hashlib.sha256(scene_xml(lay).encode("utf-8")).hexdigest() == entry["xml_sha256"]
+
+
+def test_v3_case_paints_bowls_by_scene():
+	pytest.importorskip("mujoco")
+	from digital_twin_armigo.constants import SO101_MJCF_DIR
+	from digital_twin_armigo.mujoco_cell import Cell
+	from digital_twin_armigo.mujoco_cell._mj import mujoco
+	from digital_twin_armigo.physics import load_physics_spec
+
+	lay = sample_case(3000001, True, 2, {"scene": "v3", "split": "train"})
+	xml = scene_xml(lay)
+	assert set(lay.bowl_names) == {"green", "pink"}
+	for slot in ("green", "pink"):
+		r, g, b = lay.bowl_rgb[slot]
+		assert f'rgba="{r:.3f} {g:.3f} {b:.3f} 1"' in xml
+	assert all(np.hypot(x - lay.brick_xy[0], y - lay.brick_xy[1]) > 0.13 for _, x, y, _ in lay.extra_bowls)
+
+	# Verify all three table texture renderings
+	xml_checker = scene_xml(dataclasses.replace(lay, table_texture="checker"))
+	assert '<texture name="table" type="2d" builtin="checker"' in xml_checker
+	xml_plain = scene_xml(dataclasses.replace(lay, table_texture="plain"))
+	assert '<texture name="table" type="2d" builtin="flat"' in xml_plain
+	assert 'mark="random"' not in xml_plain
+	xml_noise = scene_xml(dataclasses.replace(lay, table_texture="noise"))
+	assert '<texture name="table" type="2d" builtin="flat"' in xml_noise
+	assert 'mark="random"' in xml_noise
+
+	# Find a 3-bowl v3 seed and compile into a Cell with physics
+	lay3 = next(
+		c
+		for seed in range(3000001, 3000050)
+		for c in (sample_case(seed, True, 2, {"scene": "v3", "split": "train"}),)
+		if c.extra_bowls
+	)
+	xml3 = scene_xml(lay3)
+	assert "extra_bowl_0" in xml3
+	assert np.hypot(lay3.extra_bowls[0][1] - lay3.brick_xy[0], lay3.extra_bowls[0][2] - lay3.brick_xy[1]) > 0.13
+	cell = Cell(lay3, SO101_MJCF_DIR, physics=load_physics_spec(), render_enabled=False)
+	try:
+		mujoco.mj_forward(cell.model, cell.data)
+		# Verify extra_bowl_0 got plate friction
+		bid = mujoco.mj_name2id(cell.model, mujoco.mjtObj.mjOBJ_BODY, "extra_bowl_0")
+		assert bid >= 0
+		from digital_twin_armigo.isaac_bridge.client import scene_payload
+
+		lay3_no_clutter = dataclasses.replace(lay3, clutter=[])
+		payload_v3 = scene_payload(lay3_no_clutter, cell)
+		assert payload_v3["table"] == {"rgb": [float(c) for c in lay3.table_rgb], "texture": "plain"}
+	finally:
+		cell.close()
+
+	# Legacy scene_payload omits "texture"
+	lay_old = sample_case(1100001, False, 5)
+	cell_old = Cell(lay_old, SO101_MJCF_DIR, render_enabled=False)
+	try:
+		payload_old = scene_payload(lay_old, cell_old)
+		assert payload_old["table"] == {"rgb": [float(c) for c in lay_old.table_rgb]}
+	finally:
+		cell_old.close()
+
+	# Invalid v3 options
+	for bad in ({"split": "train"}, {"scene": "v2"}, {"scene": "v3", "split": "invalid"}):
+		with pytest.raises(ValueError):
+			sample_case(3000001, False, 5, bad)
+
+
+def test_v3_load_suite_and_realistic_clutter(tmp_path):
+	pytest.importorskip("mujoco")
+	from digital_twin_armigo.agent.twin_mujoco import TwinMujoco, load_suite
+	from digital_twin_armigo.agent.twin_record import EpisodeTrace
+	from digital_twin_armigo.inspection_scorer import FixedScorer
+
+	suite_path = tmp_path / "v3.json"
+	suite_path.write_text(
+		json.dumps({"cases": [[3000001, True, 2]], "options": {"scene": "v3", "split": "train"}}),
+		encoding="utf-8",
+	)
+	cases = load_suite(suite_path)
+	assert cases == [(3000001, True, 2, {"scene": "v3", "split": "train"})]
+
+	lay_clutter = next(
+		c
+		for seed in range(3000001, 3000050)
+		for c in (sample_case(seed, False, 5, {"scene": "v3", "split": "train"}),)
+		if c.clutter
+	)
+	trace = EpisodeTrace(tmp_path / "v3_trace", video=False)
+	twin = None
+	try:
+		twin = TwinMujoco(
+			lay_clutter,
+			FixedScorer(lambda _c, _r: -1, {"top": 0, "wrist_cam": 0}),
+			trace,
+			sensing="realistic",
+		)
+		assert set(twin.bowls) == {"green", "pink"}
+	finally:
+		if twin is not None:
+			twin.cell.close()
+		trace.close()

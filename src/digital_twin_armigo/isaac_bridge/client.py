@@ -339,7 +339,11 @@ def scene_payload(layout, cell) -> dict:
 			"green": {"xy": [float(layout.green[0]), float(layout.green[1])], "radius": float(BOWL_R)},
 			"pink": {"xy": [float(layout.pink[0]), float(layout.pink[1])], "radius": float(BOWL_R)},
 		},
-		"table": {"rgb": [float(c) for c in layout.table_rgb]},
+		"table": (
+			{"rgb": [float(c) for c in layout.table_rgb], "texture": "plain"}
+			if getattr(layout, "table_texture", None) is not None
+			else {"rgb": [float(c) for c in layout.table_rgb]}
+		),
 		"light_level": float(layout.light_level),
 		"defect": _defect_payload(layout),
 		"cameras": cameras,

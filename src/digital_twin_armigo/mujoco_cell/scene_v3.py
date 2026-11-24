@@ -4,10 +4,14 @@ from __future__ import annotations
 
 import colorsys
 import itertools
+import math
 from dataclasses import dataclass
 
 import numpy as np
 
+from ..camera import project
+from ..constants import BOWL_R, BRICK_COLOURS, TOP_CROP, TOP_FULL
+from .layout import Layout, release_point
 from .palette import HELD_OUT_PAIRS, PALETTE, hue_gap, jitter_rgb
 
 SPLITS: tuple[str, ...] = ("train", "val", "ood-color", "ood-cam", "ood-lang", "ood-appearance", "test")
@@ -166,3 +170,76 @@ def sample_scene_v3(seed: int, split: str) -> SceneV3:
 		light_k=light_k,
 		variant=variant,
 	)
+
+
+def apply_scene_v3(layout: Layout, scene: SceneV3) -> Layout:
+	"""Apply decoupled ``SceneV3`` appearance, extra bowl, distractors, and bowl-interior clutter to ``layout``."""
+	layout.bowl_names = {"green": scene.normal, "pink": scene.defect}
+	layout.bowl_rgb = {"green": scene.rgb[scene.normal], "pink": scene.rgb[scene.defect]}
+	layout.table_rgb = scene.table_rgb
+	layout.table_texture = scene.table_texture
+	layout._scene_v3 = scene
+
+	rng = np.random.default_rng([int(layout.defect_seed) & 0xFFFFFFFF, 0x5C3E])
+
+	if scene.extra is not None:
+		cx, cy, cw, ch = TOP_CROP
+		for attempt in range(1500):
+			if attempt < 200:
+				r = float(rng.uniform(0.21, 0.27))
+				a = float(rng.uniform(-1.1, 1.1))
+			elif attempt < 1000:
+				r = float(rng.uniform(0.21, 0.41))
+				a = float(rng.uniform(-1.25, 1.25))
+			else:
+				r = float(rng.uniform(0.21, 0.42))
+				a = float(rng.uniform(-1.45, 1.45))
+			x, y = r * math.cos(a), r * math.sin(a)
+			if 200 <= attempt < 1000 and layout.top is not None:
+				uv, front = project(layout.top, np.array([[x, y, 0.0]]), TOP_FULL)
+				in_view = bool(front[0] and cx + 25 <= uv[0, 0] <= cx + cw - 25 and cy + 25 <= uv[0, 1] <= cy + ch - 25)
+			else:
+				in_view = True
+			if (
+				in_view
+				and math.hypot(x - layout.green[0], y - layout.green[1]) > 2 * BOWL_R - 0.01
+				and math.hypot(x - layout.pink[0], y - layout.pink[1]) > 2 * BOWL_R - 0.01
+				and math.hypot(x - layout.brick_xy[0], y - layout.brick_xy[1]) > BOWL_R + 0.03
+				and math.hypot(*release_point((x, y))) < 0.40
+				and math.hypot(x, y) > 0.14
+			):
+				layout.extra_bowls = [(scene.extra, float(x), float(y), scene.rgb[scene.extra])]
+				break
+		else:
+			raise RuntimeError("no extra bowl position satisfied the spacing and reach limits")
+	else:
+		layout.extra_bowls = []
+
+	distractors: list[tuple[float, float, float, float, float, float]] = []
+	for _ in range(int(rng.integers(0, 4))):
+		r = float(rng.uniform(0.33, 0.45))
+		a = float(rng.uniform(-1.4, 1.4))
+		sx, sy, sz = (float(v) for v in rng.uniform(0.01, 0.03, 3))
+		distractors.append((r * math.cos(a), r * math.sin(a), sx, sy, sz, 0.0))
+	layout.distractors = distractors
+
+	clutter: list[tuple[float, float, float, float, float, float]] = []
+	clutter_palette = list(BRICK_COLOURS) + list(scene.rgb.values())
+	bowls_xy = [layout.green, layout.pink, *((x, y) for _, x, y, _ in layout.extra_bowls)]
+	for bx, by in bowls_xy:
+		n_c = int(rng.integers(0, 5))
+		bowl_pts: list[tuple[float, float]] = []
+		for _ in range(n_c):
+			for _attempt in range(40):
+				r = BOWL_R * 0.55 * math.sqrt(float(rng.random()))
+				ang = float(rng.uniform(0.0, 2.0 * math.pi))
+				cx = float(bx + r * math.cos(ang))
+				cy = float(by + r * math.sin(ang))
+				if all(math.hypot(cx - px, cy - py) >= 0.048 for px, py in bowl_pts):
+					bowl_pts.append((cx, cy))
+					c = clutter_palette[int(rng.integers(len(clutter_palette)))]
+					yaw = float(rng.uniform(0.0, math.pi))
+					clutter.append((cx, cy, yaw, float(c[0]), float(c[1]), float(c[2])))
+					break
+	layout.clutter = clutter
+	return layout

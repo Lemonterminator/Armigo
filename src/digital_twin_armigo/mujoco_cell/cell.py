@@ -252,7 +252,7 @@ class Cell:
 		table_gid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_GEOM, "table")
 		if table_gid >= 0:
 			m.geom_friction[table_gid] = (physics.table.dynamic_friction * friction_scale, 0.005, 0.0005)
-		for bname in ("green_bowl", "pink_bowl"):
+		for bname in ("green_bowl", "pink_bowl", *(f"extra_bowl_{i}" for i in range(len(self.layout.extra_bowls)))):
 			bid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, bname)
 			if bid >= 0:
 				for g in range(m.ngeom):

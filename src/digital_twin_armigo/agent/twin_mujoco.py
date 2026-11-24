@@ -35,6 +35,7 @@ from ..mujoco_cell.inspection_views import DETECTOR_PAD, capture_view, crop_coun
 from ..mujoco_cell.layout import sample_layout
 from ..mujoco_cell.orbit_scan import OrbitParams, plan_orbit_scan
 from ..mujoco_cell.physics_expert import MIN_JERK_PEAK_RATIO, ExpertParams, _min_jerk
+from ..mujoco_cell.scene_v3 import SPLITS, apply_scene_v3, sample_scene_v3
 from ..mujoco_cell.table_relocation import RelocateExpert, RelocateParams, plan_bottom_view, plan_table_scan
 from ..physics import NonIdealityCfg, load_physics_spec
 from .bowl_clearance import PerceivedBowlClearance, with_perceived_bowl_clearance
@@ -74,7 +75,7 @@ BOTTOM_BORDER_PX = 40  # realistic bottom views keep the believed brick this far
 
 
 # Case options (the optional 4th element of a case, see sample_case / load_suite).
-CASE_OPTIONS = ("prior", "cameras")
+CASE_OPTIONS = ("prior", "cameras", "scene", "split")
 CAMERA_MODES = ("fixed", "jitter", "jitter_extrinsic", "drift")
 # Plan 2026-11-24 camera conditions: ``jitter_extrinsic`` draws exactly the ``jitter`` sample but keeps every focal
 # length nominal (intrinsics known), so only the mounts move; ``drift`` is ``jitter_extrinsic`` after a calibration
@@ -116,7 +117,17 @@ def _case_options(options) -> dict:
 		raise ValueError("case option prior must be a layout prior JSON path")
 	if cameras not in CAMERA_MODES:
 		raise ValueError(f"case option cameras must be one of {CAMERA_MODES}")
-	return {"prior": prior, "cameras": cameras}
+	scene = options.get("scene")
+	if scene is None:
+		if "split" in options:
+			raise ValueError("case option split requires scene='v3'")
+		return {"prior": prior, "cameras": cameras}
+	if scene != "v3":
+		raise ValueError(f"case option scene must be 'v3', got {scene!r}")
+	split = options.get("split", "train")
+	if split not in SPLITS:
+		raise ValueError(f"case option split must be one of {SPLITS}")
+	return {"prior": prior, "cameras": cameras, "scene": "v3", "split": split}
 
 
 def case_cameras(seed: int, cameras: str = "fixed") -> tuple[CameraPose, CameraPose]:
@@ -188,6 +199,8 @@ def sample_case(seed: int, positive: bool, face: int, options: dict | None = Non
 	layout.defect_seed = 19_199 + seed * 100_019
 	layout.clutter = []
 	layout.distractors = []
+	if opts.get("scene") == "v3":
+		apply_scene_v3(layout, sample_scene_v3(seed, opts["split"]))
 	return layout
 
 
@@ -201,7 +214,8 @@ def load_suite(path: Path) -> list[tuple]:
 		if not isinstance(raw.get("cases"), list):
 			raise TypeError("suite object needs a 'cases' array")
 		opts = _case_options(raw.get("options") or None)
-		options = {k: v for k, v in opts.items() if v != _case_options(None)[k]} or None
+		defaults = _case_options(None)
+		options = {k: v for k, v in opts.items() if k not in defaults or v != defaults[k]} or None
 		raw = raw["cases"]
 	if not isinstance(raw, list):
 		raise TypeError("suite must be a JSON array of cases or an object with 'cases'")
@@ -625,7 +639,7 @@ class TwinMujoco:
 		self.expert_type = ContinuousCarryExpert if smooth_carry else RelocateExpert
 		if self.realistic:
 			# Clutter is not perceived, and the clearance proxy below knows only the bowls.
-			if layout.clutter:
+			if layout.clutter and layout.bowl_names is None:
 				raise ValueError("realistic sensing does not perceive clutter: use a layout without clutter")
 			self.bowl_clearance = PerceivedBowlClearance(self.cell, self.bowls)
 			self.expert_type = with_perceived_bowl_clearance(self.expert_type, self.bowl_clearance)
