@@ -230,6 +230,26 @@ class Cell:
 			m.cam_pos[cid], m.cam_quat[cid] = self.wrist_cam_actual
 			mujoco.mj_camlight(m, d)
 
+	@contextmanager
+	def camera_override(self, name: str, world_from_cam_cv: np.ndarray, data=None):
+		"""Temporarily set a world-mounted camera pose (OpenCV world-from-camera); restores on exit."""
+		m, d = self.model, self.data if data is None else data
+		cid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_CAMERA, name)
+		if m.cam_bodyid[cid] != 0:
+			raise ValueError(f"{name} is mounted on a body; use nominal_wrist_cam")
+		saved = m.cam_pos[cid].copy(), m.cam_quat[cid].copy()
+		rot = np.asarray(world_from_cam_cv, dtype=np.float64)[:3, :3] @ np.diag([1.0, -1.0, -1.0])
+		quat = np.empty(4, dtype=np.float64)
+		mujoco.mju_mat2Quat(quat, rot.flatten())
+		m.cam_pos[cid] = np.asarray(world_from_cam_cv, dtype=np.float64)[:3, 3]
+		m.cam_quat[cid] = quat
+		mujoco.mj_camlight(m, d)
+		try:
+			yield
+		finally:
+			m.cam_pos[cid], m.cam_quat[cid] = saved
+			mujoco.mj_camlight(m, d)
+
 	def _apply_physics_spec(self, physics: PhysicsSpec, mass_scale: float, friction_scale: float) -> None:
 		"""Align MuJoCo actuator gains, joint dynamics, and surface friction with :class:`PhysicsSpec`."""
 		m = self.model

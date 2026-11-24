@@ -56,7 +56,7 @@ from .perception import (
 from .review import MAX_CANDIDATES, MIN_POSE_SEPARATION_RAD, _alarm, llm_choice, review_decision, rule_choice
 from .sensing import GripperContact
 from .twin_graph import Policy, decision, select_skill
-from .wrist_localize import FuseCfg, believed_wrist_from_cam, fuse, localize_from_wrist, wrist_k
+from .wrist_localize import FuseCfg, _blob, believed_wrist_from_cam, fuse, localize_from_wrist, wrist_k
 
 ROOT = Path(__file__).resolve().parents[3]
 INITIAL_Q = np.array([*normalized_to_rad(np.array(REST_U, dtype=np.float64))[:5], ExpertParams().open_g])
@@ -678,6 +678,8 @@ class TwinMujoco:
 		review_llm=None,
 		oracle=(),
 		motion="open",
+		belief_cameras="actual",
+		evidence="hold",
 	):
 		if sensing not in SENSING:
 			raise ValueError(f"sensing must be one of {SENSING}")
@@ -685,7 +687,13 @@ class TwinMujoco:
 		self.realistic = sensing == "realistic"
 		if motion not in VARIANTS:
 			raise ValueError(f"motion must be one of {tuple(VARIANTS)}")
+		if belief_cameras not in ("actual", "estimated"):
+			raise ValueError(f"belief_cameras must be 'actual' or 'estimated', got {belief_cameras!r}")
+		if evidence not in ("hold", "img"):
+			raise ValueError(f"evidence must be 'hold' or 'img', got {evidence!r}")
 		self.motion = motion
+		self.evidence = evidence
+		self.belief_cameras = "estimated" if evidence != "hold" else belief_cameras
 		self.fuse_cfg = FuseCfg()
 		raw_oracle = oracle if oracle else getattr(layout, "oracle", ())
 		if isinstance(raw_oracle, str):
@@ -1050,7 +1058,13 @@ class TwinMujoco:
 		table, and in ``realistic`` also the carried one."""
 		if self.realistic:
 			# Realistic planners also see the designed wrist camera mount, not the actual (possibly offset) one.
-			with self.cell.nominal_wrist_cam(), self._believed_brick():
+			from contextlib import ExitStack
+
+			with ExitStack() as stack:
+				stack.enter_context(self.cell.nominal_wrist_cam())
+				if self.belief_cameras == "estimated" and self._cam_est is not None:
+					stack.enter_context(self.cell.camera_override("top", self._cam_est))
+				stack.enter_context(self._believed_brick())
 				yield
 			return
 		with self._believed_brick():
@@ -1280,6 +1294,8 @@ class TwinMujoco:
 			"oracle_logged": self._oracle_logged,
 			"motion": self.motion,
 			"fuse_cfg": asdict(self.fuse_cfg),
+			"belief_cameras": self.belief_cameras,
+			"evidence": self.evidence,
 			"segments": self._checkpoint_extra(),
 		}
 		if self.perception is not None:
@@ -1590,11 +1606,29 @@ class TwinMujoco:
 	def _capture(self, camera):
 		cell = self.cell
 		rgb = cell.rgb(camera)
+		crop_extra: dict = {}
 		if self.realistic:
 			# Visible faces and the crop come from the believed brick; the image is the real one.
 			with self._planning_view() as vis:
 				geometry = capture_view(vis, camera)
 				image, bbox = detector_crop(vis, camera, None, vis.data, self.crop_size, clamp=True, rgb=rgb)
+			if self.evidence != "hold" and bbox is not None:
+				win_cx, win_cy = bbox[0] + bbox[2] / 2.0, bbox[1] + bbox[3] / 2.0
+				gate_px = max(float(max(bbox[2], bbox[3])), 20.0)
+				blob_mask = _blob(rgb, (win_cx, win_cy), gate_px)
+				if blob_mask is not None and blob_mask.any():
+					ys, xs = np.nonzero(blob_mask)
+					cx, cy = float(xs.mean()), float(ys.mean())
+					with self._planning_view() as vis:
+						image, bbox = detector_crop(
+							vis, camera, None, vis.data, self.crop_size, clamp=True, rgb=rgb, center_px=(cx, cy)
+						)
+					crop_extra = {
+						"crop_source": "image",
+						"crop_shift_px": round(math.hypot(cx - win_cx, cy - win_cy), 2),
+					}
+				else:
+					crop_extra = {"crop_source": "projection", "crop_shift_px": 0.0}
 		else:
 			with blind_geometry(cell):
 				geometry = capture_view(cell, camera)
@@ -1645,6 +1679,7 @@ class TwinMujoco:
 			"threshold": float(threshold),
 			"crop_bbox": bbox,
 			"q": [round(float(v), 5) for v in cell.joints()],
+			**crop_extra,
 		}
 		if score is not None:
 			self.scored_count += 1
@@ -2223,6 +2258,10 @@ class TwinMujoco:
 			self.motion = str(agent["motion"])
 		if agent.get("fuse_cfg") is not None:
 			self.fuse_cfg = FuseCfg(**agent["fuse_cfg"])
+		if agent.get("belief_cameras") is not None:
+			self.belief_cameras = str(agent["belief_cameras"])
+		if agent.get("evidence") is not None:
+			self.evidence = str(agent["evidence"])
 		self._configure_recheck()
 		if self.realistic:
 			self._contact.reset()
