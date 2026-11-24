@@ -1,4 +1,4 @@
-"""Tests for deterministic failure bank builder and runner integration (Task F3)."""
+"""Tests for deterministic failure bank builder, runner integration, and three-gate fix verification (Tasks F3 & F4)."""
 
 from __future__ import annotations
 
@@ -13,6 +13,7 @@ import pytest
 from digital_twin_armigo.agent.twin_mujoco import load_suite
 from digital_twin_armigo.experiments import runner
 from digital_twin_armigo.experiments.contract import case_id
+from digital_twin_armigo.experiments.stats import _exact_mcnemar, paired_comparison
 
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS_DIR = ROOT / "scripts" / "experiments"
@@ -516,3 +517,412 @@ def test_failure_bank_manifest_and_runner_integration(tmp_path, monkeypatch):
 	assert len(jobs) == 2
 	assert [j["experiment"]["case_id"] for j in jobs] == ["L700001-D0", "L700002-N"]
 	assert (group_dir / "plan.json").is_file()
+
+
+def _load_verify_fix():
+	return _load_script("verify_fix")
+
+
+def _score_row(
+	case_id: str,
+	*,
+	layout_id: str | None = None,
+	success: bool,
+	expected_label: str = "normal",
+	group: str = "realistic-drift-A-v7bot",
+	engine: str = "mujoco",
+) -> dict:
+	lid = layout_id or case_id.split("-")[0]
+	return {
+		"case_id": case_id,
+		"layout_id": lid,
+		"engine": engine,
+		"group": group,
+		"expected_label": expected_label,
+		"physical_success": bool(success),
+		"defect_miss": expected_label == "defective" and not success,
+		"false_alarm": expected_label == "normal" and not success,
+		"is_unknown": False,
+		"wrong_bowl": False,
+		"infra_failed": False,
+		"root_cause": "none" if success else "calibration_stale",
+	}
+
+
+def _paired_layout_rows(layout_outcomes: dict[int, tuple[bool, bool]], *, group: str = "g") -> list[dict]:
+	out: list[dict] = []
+	for seed, (ok_n, ok_d) in sorted(layout_outcomes.items()):
+		lid = f"L{seed}"
+		out.append(_score_row(f"{lid}-N", layout_id=lid, success=ok_n, expected_label="normal", group=group))
+		out.append(_score_row(f"{lid}-D0", layout_id=lid, success=ok_d, expected_label="defective", group=group))
+	return out
+
+
+def _write_episode_dir(ep_dir: Path, *, case: list, ok: bool, experiment: dict) -> None:
+	ep_dir.mkdir(parents=True, exist_ok=True)
+	expected = "defective" if case[1] else "normal"
+	dest = "green" if (expected == "normal") == ok else "pink"
+	label = expected if ok else ("defective" if expected == "normal" else "normal")
+	verdict = "SUCCESS" if ok else "FAILED"
+	(ep_dir / "task.json").write_text(json.dumps({"case": case}), encoding="utf-8")
+	(ep_dir / "episode.json").write_text(
+		json.dumps(
+			{
+				"schema": "armigo-agent-episode/v1",
+				"provenance": {"engine": "mujoco", "experiment": experiment},
+				"result": {"verdict": verdict, "label": label, "destination": dest},
+			}
+		),
+		encoding="utf-8",
+	)
+	(ep_dir / "run_status.json").write_text(json.dumps({"state": "done"}), encoding="utf-8")
+
+
+def test_f4_gate1_bank_fix_rate_dict_and_jsonl(tmp_path):
+	vf = _load_verify_fix()
+
+	base_rows = [_score_row(f"L{100 + i}-D0", success=False, expected_label="defective") for i in range(10)]
+	# Include one already-passing row in base; denominator must remain total bank base failures (10).
+	base_rows.append(_score_row("L999-N", success=True, expected_label="normal"))
+
+	new_pass = [_score_row(f"L{100 + i}-D0", success=(i < 7), expected_label="defective") for i in range(10)] + [
+		_score_row("L999-N", success=True, expected_label="normal")
+	]
+	g1_pass = vf.evaluate_gate1_bank(base_rows, new_pass, min_fix_rate=0.70)
+	assert g1_pass["total_base_failures"] == 10
+	assert g1_pass["fixed"] == 7
+	assert g1_pass["fix_rate"] == pytest.approx(0.70)
+	assert g1_pass["passed"] is True
+
+	new_fail = [_score_row(f"L{100 + i}-D0", success=(i < 6), expected_label="defective") for i in range(10)] + [
+		_score_row("L999-N", success=True, expected_label="normal")
+	]
+	g1_fail = vf.evaluate_gate1_bank(base_rows, new_fail, min_fix_rate=0.70)
+	assert g1_fail["total_base_failures"] == 10
+	assert g1_fail["fixed"] == 6
+	assert g1_fail["fix_rate"] == pytest.approx(0.60)
+	assert g1_fail["passed"] is False
+
+	base_jsonl = tmp_path / "base_scores.jsonl"
+	new_jsonl = tmp_path / "new_scores.jsonl"
+	base_jsonl.write_text("\n".join(json.dumps(r) for r in base_rows) + "\n", encoding="utf-8")
+	new_jsonl.write_text("\n".join(json.dumps(r) for r in new_pass) + "\n", encoding="utf-8")
+	g1_file = vf.evaluate_gate1_bank(vf.load_score_rows(base_jsonl), vf.load_score_rows(new_jsonl), min_fix_rate=0.70)
+	assert g1_file["fixed"] == 7
+	assert g1_file["total_base_failures"] == 10
+	assert g1_file["passed"] is True
+
+
+def test_f4_gate2_regression_mcnemar_reuses_stats():
+	vf = _load_verify_fix()
+
+	reg_base = [_score_row(f"L{200 + i}-N", success=True) for i in range(20)]
+
+	# 1 new failure -> net_regression = 1 <= 1, p_mcnemar = 1.0 > 0.2 -> passes.
+	reg_one_loss = [_score_row(f"L{200 + i}-N", success=(i != 0)) for i in range(20)]
+	g2_ok = vf.evaluate_gate2_regression(reg_base, reg_one_loss, max_net_regression=1, min_mcnemar_p=0.2)
+	expected_ok = paired_comparison(reg_base, reg_one_loss, metric="success_rate", B=200, seed=0)
+	assert g2_ok["n10"] == 1 and g2_ok["n01"] == 0
+	assert g2_ok["net_regression"] == 1
+	assert g2_ok["p_mcnemar"] == pytest.approx(_exact_mcnemar(1, 0))
+	assert g2_ok["p_mcnemar"] == pytest.approx(expected_ok["p_mcnemar"])
+	assert g2_ok["passed"] is True
+
+	# 6 new failures -> net_regression = 6 > 1 and p_mcnemar = 0.03125 <= 0.2 -> fails.
+	reg_six_losses = [_score_row(f"L{200 + i}-N", success=(i >= 6)) for i in range(20)]
+	g2_fail = vf.evaluate_gate2_regression(reg_base, reg_six_losses, max_net_regression=1, min_mcnemar_p=0.2)
+	assert g2_fail["n10"] == 6 and g2_fail["n01"] == 0
+	assert g2_fail["net_regression"] == 6
+	assert g2_fail["p_mcnemar"] == pytest.approx(_exact_mcnemar(6, 0))
+	assert g2_fail["p_mcnemar"] < 0.2
+	assert g2_fail["passed"] is False
+
+	# 2 new failures -> p_mcnemar = 0.5 > 0.2, but net_regression = 2 > 1 -> fails.
+	reg_two_losses = [_score_row(f"L{200 + i}-N", success=(i >= 2)) for i in range(20)]
+	g2_net_fail = vf.evaluate_gate2_regression(reg_base, reg_two_losses, max_net_regression=1, min_mcnemar_p=0.2)
+	assert g2_net_fail["n10"] == 2 and g2_net_fail["n01"] == 0
+	assert g2_net_fail["passed"] is False
+
+	# Pure improvement on previously failing regression rows (n10=0, n01=8) -> never treated as regression.
+	mixed_base = [_score_row(f"L{300 + i}-N", success=(i >= 8)) for i in range(20)]
+	all_pass = [_score_row(f"L{300 + i}-N", success=True) for i in range(20)]
+	g2_improved = vf.evaluate_gate2_regression(mixed_base, all_pass, max_net_regression=1, min_mcnemar_p=0.2)
+	assert g2_improved["n10"] == 0 and g2_improved["n01"] == 8
+	assert g2_improved["passed"] is True
+
+
+def test_f4_gate3_fresh_clustered_bootstrap_ci():
+	vf = _load_verify_fix()
+
+	# 30 layouts, 2 cases each = 60 pairs.
+	base_map = {seed: (True, seed % 5 != 0) for seed in range(1, 31)}
+	# Slight improvement on 3 layouts -> CI lower bound >= -0.02.
+	new_ok_map = {seed: (True, True if seed in (5, 10, 15) else ok_d) for seed, (_ok_n, ok_d) in base_map.items()}
+
+	fresh_base = _paired_layout_rows(base_map)
+	fresh_new_ok = _paired_layout_rows(new_ok_map)
+	g3_ok = vf.evaluate_gate3_fresh(fresh_base, fresh_new_ok, min_ci_lo=-0.02, bootstrap_b=1000, seed=7)
+	pc_ok = paired_comparison(fresh_base, fresh_new_ok, metric="success_rate", B=1000, seed=7)
+	assert g3_ok["n_pairs"] == 60
+	assert g3_ok["n_clusters"] == 30
+	assert g3_ok["diff"] == pytest.approx(pc_ok["diff"])
+	assert g3_ok["ci_lo"] == pytest.approx(pc_ok["ci_lo"])
+	assert g3_ok["ci_hi"] == pytest.approx(pc_ok["ci_hi"])
+	assert g3_ok["ci_lo"] >= -0.02
+	assert g3_ok["passed"] is True
+
+	# Drop both cases in 4 layouts -> mean diff = -8/60 = -13.3%, ci_lo < -0.02 -> fails.
+	new_bad_map = {seed: (False, False) if seed <= 4 else vals for seed, vals in base_map.items()}
+	fresh_new_bad = _paired_layout_rows(new_bad_map)
+	g3_bad = vf.evaluate_gate3_fresh(fresh_base, fresh_new_bad, min_ci_lo=-0.02, bootstrap_b=1000, seed=7)
+	assert g3_bad["diff"] < -0.05
+	assert g3_bad["ci_lo"] < -0.02
+	assert g3_bad["passed"] is False
+
+
+def test_f4_evaluate_three_gates_all_verdicts():
+	vf = _load_verify_fix()
+
+	bank_base = [_score_row(f"B{i}-D0", success=False, expected_label="defective") for i in range(10)]
+	bank_pass = [_score_row(f"B{i}-D0", success=(i < 8), expected_label="defective") for i in range(10)]
+	bank_fail = [_score_row(f"B{i}-D0", success=(i < 5), expected_label="defective") for i in range(10)]
+
+	reg_base = [_score_row(f"R{i}-N", success=True) for i in range(20)]
+	reg_pass = [_score_row(f"R{i}-N", success=True) for i in range(20)]
+	reg_fail = [_score_row(f"R{i}-N", success=(i >= 6)) for i in range(20)]
+
+	fresh_base = _paired_layout_rows({s: (True, True) for s in range(1, 21)})
+	fresh_pass = _paired_layout_rows({s: (True, True) for s in range(1, 21)})
+	fresh_fail = _paired_layout_rows({s: (False, False) if s <= 5 else (True, True) for s in range(1, 21)})
+
+	criteria = {
+		"bank_min_fix_rate": 0.70,
+		"regression_max_net_regression": 1,
+		"regression_min_mcnemar_p": 0.20,
+		"fresh_min_ci_lo": -0.02,
+		"bootstrap_b": 500,
+		"seed": 0,
+	}
+
+	res_merge = vf.evaluate_three_gates(bank_pass, bank_pass, reg_base, reg_pass, fresh_base, fresh_pass, criteria)
+	# Note: bank_pass vs bank_pass has 0 base failures -> use bank_base vs bank_pass!
+	assert res_merge["verdict"] == "reject"
+
+	res_merge = vf.evaluate_three_gates(bank_base, bank_pass, reg_base, reg_pass, fresh_base, fresh_pass, criteria)
+	assert res_merge["gates"]["bank"]["passed"] is True
+	assert res_merge["gates"]["regression"]["passed"] is True
+	assert res_merge["gates"]["fresh"]["passed"] is True
+	assert res_merge["verdict"] == "merge"
+
+	res_overfit = vf.evaluate_three_gates(bank_base, bank_pass, reg_base, reg_pass, fresh_base, fresh_fail, criteria)
+	assert res_overfit["gates"]["bank"]["passed"] is True
+	assert res_overfit["gates"]["regression"]["passed"] is True
+	assert res_overfit["gates"]["fresh"]["passed"] is False
+	assert res_overfit["verdict"] == "overfit_bank"
+
+	res_reject_g1 = vf.evaluate_three_gates(bank_base, bank_fail, reg_base, reg_pass, fresh_base, fresh_pass, criteria)
+	assert res_reject_g1["gates"]["bank"]["passed"] is False
+	assert res_reject_g1["verdict"] == "reject"
+
+	res_reject_g2 = vf.evaluate_three_gates(bank_base, bank_pass, reg_base, reg_fail, fresh_base, fresh_pass, criteria)
+	assert res_reject_g2["gates"]["regression"]["passed"] is False
+	assert res_reject_g2["verdict"] == "reject"
+
+	res_reject_g1_g3 = vf.evaluate_three_gates(
+		bank_base, bank_fail, reg_base, reg_pass, fresh_base, fresh_fail, criteria
+	)
+	assert res_reject_g1_g3["gates"]["bank"]["passed"] is False
+	assert res_reject_g1_g3["gates"]["fresh"]["passed"] is False
+	assert res_reject_g1_g3["verdict"] == "reject"
+
+
+def test_f4_cli_skip_run_reads_base_and_writes_reports(tmp_path):
+	vf = _load_verify_fix()
+
+	base_root = tmp_path / "base_ro"
+	new_root = tmp_path / "new_rw"
+	suites_dir = new_root / "suites"
+	suites_dir.mkdir(parents=True)
+
+	bank_cases = [[101 + i, True, 0] for i in range(4)]
+	reg_cases = [[201 + i, False, 0] for i in range(6)]
+	fresh_cases = []
+	for s in range(301, 311):
+		fresh_cases.extend([[s, False, 0], [s, True, 0]])
+
+	bank_suite = suites_dir / "bank_s.json"
+	reg_suite = suites_dir / "reg_s.json"
+	fresh_suite = suites_dir / "fresh_s.json"
+	bank_suite.write_text(json.dumps({"name": "bank_s", "cases": bank_cases}), encoding="utf-8")
+	reg_suite.write_text(json.dumps({"name": "reg_s", "cases": reg_cases}), encoding="utf-8")
+	fresh_suite.write_text(json.dumps({"name": "fresh_s", "cases": fresh_cases}), encoding="utf-8")
+
+	# Populate base_root with pre-existing scores.jsonl (must remain untouched).
+	group = "realistic-drift-A-v7bot"
+	base_rows = (
+		[_score_row(f"L{101 + i}-D0", success=False, expected_label="defective", group=group) for i in range(4)]
+		+ [_score_row(f"L{201 + i}-N", success=True, expected_label="normal", group=group) for i in range(6)]
+		+ [_score_row(f"L{s}-N", success=True, expected_label="normal", group=group) for s in range(301, 311)]
+		+ [_score_row(f"L{s}-D0", success=True, expected_label="defective", group=group) for s in range(301, 311)]
+	)
+	base_rep = base_root / "reports" / "base-b"
+	base_rep.mkdir(parents=True)
+	base_scores_file = base_rep / "scores.jsonl"
+	base_scores_text = "\n".join(json.dumps(r) for r in base_rows) + "\n"
+	base_scores_file.write_text(base_scores_text, encoding="utf-8")
+
+	# Populate new_root with episode dirs under runs/new-b/mujoco/<group>/<case_id>/
+	batch_dir = new_root / "runs" / "new-b" / "mujoco" / group
+	for c in bank_cases:
+		cid = f"L{c[0]}-D0"
+		_write_episode_dir(
+			batch_dir / cid, case=c, ok=True, experiment={"batch": "new-b", "group": group, "case_id": cid}
+		)
+	for c in reg_cases:
+		cid = f"L{c[0]}-N"
+		_write_episode_dir(
+			batch_dir / cid, case=c, ok=True, experiment={"batch": "new-b", "group": group, "case_id": cid}
+		)
+	for c in fresh_cases:
+		cid = f"L{c[0]}-D0" if c[1] else f"L{c[0]}-N"
+		_write_episode_dir(
+			batch_dir / cid, case=c, ok=True, experiment={"batch": "new-b", "group": group, "case_id": cid}
+		)
+
+	criteria_path = tmp_path / "criteria.json"
+	criteria_path.write_text(
+		json.dumps(
+			{
+				"bank_min_fix_rate": 0.70,
+				"regression_max_net_regression": 1,
+				"regression_min_mcnemar_p": 0.20,
+				"fresh_min_ci_lo": -0.02,
+				"bootstrap_b": 400,
+				"seed": 0,
+			}
+		),
+		encoding="utf-8",
+	)
+	out_dir = tmp_path / "verify_out"
+
+	rc = vf.main(
+		[
+			"--bank",
+			str(bank_suite),
+			"--regression",
+			str(reg_suite),
+			"--fresh",
+			str(fresh_suite),
+			"--base",
+			"base-b",
+			"--batch",
+			"new-b",
+			"--base-root",
+			str(base_root),
+			"--root",
+			str(new_root),
+			"--criteria",
+			str(criteria_path),
+			"--out-dir",
+			str(out_dir),
+			"--cluster",
+			"grasp:no_clamp:calibration_stale",
+			"--skip-run",
+		]
+	)
+	assert rc == 0
+
+	# Base root remained untouched.
+	assert sorted(p.relative_to(base_root).as_posix() for p in base_root.rglob("*") if p.is_file()) == [
+		"reports/base-b/scores.jsonl"
+	]
+	assert base_scores_file.read_text(encoding="utf-8") == base_scores_text
+
+	out_json = out_dir / "verify-grasp-no_clamp-calibration_stale.json"
+	out_md = out_dir / "verify-grasp-no_clamp-calibration_stale.md"
+	assert out_json.is_file()
+	assert out_md.is_file()
+
+	payload = json.loads(out_json.read_text(encoding="utf-8"))
+	assert payload["verdict"] == "merge"
+	assert payload["cluster"] == "grasp:no_clamp:calibration_stale"
+	assert payload["gates"]["bank"]["fix_rate"] == pytest.approx(1.0)
+	assert payload["gates"]["regression"]["net_regression"] == 0
+	assert payload["gates"]["fresh"]["n_pairs"] == 20
+	assert payload["gates"]["fresh"]["n_clusters"] == 10
+
+	md_text = out_md.read_text(encoding="utf-8")
+	assert "merge" in md_text
+	assert "Gate 1" in md_text and "Gate 2" in md_text and "Gate 3" in md_text
+
+
+def test_f4_cli_run_invokes_runner_unless_skip_run(tmp_path, monkeypatch):
+	vf = _load_verify_fix()
+
+	root = tmp_path / "data"
+	suites_dir = root / "suites"
+	suites_dir.mkdir(parents=True)
+	bank_suite = suites_dir / "b_suite.json"
+	reg_suite = suites_dir / "r_suite.json"
+	fresh_suite = suites_dir / "f_suite.json"
+	bank_suite.write_text(json.dumps([[101, True, 0]]), encoding="utf-8")
+	reg_suite.write_text(json.dumps([[201, False, 0]]), encoding="utf-8")
+	fresh_suite.write_text(json.dumps([[301, False, 0], [301, True, 0]]), encoding="utf-8")
+
+	group = "realistic-fixed-A-v7bot"
+	base_rows = [
+		_score_row("L101-D0", success=False, expected_label="defective", group=group),
+		_score_row("L201-N", success=True, expected_label="normal", group=group),
+		_score_row("L301-N", success=True, expected_label="normal", group=group),
+		_score_row("L301-D0", success=True, expected_label="defective", group=group),
+	]
+	base_rep = root / "reports" / "base-b"
+	base_rep.mkdir(parents=True)
+	(base_rep / "scores.jsonl").write_text("\n".join(json.dumps(r) for r in base_rows) + "\n", encoding="utf-8")
+
+	called: list[tuple[str, str]] = []
+
+	def fake_run_suite(args, suite_spec: str, batch_name: str) -> None:
+		called.append((suite_spec, batch_name))
+		rep = root / "reports" / batch_name
+		rep.mkdir(parents=True, exist_ok=True)
+		rows = [
+			_score_row("L101-D0", success=True, expected_label="defective", group=group),
+			_score_row("L201-N", success=True, expected_label="normal", group=group),
+			_score_row("L301-N", success=True, expected_label="normal", group=group),
+			_score_row("L301-D0", success=True, expected_label="defective", group=group),
+		]
+		(rep / "scores.jsonl").write_text("\n".join(json.dumps(r) for r in rows) + "\n", encoding="utf-8")
+
+	monkeypatch.setattr(vf, "run_suite_batch", fake_run_suite)
+
+	criteria_path = tmp_path / "criteria.json"
+	criteria_path.write_text(json.dumps({"bootstrap_b": 200}), encoding="utf-8")
+
+	rc = vf.main(
+		[
+			"--bank",
+			"b_suite",
+			"--regression",
+			"r_suite",
+			"--fresh",
+			"f_suite",
+			"--base",
+			"base-b",
+			"--batch",
+			"new-b",
+			"--root",
+			str(root),
+			"--criteria",
+			str(criteria_path),
+			"--cluster",
+			"test_cluster",
+		]
+	)
+	assert rc == 0
+	assert called == [
+		("b_suite", "new-b-bank"),
+		("r_suite", "new-b-regression"),
+		("f_suite", "new-b-fresh"),
+	]
+	assert (root / "reports" / "new-b" / "verify-test_cluster.json").is_file()
