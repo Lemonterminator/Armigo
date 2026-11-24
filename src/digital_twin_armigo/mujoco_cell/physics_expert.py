@@ -273,6 +273,7 @@ class ClosedLoopExpert:
 		self._no_dual = 0
 		self._lo, self._hi = cell.jnt_range[:, 0].copy(), cell.jnt_range[:, 1].copy()
 		self.clipped_frames = 0  # frames whose scripted target fell outside the joint range and was clipped
+		self.recheck = None
 		self._gen = self._script()
 
 	@property
@@ -590,14 +591,17 @@ class ClosedLoopExpert:
 		yield from self._go_home()
 
 	def _approach_and_descend(self, phase: str):
-		"""Plan a grasp for the brick's current pose, move over it, descend and servo onto the grasp point."""
+		"""Plan a grasp for the brick's current pose, move over it, descend and servo onto the grasp point. With a
+		``recheck`` loop, re-localise between hover and pre-grasp (see agent/grasp_loop.py)."""
 		p = self.p
 		target, roll, q_grasp = self._grasp_plan(open_g=self._active_open_g)
 		hover = target + np.array([0.0, 0.0, p.hover_z_m - self.z_grasp])
-		pre = target + np.array([0.0, 0.0, p.pregrasp_dz_m])
 		q = self._ik(hover, q_grasp, roll)
 		q[5] = self._active_open_g
 		yield from self._move(q, p.hover_move_s, phase)
+		if self.recheck is not None:
+			target, roll, q = yield from self.recheck.descend(self, phase, target, roll, q)
+		pre = target + np.array([0.0, 0.0, p.pregrasp_dz_m])
 		q = self._ik(pre, q, roll)
 		yield from self._move(q, p.descend_s, phase)
 		q = self._ik(target, q, roll)
