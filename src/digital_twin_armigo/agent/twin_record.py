@@ -79,6 +79,7 @@ class EpisodeTrace:
 		self._is_blind: list[bool] = []
 		self._is_takeover: list[bool] = []
 		self._supervise_action: list[bool] = []
+		self.noisy: list[bool] = []
 		self.top_depth_rng: np.random.Generator | None = None
 		self.images = None
 		self.started = time.perf_counter()
@@ -186,6 +187,7 @@ class EpisodeTrace:
 		is_blind=False,
 		is_takeover=False,
 		supervise_action=True,
+		noisy=False,
 	):
 		self.rows.append((state.copy(), target.copy(), phase))
 		self.exact.append(
@@ -198,22 +200,24 @@ class EpisodeTrace:
 		self._is_blind.append(bool(is_blind))
 		self._is_takeover.append(bool(is_takeover))
 		self._supervise_action.append(bool(supervise_action))
+		self.noisy.append(bool(noisy))
 
-	def set_row_masks(self, *, is_blind=None, is_takeover=None, supervise_action=None):
+	def set_row_masks(self, *, is_blind=None, is_takeover=None, supervise_action=None, noisy=None):
 		"""Overwrite the per-row mask columns of the rows recorded so far (the active branch). Each argument is a bool
 		sequence of length ``len(self.rows)`` (or None to keep it); rows appended later use ``command``'s flags.
 		Hook for callers that only know a mask after the fact (S11 takeover onset, S5 detection frame)."""
-		for name, values in (
-			("_is_blind", is_blind),
-			("_is_takeover", is_takeover),
-			("_supervise_action", supervise_action),
+		for attr, label, values in (
+			("_is_blind", "is_blind", is_blind),
+			("_is_takeover", "is_takeover", is_takeover),
+			("_supervise_action", "supervise_action", supervise_action),
+			("noisy", "noisy", noisy),
 		):
 			if values is None:
 				continue
 			values = [bool(v) for v in values]
 			if len(values) != len(self.rows):
-				raise ValueError(f"{name[1:]} has {len(values)} entries for {len(self.rows)} rows")
-			setattr(self, name, values)
+				raise ValueError(f"{label} has {len(values)} entries for {len(self.rows)} rows")
+			setattr(self, attr, values)
 
 	def step(self, cell, node):
 		if self.video:
@@ -352,6 +356,8 @@ class EpisodeTrace:
 				extra["is_takeover"] = np.array(self._is_takeover, dtype=bool)
 			if len(self._supervise_action) == len(self.rows):
 				extra["supervise_action"] = np.array(self._supervise_action, dtype=bool)
+			if len(self.noisy) == len(self.rows) and any(self.noisy):
+				extra["noisy"] = np.array(self.noisy, dtype=bool)
 			state64, action64, segment = zip(*self.exact, strict=True)
 			np.savez_compressed(
 				path / "actions.npz",
@@ -377,6 +383,7 @@ class EpisodeTrace:
 		self._is_blind = []
 		self._is_takeover = []
 		self._supervise_action = []
+		self.noisy = []
 
 	def finish(self, result, provenance):
 		from digital_twin_armigo.inventory.taxonomy import classify_provenance
@@ -534,6 +541,7 @@ SEGMENT_FEATURES = {
 	"mask.is_blind": {"dtype": "bool", "shape": (1,), "names": None},
 	"mask.is_takeover": {"dtype": "bool", "shape": (1,), "names": None},
 	"mask.supervise_action": {"dtype": "bool", "shape": (1,), "names": None},
+	"mask.noisy": {"dtype": "bool", "shape": (1,), "names": None},
 }
 SEGMENT_DONE_CONVENTION = (
 	"segment.done is True on row r when the segment before it ended at observation r with segment_done (end reason"
@@ -663,12 +671,14 @@ def student_frames(episode: Path, start_frame: int = 0):
 		is_blind_col = rows["is_blind"] if "is_blind" in rows.files else None
 		is_takeover_col = rows["is_takeover"] if "is_takeover" in rows.files else None
 		supervise_col = rows["supervise_action"] if "supervise_action" in rows.files else None
+		noisy_col = rows["noisy"] if "noisy" in rows.files else None
 		actions = rows["action"]
 		states = rows["state"]
 		for col_name, arr in (
 			("is_blind", is_blind_col),
 			("is_takeover", is_takeover_col),
 			("supervise_action", supervise_col),
+			("noisy", noisy_col),
 		):
 			if arr is not None and len(arr) != len(actions):
 				raise ValueError(f"{col_name} length {len(arr)} != actions length {len(actions)}")
@@ -702,6 +712,7 @@ def student_frames(episode: Path, start_frame: int = 0):
 				"mask.supervise_action": np.array(
 					[bool(supervise_col[row_index]) if supervise_col is not None else True], dtype=bool
 				),
+				"mask.noisy": np.array([bool(noisy_col[row_index]) if noisy_col is not None else False], dtype=bool),
 			}
 			for name, reader in readers.items():
 				pixels = next(reader, None)
@@ -1077,7 +1088,7 @@ def stitch_perturbation_episode(
 
 	mask_defaults = {"is_blind": False, "is_takeover": False, "supervise_action": True}
 	stitched_arrays: dict[str, np.ndarray] = {"segment": np.concatenate([p_seg, s_seg], axis=0)}
-	skip_keys = {"segment", *mask_defaults}
+	skip_keys = {"segment", "noisy", *mask_defaults}
 	for key in p_arrs:
 		if key in skip_keys or key not in s_arrs:
 			continue
@@ -1095,6 +1106,17 @@ def stitch_perturbation_episode(
 			else np.full(n_suffix, default_val, dtype=bool)
 		)
 		stitched_arrays[mask_key] = np.concatenate([p_mask, s_mask], axis=0)
+
+	if "noisy" in p_arrs or "noisy" in s_arrs:
+		p_noisy = (
+			np.asarray(p_arrs["noisy"][:start_frame], dtype=bool)
+			if "noisy" in p_arrs
+			else np.zeros(start_frame, dtype=bool)
+		)
+		s_noisy = np.asarray(s_arrs["noisy"], dtype=bool) if "noisy" in s_arrs else np.zeros(n_suffix, dtype=bool)
+		noisy_cat = np.concatenate([p_noisy, s_noisy], axis=0)
+		if bool(noisy_cat.any()):
+			stitched_arrays["noisy"] = noisy_cat
 
 	if blind_span is not None:
 		lo = max(0, min(n_total, int(blind_span[0])))

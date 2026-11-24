@@ -1045,8 +1045,9 @@ class TwinMujoco:
 		unperturbed episodes keep their events and health verdicts exactly."""
 		return self.perturb is not None or self.perturbation_rewinds > 0
 
-	def _apply_target(self, obs, target, phase):
+	def _apply_target(self, obs, target, phase, *, executed_target=None, noisy=False):
 		"""Record and apply one joint target through the command filter; returns a fault code or None."""
+		exec_target = target if executed_target is None else executed_target
 		# Observation at t is paired with the next unfiltered policy command.
 		self.record.command(
 			obs["q"],
@@ -1054,11 +1055,12 @@ class TwinMujoco:
 			phase,
 			gripper_cmd=float(obs["gripper_cmd"]),
 			effort_frac=float(obs["effort_frac"]),
+			noisy=noisy,
 		)
-		self.ep.step(target)
+		self.ep.step(exec_target)
 		self.total_frames += 1
 		self.phases.append(PHASES.index(phase))
-		self.targets.append(np.asarray(target, dtype=np.float64).copy())
+		self.targets.append(np.asarray(exec_target, dtype=np.float64).copy())
 		if self.perturb is not None:
 			payload = self.perturb(self, obs, phase)
 			if isinstance(payload, dict):

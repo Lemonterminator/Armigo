@@ -45,7 +45,7 @@ from typing import Any, Protocol
 
 import numpy as np
 
-from ..constants import PHASES
+from ..constants import FPS, PHASES
 from ..mujoco_cell.gripper_state import GripperMonitor, GripperMonitorParams, GripperState
 from .grasp_tail import GRASP_TAIL_MODES, GraspPlan, GraspTail, expert_tail
 from .twin_mujoco import INITIAL_Q, MAX_TOTAL_FRAMES, WRIST_MIN_PX, TwinMujoco
@@ -295,15 +295,114 @@ class _SegmentMixin:
 		raise SegmentMappingError(f"no segment for motion generator {name!r} in node {self.node!r}")
 
 
+DEFAULT_ACTION_NOISE_KINDS: tuple[str, ...] = (
+	"grasp",
+	"lift",
+	"carry_to_bowl",
+	"release_in_bowl",
+	"scan_view",
+)
+
+
+@dataclass(frozen=True)
+class ActionNoise:
+	"""Ornstein-Uhlenbeck action-noise spec for arm joints (0..4; gripper joint 5 is untouched).
+
+	Discrete-time update at ``dt = 1 / FPS``:
+	``n[t + 1] = rho * n[t] + sigma_rad * sqrt(1 - rho**2) * N(0, 1)``, where ``rho = exp(-dt / tau_s)``.
+	"""
+
+	sigma_rad: float = 0.02
+	tau_s: float = 0.3
+	kinds: tuple[str, ...] = DEFAULT_ACTION_NOISE_KINDS
+	seed: int = 0
+	clip_rad: float | None = None
+
+	def __post_init__(self) -> None:
+		if self.sigma_rad < 0.0 or not math.isfinite(self.sigma_rad):
+			raise ValueError(f"sigma_rad must be finite and >= 0, got {self.sigma_rad!r}")
+		if self.tau_s <= 0.0 or not math.isfinite(self.tau_s):
+			raise ValueError(f"tau_s must be finite and > 0, got {self.tau_s!r}")
+		if self.clip_rad is not None and (self.clip_rad <= 0.0 or not math.isfinite(self.clip_rad)):
+			raise ValueError(f"clip_rad must be None or finite > 0, got {self.clip_rad!r}")
+		bad = set(self.kinds) - set(SEGMENT_KINDS)
+		if bad:
+			raise ValueError(f"unknown segment kind(s) in ActionNoise.kinds: {sorted(bad)}")
+		object.__setattr__(self, "kinds", tuple(self.kinds))
+
+	def rho(self, dt: float = 1.0 / FPS) -> float:
+		return math.exp(-float(dt) / float(self.tau_s))
+
+	def innovation_std(self, dt: float = 1.0 / FPS) -> float:
+		r = self.rho(dt)
+		return float(self.sigma_rad) * math.sqrt(max(0.0, 1.0 - r * r))
+
+	def make_process(self, dt: float = 1.0 / FPS) -> _OUNoiseProcess:
+		return _OUNoiseProcess(self, dt=dt)
+
+
+class _OUNoiseProcess:
+	"""Stateful 5-DOF OU noise generator with per-segment reset."""
+
+	def __init__(self, spec: ActionNoise, dt: float = 1.0 / FPS) -> None:
+		self.spec = spec
+		self.dt = float(dt)
+		self.rho = spec.rho(self.dt)
+		self.innov_std = spec.innovation_std(self.dt)
+		self.rng = np.random.default_rng(int(spec.seed))
+		self.state = np.zeros(5, dtype=np.float64)
+
+	def reset(self) -> None:
+		self.state.fill(0.0)
+
+	def step(self) -> np.ndarray:
+		if self.spec.sigma_rad == 0.0:
+			self.state.fill(0.0)
+		else:
+			eps = self.rng.normal(0.0, 1.0, size=5)
+			self.state = self.rho * self.state + self.innov_std * eps
+			if self.spec.clip_rad is not None:
+				self.state = np.clip(self.state, -self.spec.clip_rad, self.spec.clip_rad)
+		out = np.zeros(6, dtype=np.float64)
+		out[:5] = self.state
+		return out
+
+
 class ExpertTracer(_SegmentMixin, TwinMujoco):
 	"""The unchanged expert, recording which segment each of its frames belongs to (events and the per-frame
-	``segment`` column). Behaviour is identical to :class:`TwinMujoco`: the targets pass through unchanged. The
-	production entries build this class (twin_mcp ``TwinService.run``, step_mcp ``StepSession``); the LeRobot export
-	(``twin_record.segment_labels``) refuses frames without a segment."""
+	``segment`` column). With ``action_noise`` set, OU noise is added to the executed arm targets on segments in
+	``action_noise.kinds`` while the clean teacher target is recorded and flagged with ``noisy=True``."""
 
-	def __init__(self, *args, **kwargs):
+	def __init__(self, *args, action_noise: ActionNoise | None = None, **kwargs):
+		if action_noise is not None and not isinstance(action_noise, ActionNoise):
+			raise TypeError(f"action_noise must be ActionNoise or None, got {type(action_noise).__name__}")
+		self.action_noise = action_noise
+		self._ou_noise = None if action_noise is None else action_noise.make_process()
 		super().__init__(*args, **kwargs)
 		self._segment_setup()
+
+	def _segment_begin(self, seg: Segment) -> int:
+		if self._ou_noise is not None:
+			self._ou_noise.reset()
+		return super()._segment_begin(seg)
+
+	def _segment_end(self, reason: str):
+		if self._ou_noise is not None:
+			self._ou_noise.reset()
+		super()._segment_end(reason)
+
+	def _apply_target(self, obs, target, phase):
+		if (
+			self._ou_noise is not None
+			and self.action_noise is not None
+			and self._open_segment is not None
+			and self._open_segment["kind"] in self.action_noise.kinds
+			and self.action_noise.sigma_rad > 0.0
+		):
+			delta = self._ou_noise.step()
+			executed = np.clip(target + delta, self.expert._lo, self.expert._hi)
+			return super()._apply_target(obs, target, phase, executed_target=executed, noisy=True)
+		return super()._apply_target(obs, target, phase)
 
 	def _tag_carry(self):
 		ex = self.expert
@@ -1036,6 +1135,7 @@ def run_episode(
 	clamp_wait: bool = False,
 	clamp_wait_obstruct_rad: float | None = None,
 	clamp_wait_empty_rad: float | None = None,
+	action_noise: ActionNoise | None = None,
 ):
 	"""Run one case through the graph: the expert (with segment markers) when ``policy`` is None, else the student
 	(``segment_monitor``: the diagnostics channel, see :class:`StudentTwin`). Writes the trace to ``out`` and returns
@@ -1044,10 +1144,12 @@ def run_episode(
 	from .twin_mujoco import sample_case
 	from .twin_record import EpisodeTrace
 
+	if policy is not None and action_noise is not None:
+		raise ValueError("action_noise is only supported for the expert tracer (policy=None)")
 	trace = EpisodeTrace(out, video=video)
 	layout = sample_case(*case)
 	if policy is None:
-		twin = ExpertTracer(layout, scorer, trace, sensing=sensing)
+		twin = ExpertTracer(layout, scorer, trace, sensing=sensing, action_noise=action_noise)
 	else:
 		twin = StudentTwin(
 			layout,
@@ -1064,6 +1166,13 @@ def run_episode(
 	try:
 		result = build_graph(twin, Policy()).invoke({}, config={"recursion_limit": 64})["result"]
 		provenance = {"engine": "mujoco", "sensing": sensing, "case": list(case), "student": policy is not None}
+		if action_noise is not None:
+			provenance["action_noise"] = {
+				"sigma_rad": action_noise.sigma_rad,
+				"tau_s": action_noise.tau_s,
+				"kinds": list(action_noise.kinds),
+				"seed": action_noise.seed,
+			}
 		if grasp_tail is not None:
 			provenance["grasp_tail"] = grasp_tail
 		if clamp_wait:
