@@ -1201,7 +1201,12 @@ def stitch_perturbation_episode(
 			fail["prior_views"] = [
 				{**pv, "id": _rewrite_view_id(pv.get("id"), src_branch_id, 0)} for pv in fail["prior_views"]
 			]
-	result["student_eligible"] = bool(result.get("verdict") == "SUCCESS" and not result["rewinds"])
+	oracle_used = bool(
+		((parent_manifest.get("provenance") or {}).get("experiment") or {}).get("oracle")
+		or ((branch_manifest.get("provenance") or {}).get("experiment") or {}).get("oracle")
+		or any(ev.get("kind") == "oracle_applied" for ev in stitched_events)
+	)
+	result["student_eligible"] = bool(result.get("verdict") == "SUCCESS" and not result["rewinds"] and not oracle_used)
 
 	provenance = {
 		**parent_manifest.get("provenance", {}),

@@ -27,6 +27,7 @@ CAMERA_CONDITIONS = ("fixed", "recal", "drift")
 # re-view among the same reachable candidates as B. ``None`` on omniscient phase-1 runs (strategy A semantics).
 STRATEGIES = ("A", "B", "C")
 DETECTORS = ("v6", "v7bot")
+ORACLE_PARTS = ("camera", "brick", "bowls")
 
 RUN_STATES = ("planned", "running", "interrupted", "done", "infra_failed")
 
@@ -39,6 +40,7 @@ EXPERIMENT_FIELDS = (
 	"strategy",  # STRATEGIES
 	"detector",  # DETECTORS
 	"detector_sha256",
+	"oracle",  # ORACLE_PARTS subset or None (counterfactual evaluation only)
 	"suite",  # suite file name
 	"suite_sha256",
 	"layout_id",  # "L<seed>"

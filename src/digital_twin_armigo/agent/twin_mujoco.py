@@ -22,6 +22,7 @@ import numpy as np
 from ..benchmarks import SENSITIVITY_MATRIX
 from ..camera import CameraPose, look_from
 from ..constants import BOWL_R, FPS, PHASES, REST_U, SO101_MJCF_DIR
+from ..experiments.contract import ORACLE_PARTS
 from ..inspection import assert_no_defect_leakage
 from ..joints import normalized_to_rad
 from ..metrics import evaluate_episode_health, motion_smoothness
@@ -78,7 +79,7 @@ BOTTOM_BORDER_PX = 40  # realistic bottom views keep the believed brick this far
 
 
 # Case options (the optional 4th element of a case, see sample_case / load_suite).
-CASE_OPTIONS = ("prior", "cameras", "scene", "split")
+CASE_OPTIONS = ("prior", "cameras", "scene", "split", "oracle")
 CAMERA_MODES = ("fixed", "jitter", "jitter_extrinsic", "drift", "wide")
 # Plan 2026-11-24 camera conditions: ``jitter_extrinsic`` draws exactly the ``jitter`` sample but keeps every focal
 # length nominal (intrinsics known), so only the mounts move; ``drift`` is ``jitter_extrinsic`` after a calibration
@@ -122,16 +123,29 @@ def _case_options(options) -> dict:
 	cameras = options.get("cameras", "wide" if scene == "v3" else "fixed")
 	if cameras not in CAMERA_MODES:
 		raise ValueError(f"case option cameras must be one of {CAMERA_MODES}")
+	oracle_raw = options.get("oracle")
+	oracle: tuple[str, ...] = ()
+	if oracle_raw is not None:
+		if isinstance(oracle_raw, str):
+			oracle = tuple(p.strip() for p in oracle_raw.split(",") if p.strip())
+		elif isinstance(oracle_raw, (list, tuple, set, frozenset)):
+			oracle = tuple(str(p) for p in oracle_raw)
+		else:
+			raise ValueError("case option oracle must be an iterable of ORACLE_PARTS")
+		bad_oracle = [p for p in oracle if p not in ORACLE_PARTS]
+		if bad_oracle:
+			raise ValueError(f"case option oracle parts must be in {ORACLE_PARTS}, got {bad_oracle!r}")
+	extra_oracle = {"oracle": oracle} if oracle else {}
 	if scene is None:
 		if "split" in options:
 			raise ValueError("case option split requires scene='v3'")
-		return {"prior": prior, "cameras": cameras}
+		return {"prior": prior, "cameras": cameras, **extra_oracle}
 	if scene != "v3":
 		raise ValueError(f"case option scene must be 'v3', got {scene!r}")
 	split = options.get("split", "train")
 	if split not in SPLITS:
 		raise ValueError(f"case option split must be one of {SPLITS}")
-	return {"prior": prior, "cameras": cameras, "scene": "v3", "split": split}
+	return {"prior": prior, "cameras": cameras, "scene": "v3", "split": split, **extra_oracle}
 
 
 def _wide_top_pose(cam: dict[str, float]) -> CameraPose:
@@ -261,6 +275,8 @@ def sample_case(seed: int, positive: bool, face: int, options: dict | None = Non
 		layout.wrist_cam_offset = case_wrist_offset(seed, opts["cameras"])
 		# The pose the hand-eye calibration is solved on: the real top camera, except under ``drift``.
 		layout.calib_top = FIXED_TOP if opts["cameras"] == "drift" else None
+	if opts.get("oracle"):
+		layout.oracle = opts["oracle"]
 	return layout
 
 
@@ -301,6 +317,19 @@ TABLE_SCAN_MODES = (
 	{"heights": (0.07, 0.085, 0.10), "offset_m": 0.02},
 	{"heights": (0.055, 0.08, 0.095), "offset_m": 0.04},
 )
+
+
+def true_world_from_cam(top) -> np.ndarray:
+	"""World-from-camera (OpenCV axes: x right, y down, z forward) of the top camera as mounted: the oracle that the
+	hand-eye estimate approximates. Same axes as the ``actual_cam_*`` diagnostics in ``camera_calibrated``."""
+	right, up = top.axes()
+	forward = -np.cross(right, up)
+	m = np.eye(4)
+	m[:3, 0] = right / np.linalg.norm(right)
+	m[:3, 1] = -up / np.linalg.norm(up)
+	m[:3, 2] = forward / np.linalg.norm(forward)
+	m[:3, 3] = (top.x, top.y, top.height)
+	return m
 
 
 def set_cv_camera(cell, name: str, world_from_cam: np.ndarray) -> None:
@@ -645,11 +674,21 @@ class TwinMujoco:
 		boundary="belief_cell",
 		cell_factory=None,
 		review_llm=None,
+		oracle=(),
 	):
 		if sensing not in SENSING:
 			raise ValueError(f"sensing must be one of {SENSING}")
 		self.sensing = sensing
 		self.realistic = sensing == "realistic"
+		raw_oracle = oracle if oracle else getattr(layout, "oracle", ())
+		if isinstance(raw_oracle, str):
+			raw_oracle = [p.strip() for p in raw_oracle.split(",") if p.strip()]
+		raw_oracle = tuple(raw_oracle or ())
+		bad_oracle = [p for p in raw_oracle if p not in ORACLE_PARTS]
+		if bad_oracle:
+			raise ValueError(f"oracle parts must be in {ORACLE_PARTS}, got {bad_oracle!r}")
+		self.oracle = frozenset(raw_oracle) if self.realistic else frozenset()
+		self._oracle_logged = False
 		if strategy not in STRATEGIES:
 			raise ValueError(f"strategy must be one of {STRATEGIES}")
 		if boundary not in BOUNDARIES:
@@ -768,9 +807,17 @@ class TwinMujoco:
 			info["actual_cam_axis_err_deg"] = round(math.degrees(math.acos(cosang)), 4)
 			self._depth_rng = np.random.default_rng(seed + 30_000)
 			self.event("camera_calibrated", **info)
+			if "camera" in self.oracle:
+				self._cam_est = true_world_from_cam(layout.top)
+				self._note_oracle()
 		if self.realistic:
 			self._contact = GripperContact(use_effort=False)
 			self._sense_bowls()
+
+	def _note_oracle(self) -> None:
+		if self.oracle and not self._oracle_logged:
+			self._oracle_logged = True
+			self.event("oracle_applied", parts=sorted(self.oracle))
 
 	def _make_expert(self, params, relocate):
 		ex = self.expert_type(self.cell, INITIAL_Q, self._expert_xy, params, relocate)
@@ -805,16 +852,29 @@ class TwinMujoco:
 		self._baseline_depth = depth
 		self._bowl_estimates = dict(found)
 		errors = {}
+		positions_m = {}
+		oracle_bowls = "bowls" in self.oracle
+		if oracle_bowls:
+			self._note_oracle()
 		for name, est in found.items():
+			truth = np.asarray(self._true_bowl_xy(name), dtype=np.float64)
+			if oracle_bowls:
+				self.bowls[name] = truth
+				if est is not None:
+					self._bowl_estimates[name] = replace(est, xy=truth.copy())
+				positions_m[name] = truth.round(5).tolist()
+				errors[name] = 0.0
+				continue
 			if est is None:
 				self.scene_error = "BOWL_NOT_FOUND"
+				positions_m[name] = None
 				continue
 			self.bowls[name] = est.xy
-			truth = np.asarray(self._true_bowl_xy(name))
+			positions_m[name] = est.xy.round(5).tolist()
 			errors[name] = round(float(np.linalg.norm(est.xy - truth) * 1000), 3)  # scoring only
 		self.event(
 			"bowls_perceived",
-			positions_m={n: None if e is None else e.xy.round(5).tolist() for n, e in found.items()},
+			positions_m=positions_m,
 			error_xy_mm=errors,
 		)
 
@@ -872,7 +932,24 @@ class TwinMujoco:
 		if self.perception is None:
 			return None
 		est = locate_brick(self._top_depth(), self._cam_k, self._cam_est, list(self.bowls.values()))
-		if est is None:
+		if "brick" in self.oracle:
+			rot = self.cell.data.xmat[self.cell.brick_body].reshape(3, 3)
+			true_yaw = math.atan2(rot[1, 0], rot[0, 0])
+			true_pos = self.cell.brick_pos().copy()
+			true_size = tuple(float(v) for v in self.layout.brick_size)
+			est = (
+				BrickEstimate(
+					pos=true_pos,
+					yaw=true_yaw,
+					size=true_size,
+					footprint_m=(true_size[0], true_size[1]),
+					top_points=100,
+				)
+				if est is None
+				else replace(est, pos=true_pos, yaw=true_yaw, size=true_size)
+			)
+			self._note_oracle()
+		elif est is None:
 			self.event("brick_perceived", found=False)
 			return "BRICK_NOT_FOUND"
 		if self._expected_yaw is not None:
@@ -1144,6 +1221,8 @@ class TwinMujoco:
 			"recovery_variants": list(self.recovery_variants),
 			"clipped_frames": int(self._clipped_frames + getattr(ex, "clipped_frames", 0)),
 			"llm_stats": copy.deepcopy(getattr(self, "_llm_stats", None)),
+			"oracle": sorted(self.oracle),
+			"oracle_logged": self._oracle_logged,
 			"segments": self._checkpoint_extra(),
 		}
 		if self.perception is not None:
@@ -2080,6 +2159,9 @@ class TwinMujoco:
 		if agent.get("camera") is not None and self.perception is not None:
 			self._cam_k = np.array(agent["camera"]["k"], dtype=np.float64)
 			self._cam_est = np.array(agent["camera"]["world_from_cam"], dtype=np.float64)
+		if agent.get("oracle") is not None:
+			self.oracle = frozenset(agent["oracle"]) if self.realistic else frozenset()
+			self._oracle_logged = bool(agent.get("oracle_logged", False))
 		if self.realistic:
 			self._contact.reset()
 			self._contact.prev = agent.get("contact_prev")
@@ -2413,7 +2495,9 @@ class TwinMujoco:
 			"llm": self._llm_summary(),
 			"smoothness": self._smoothness(),
 			# In-place retries keep one continuous physical branch (a recovery demonstration); rewinds do not.
-			"student_eligible": bool(ok and health.get("verdict") == "SUCCESS" and not self.rewinds),
+			"student_eligible": bool(
+				ok and health.get("verdict") == "SUCCESS" and not self.rewinds and not getattr(self, "oracle", None)
+			),
 			"placement_evidence": next(
 				(v["id"] for v in views if v["score"] is not None and v["score"] >= v["threshold"]), None
 			)

@@ -31,7 +31,16 @@ from dataclasses import asdict
 from datetime import UTC, datetime
 from pathlib import Path
 
-from .contract import CAMERA_CONDITIONS, DETECTORS, ENGINES, SENSING, STRATEGIES, case_id, layout_id
+from .contract import (
+	CAMERA_CONDITIONS,
+	DETECTORS,
+	ENGINES,
+	ORACLE_PARTS,
+	SENSING,
+	STRATEGIES,
+	case_id,
+	layout_id,
+)
 
 REPO = Path(__file__).resolve().parents[3]
 DEFAULT_ROOT = Path("D:/Armigo_data_v2")
@@ -71,10 +80,24 @@ def code_commit() -> str:
 	return head + ("-dirty" if dirty else "")
 
 
-def group_name(sensing: str, camera: str, strategy: str, detector: str) -> str:
+def _parse_oracle(raw) -> tuple[str, ...]:
+	if not raw:
+		return ()
+	items = raw.split(",") if isinstance(raw, str) else list(raw)
+	parts = sorted({str(p).strip() for p in items if str(p).strip()})
+	bad = [p for p in parts if p not in ORACLE_PARTS]
+	if bad:
+		raise SystemExit(f"unknown oracle part(s) {bad}; expected a subset of {ORACLE_PARTS}")
+	return tuple(parts)
+
+
+def group_name(sensing: str, camera: str, strategy: str, detector: str, oracle=()) -> str:
 	if sensing == "truth":
-		return f"truth-{detector}" if strategy == "A" else f"truth-{strategy}-{detector}"
-	return f"realistic-{camera}-{strategy}-{detector}"
+		base = f"truth-{detector}" if strategy == "A" else f"truth-{strategy}-{detector}"
+	else:
+		base = f"realistic-{camera}-{strategy}-{detector}"
+	parts = sorted({str(p).strip() for p in (oracle or ()) if str(p).strip()})
+	return f"{base}-oracle-{'+'.join(parts)}" if parts else base
 
 
 def _attempt_dir(group_dir: Path, cid: str, n: int) -> Path:
@@ -227,15 +250,20 @@ def _dir_mib(path: Path) -> float:
 
 def plan_group(a) -> tuple[dict, list[dict], Path]:
 	root = Path(a.root)
+	oracle = _parse_oracle(getattr(a, "oracle", ""))
 	if a.sensing == "truth" and a.camera != "fixed":
 		raise SystemExit("omniscient (truth) runs use the fixed cameras")
+	if oracle and a.sensing == "truth":
+		raise SystemExit("oracle substitution is only for realistic sensing")
 	suite_path, suite_sha, sealed = _freeze_suite(root, a.suite)
 	det = detector_path(a.detector)
 	commit = code_commit()
 	max_views = a.max_scored_views if a.max_scored_views is not None else (6 if a.sensing == "realistic" else None)
-	agent_options = {"strategy": a.strategy, "max_scored_views": max_views}
+	agent_options: dict = {"strategy": a.strategy, "max_scored_views": max_views}
 	if a.sensing == "realistic":
 		agent_options["boundary"] = a.boundary
+	if oracle:
+		agent_options["oracle"] = list(oracle)
 	policy = json.loads(Path(a.policy).read_text(encoding="utf-8")) if a.policy else {}
 	from ..agent.twin_graph import Policy
 
@@ -255,14 +283,19 @@ def plan_group(a) -> tuple[dict, list[dict], Path]:
 		diffs = [k for k, v in expected.items() if freeze.get(k) != v]
 		if diffs or commit.endswith("-dirty"):
 			raise SystemExit(f"freeze file does not match the current setup: {diffs or ['dirty working tree']}")
-	group = group_name(a.sensing, a.camera, a.strategy, a.detector)
+	group = group_name(a.sensing, a.camera, a.strategy, a.detector, oracle=oracle)
 	group_dir = root / "runs" / a.batch / a.engine / group
 	group_dir.mkdir(parents=True, exist_ok=True)
 	from ..agent.twin_mujoco import load_suite
 
 	cases = load_suite(suite_path)
+	extra_opts: dict = {}
 	if a.camera != "fixed":
-		cases = [(*c[:3], {"cameras": CAMERA_MODE[a.camera]}) for c in cases]
+		extra_opts["cameras"] = CAMERA_MODE[a.camera]
+	if oracle:
+		extra_opts["oracle"] = list(oracle)
+	if extra_opts:
+		cases = [(*c[:3], {**(c[3] if len(c) > 3 else {}), **extra_opts}) for c in cases]
 	ids = [case_id(*c[:3]) for c in cases]
 	plan = {
 		"batch": a.batch,
@@ -273,6 +306,7 @@ def plan_group(a) -> tuple[dict, list[dict], Path]:
 		"strategy": a.strategy,
 		"detector": a.detector,
 		"detector_sha256": _sha256(det),
+		**({"oracle": list(oracle)} if oracle else {}),
 		"suite": a.suite,
 		"suite_sha256": suite_sha,
 		"sealed": sealed,
@@ -324,6 +358,7 @@ def plan_group(a) -> tuple[dict, list[dict], Path]:
 			"strategy": a.strategy,
 			"detector": a.detector,
 			"detector_sha256": plan["detector_sha256"],
+			"oracle": list(oracle) if oracle else None,
 			"suite": a.suite,
 			"suite_sha256": suite_sha,
 			"layout_id": layout_id(case[0]),
@@ -445,6 +480,7 @@ def _common(p):
 	p.add_argument("--policy", help="Policy JSON (twin_graph.Policy fields); default Policy()")
 	p.add_argument("--max-scored-views", type=int, help="default: 6 for realistic, none for truth")
 	p.add_argument("--boundary", choices=("belief_cell", "legacy"), default="belief_cell")
+	p.add_argument("--oracle", default="", help="comma list of camera,brick,bowls (evaluation only)")
 
 
 def main(argv=None) -> int:
