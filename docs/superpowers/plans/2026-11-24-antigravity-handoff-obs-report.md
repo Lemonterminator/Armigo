@@ -56,3 +56,55 @@ Skipped tests (`14 skipped`, unchanged across `H1–H8`): environment-gated skip
 
 - **H6 Step 8 (GPU / live evaluation runs)**: Skipped per handoff scope (no GPU tasks or large agent runs).
 - **H7**: Only `1` confirmed human audit entry exists in `D:/Armigo_data_v2/audit/reviews.sqlite` (`< 40`); needs additional confirmed human reviews before `v1.json` has statistical power across `calib` and `heldout`.
+
+
+---
+
+## Part C (`C1–C7`)
+
+### Task Summary
+
+| Task | Commit | New & Modified Files | New Tests | Task / Full Pytest Result |
+| :--- | :--- | :--- | :--- | :--- |
+| C1 | `4782356` | `src/digital_twin_armigo/agent/wrist_localize.py`, `tests/test_wrist_localize.py` | 5 | `tests/test_wrist_localize.py`: `5 passed`; full `pytest -q`: `1009 passed, 14 skipped, 2 xfailed, 16 warnings in 1391.55s (0:23:11)` |
+| C2 | `97e240e` | `src/digital_twin_armigo/agent/grasp_loop.py`, `src/digital_twin_armigo/mujoco_cell/physics_expert.py`, `tests/test_grasp_loop.py` | 4 | `tests/test_grasp_loop.py + tests/test_physics_expert.py`: `41 passed`; full `pytest -q`: `1013 passed, 14 skipped, 2 xfailed, 16 warnings in 1496.38s (0:24:56)` |
+| C3 | `665c8c3` | `src/digital_twin_armigo/agent/{step_mcp,twin_mujoco}.py`, `tests/test_grasp_loop.py` | 3 | `tests/test_grasp_loop.py`: `7 passed`; full `pytest -q`: `1016 passed, 14 skipped, 2 xfailed, 16 warnings in 1429.66s (0:23:49)` |
+| C4 | `330993d` | `src/digital_twin_armigo/agent/twin_mujoco.py`, `src/digital_twin_armigo/mujoco_cell/{cell,inspection_views}.py`, `tests/test_belief_cameras.py` | 4 | `tests/test_belief_cameras.py`: `4 passed`; full `pytest -q`: `1020 passed, 14 skipped, 2 xfailed, 16 warnings in 1448.30s (0:24:08)` |
+| C5 | `f3a573c` | `src/digital_twin_armigo/agent/twin_mujoco.py`, `tests/test_belief_cameras.py` | 2 | `tests/test_belief_cameras.py + tests/test_grasp_loop.py + tests/test_truth_diagnostics.py`: `17 passed`; full `pytest -q`: `1022 passed, 14 skipped, 2 xfailed, 16 warnings in 1481.19s (0:24:41)` |
+| C6 | `d61d208` | `src/digital_twin_armigo/experiments/{contract,runner}.py`, `src/digital_twin_armigo/agent/twin_mujoco.py`, `tests/test_cv_motion_runner.py` | 4 | `tests/test_cv_motion_runner.py + tests/test_counterfactual.py`: `12 passed`; full `pytest -q`: `1026 passed, 14 skipped, 2 xfailed, 16 warnings in 1443.45s (0:24:03)` |
+| C7a | `46c50be` | `docs/experiments/cv_motion_prereg.md` | 0 | Preregistration committed prior to `cv_motion_matrix.sh` |
+| C7 | `092bca7` | `scripts/experiments/cv_motion_matrix.sh` | 0 | Matrix script committed (GPU/live Steps 3–5 skipped) |
+
+### Latest Full Pytest Suite Tail (`obs C6`)
+
+```text
+1026 passed, 14 skipped, 2 xfailed, 16 warnings in 1443.45s (0:24:03)
+```
+
+### C1 Step 5 MuJoCo Integration Check (`cameras="drift"`, 4 cases, hover move)
+
+Command run (CPU, `PYTHONPATH=src`): executed `twin.prepare()`, `twin._perceive()`, `twin._execute(move_hover())`, and `localize_from_wrist` with designed mount (`believed_wrist_from_cam`) across `sample_case(seed, positive=False, face=0, options={"cameras": "drift"})` for `seed in (700001, 700002, 700003, 700004)`:
+
+```text
+seed=700001: FAILED reason=BAD_FOOTPRINT tilt_deg=33.30 prior_xy_mm=16.76 prior_yaw_deg=1.65
+seed=700002: FAILED reason=BAD_FOOTPRINT tilt_deg=33.21 prior_xy_mm=6.97 prior_yaw_deg=1.94
+seed=700003: FAILED reason=BAD_FOOTPRINT tilt_deg=33.23 prior_xy_mm=15.79 prior_yaw_deg=1.64
+seed=700004: FAILED reason=BAD_FOOTPRINT tilt_deg=33.28 prior_xy_mm=12.26 prior_yaw_deg=1.63
+reasons: {'BAD_FOOTPRINT': 4}
+```
+
+- Failure reason counts: `{'BAD_FOOTPRINT': 4}` (0 localized from LAB blob alone; 0 `TILTED`/`NO_BLOB`).
+- Measured wrist camera tilt (`tilt_deg`): `33.21°–33.30°`.
+- Confirms Plan C1 Step 5 expectation: at ~33° camera tilt, brick side faces merge into the LAB colour blob and inflate the fitted footprint past the 30% gate (`BAD_FOOTPRINT`). No side-face heuristics were added in C1; left to Part U (`U1–U3`) top-face segmentation.
+
+### Deviations / Clarifications from Plan & Edge Fixes
+
+1. **`SimpleNamespace` stub compatibility in `TwinMujoco.evaluate()` (`C3`)**: Used `getattr(self, "motion", "open")` alongside `getattr(self, "oracle", None)` so existing `tests/test_vla_paired_carry.py` `SimpleNamespace` stub passes without adding runtime attrs to stub fixtures.
+2. **Thread affinity in `StepService` test (`C3`)**: In `tests/test_grasp_loop.py::test_step_mcp_last_wrist_fix_strips_truth_keys`, calling `svc.start` via `svc.run_sync(...)` keeps MuJoCo GLFW WGL contexts confined to `StepService`'s simulation thread (calling `svc.start` directly on the main thread corrupted WGL contexts during `svc.close()` for subsequent MuJoCo tests).
+3. **Un-forwarded `Cell` transforms & `detector.elapsed_ms` timing variance (`C4`, `C5`)**:
+   - In `tests/test_belief_cameras.py`, fresh `Cell(layout, ..., dynamic_clutter=True, assisted_grasp=False)` leaves MuJoCo kinematics un-forwarded until `mujoco.mj_forward(cell.model, cell.data)`, so `test_camera_override_moves_the_model_camera_and_restores_it` and `test_center_px_crop_is_centred_on_the_given_point` call `mj_forward` first.
+   - `diag_mcp.compare_runs` ignores top-level `{"wall_time_s", "latency_s", "seq"}` (`diag_mcp.py:28`), while `view` events nest wall-clock `detector.elapsed_ms` (`twin_mujoco.py`). When verifying `evidence="hold"` discrete invariance across `_wrist` calls (`test_hold_evidence_wrist_omits_motion_fields_and_matches_via_compare_runs`), the test freezes `twin_mujoco.time.perf_counter` via `monkeypatch`; `diag_mcp.py` was kept unchanged per H8 spec (note for acceptance `compare_runs` on real runs: sub-ms `detector.elapsed_ms` jitter can flag `"detector"` diffs even on identical discrete trajectories).
+
+### Skipped / Unrun Steps
+
+- **C7 Steps 3–5 (Smoke/full matrix runs on GPU with defect detector)**: Skipped per handoff scope (GPU occupied; no large runs).
