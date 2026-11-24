@@ -26,7 +26,9 @@ SO101_PHYSX_USDA = USD_OUT / "so101_usd" / "so101_physx.usda"
 PROPS_DIR = USD_OUT / "props"
 
 
-def _bind_plastic_material(stage: Usd.Stage, root_path: str, name: str, rgb: tuple[float, float, float], roughness: float = 0.25) -> None:
+def _bind_plastic_material(
+	stage: Usd.Stage, root_path: str, name: str, rgb: tuple[float, float, float], roughness: float = 0.25
+) -> None:
 	mat_path = f"{root_path}/Looks/{name}"
 	UsdGeom.Scope.Define(stage, f"{root_path}/Looks")
 	mat = UsdShade.Material.Define(stage, mat_path)
@@ -127,7 +129,9 @@ def build_obj_prop_usd(
 			bar.CreateSizeAttr(1.0)
 			xf = UsdGeom.Xformable(bar.GetPrim())
 			xf.AddTranslateOp().Set(Gf.Vec3d(float(pos[0]), float(pos[1]), float(pos[2])))
-			xf.AddOrientOp(UsdGeom.XformOp.PrecisionFloat).Set(Gf.Quatf(float(q[3]), float(q[0]), float(q[1]), float(q[2])))
+			xf.AddOrientOp(UsdGeom.XformOp.PrecisionFloat).Set(
+				Gf.Quatf(float(q[3]), float(q[0]), float(q[1]), float(q[2]))
+			)
 			xf.AddScaleOp().Set(Gf.Vec3f(float(half_len * 2.0), 0.0022, 0.0008))
 			UsdShade.MaterialBindingAPI.Apply(bar.GetPrim()).Bind(dmat)
 

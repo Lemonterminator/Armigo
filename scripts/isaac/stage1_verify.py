@@ -179,7 +179,11 @@ def main() -> None:
 	ep2_prior = next(p for p in prior if p["episode"] == 2)
 	grasp_rows = json.loads((ROOT / "config" / "sim" / "grasp_points.json").read_text())
 	ep2_grasp = next(r for r in grasp_rows if r["episode"] == 2)
-	meta_path = REAL_DIR / "frame_meta.json" if (REAL_DIR / "frame_meta.json").is_file() else ROOT / "config" / "sim" / "frame_3217_state.json"
+	meta_path = (
+		REAL_DIR / "frame_meta.json"
+		if (REAL_DIR / "frame_meta.json").is_file()
+		else ROOT / "config" / "sim" / "frame_3217_state.json"
+	)
 	frame_meta = json.loads(meta_path.read_text())
 	q_rad = normalized_to_rad(np.array(frame_meta["observation.state"]))
 
@@ -247,14 +251,21 @@ def main() -> None:
 
 			top_cmp = np.hstack([real_top_rgb, top_rgb_crop])
 			overlay = real_top_rgb.copy()
-			overlay[real_mask] = (overlay[real_mask].astype(np.int32) * 0.5 + np.array([255, 0, 0]) * 0.5).astype(np.uint8)
-			overlay[sim_mask] = (overlay[sim_mask].astype(np.int32) * 0.5 + np.array([0, 255, 0]) * 0.5).astype(np.uint8)
+			overlay[real_mask] = (overlay[real_mask].astype(np.int32) * 0.5 + np.array([255, 0, 0]) * 0.5).astype(
+				np.uint8
+			)
+			overlay[sim_mask] = (overlay[sim_mask].astype(np.int32) * 0.5 + np.array([0, 255, 0]) * 0.5).astype(
+				np.uint8
+			)
 			depth_cmp = np.hstack([real_top_depth, top_depth_layers, overlay])
 			cv2.imwrite(str(OUT_DIR / "top_compare_3217.png"), cv2.cvtColor(top_cmp, cv2.COLOR_RGB2BGR))
 			cv2.imwrite(str(OUT_DIR / "depth_compare_3217.png"), cv2.cvtColor(depth_cmp, cv2.COLOR_RGB2BGR))
 			if (REAL_DIR / "wrist_3217.png").is_file():
 				real_wrist_rgb = cv2.cvtColor(cv2.imread(str(REAL_DIR / "wrist_3217.png")), cv2.COLOR_BGR2RGB)
-				cv2.imwrite(str(OUT_DIR / "wrist_compare_3217.png"), cv2.cvtColor(np.hstack([real_wrist_rgb, wrist_rgb]), cv2.COLOR_RGB2BGR))
+				cv2.imwrite(
+					str(OUT_DIR / "wrist_compare_3217.png"),
+					cv2.cvtColor(np.hstack([real_wrist_rgb, wrist_rgb]), cv2.COLOR_RGB2BGR),
+				)
 
 		# Project all 26 calibrated grasp points using Isaac Camera K & world pose
 		cam_pos = top_sensor.data.pos_w[0].cpu().numpy()

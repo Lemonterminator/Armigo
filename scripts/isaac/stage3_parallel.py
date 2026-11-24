@@ -288,10 +288,22 @@ def main() -> None:
 		cv2.imwrite(str(OUT_DIR / "stage3_mosaic_16envs.png"), cv2.cvtColor(mosaic, cv2.COLOR_RGB2BGR))
 
 		# 2x2 wrist cam mosaic for envs 0..3
-		w_mosaic = np.vstack([
-			np.hstack([cv2.resize(wrist_rgb[0], (320, 240)), cv2.resize(wrist_rgb[min(1, args_cli.num_envs - 1)], (320, 240))]),
-			np.hstack([cv2.resize(wrist_rgb[min(2, args_cli.num_envs - 1)], (320, 240)), cv2.resize(wrist_rgb[min(3, args_cli.num_envs - 1)], (320, 240))]),
-		])
+		w_mosaic = np.vstack(
+			[
+				np.hstack(
+					[
+						cv2.resize(wrist_rgb[0], (320, 240)),
+						cv2.resize(wrist_rgb[min(1, args_cli.num_envs - 1)], (320, 240)),
+					]
+				),
+				np.hstack(
+					[
+						cv2.resize(wrist_rgb[min(2, args_cli.num_envs - 1)], (320, 240)),
+						cv2.resize(wrist_rgb[min(3, args_cli.num_envs - 1)], (320, 240)),
+					]
+				),
+			]
+		)
 		cv2.imwrite(str(OUT_DIR / "stage3_wrist_4envs.png"), cv2.cvtColor(w_mosaic, cv2.COLOR_RGB2BGR))
 
 		total_env_steps = args_cli.num_envs * args_cli.steps
