@@ -640,7 +640,7 @@ def segment_labels(episode: Path) -> dict:
 	}
 
 
-def student_frames(episode: Path, start_frame: int = 0):
+def student_frames(episode: Path, start_frame: int = 0, student_cameras_only: bool = False):
 	"""Yield only contiguous, successful unrewound samples for the LeRobot exporter. In-place retries are allowed
 	(one continuous branch: a recovery demonstration); a physics rewind is not. Joints are in radians. Each frame
 	carries its segment and mask columns (SEGMENT_FEATURES), D1 input vectors (INPUT_FEATURES) and the segment
@@ -665,6 +665,7 @@ def student_frames(episode: Path, start_frame: int = 0):
 		raise ValueError("episode is not eligible for VLA export")
 	root = episode / "branch-0"
 	labels = segment_labels(episode)
+	active_cameras = [c for c in CAMERAS if not (student_cameras_only and c in ("front", "top_full"))]
 	with ExitStack() as stack:
 		rows = stack.enter_context(np.load(root / "actions.npz", allow_pickle=False))
 		gripper_cmds = rows["gripper_cmd"] if "gripper_cmd" in rows.files else None
@@ -683,7 +684,8 @@ def student_frames(episode: Path, start_frame: int = 0):
 			if arr is not None and len(arr) != len(actions):
 				raise ValueError(f"{col_name} length {len(arr)} != actions length {len(actions)}")
 		readers = {
-			name: iter(stack.enter_context(av.open(str(root / f"{name}.mkv"))).decode(video=0)) for name in CAMERAS
+			name: iter(stack.enter_context(av.open(str(root / f"{name}.mkv"))).decode(video=0))
+			for name in active_cameras
 		}
 		for row_index, (state, action) in enumerate(zip(states, actions, strict=True)):
 			prev_action = INITIAL_Q if row_index == 0 else actions[row_index - 1]
@@ -721,7 +723,8 @@ def student_frames(episode: Path, start_frame: int = 0):
 				image = pixels.to_ndarray(format="rgb24")
 				key = name
 				if name == "top_rgb":
-					frame["observation.images.top_full"] = image
+					if not student_cameras_only:
+						frame["observation.images.top_full"] = image
 					x, y, w, h = TOP_CROP
 					image = image[y : y + h, x : x + w].copy()
 					key = "top_rgb_v2"
@@ -753,7 +756,13 @@ def _trimmed_segments(segments: list[dict], start: int) -> list[dict]:
 	return out
 
 
-def export_lerobot(episodes: list[Path], out: Path, repo_id: str, trim_unsupervised_prefix: bool = False):
+def export_lerobot(
+	episodes: list[Path],
+	out: Path,
+	repo_id: str,
+	trim_unsupervised_prefix: bool = False,
+	student_cameras_only: bool = False,
+):
 	"""Export ``episodes`` as a LeRobot dataset. With ``trim_unsupervised_prefix`` each episode starts at
 	:func:`unsupervised_prefix_end` (paired carry episodes: the shared prefix carries no supervision)."""
 	from lerobot.datasets.lerobot_dataset import LeRobotDataset
@@ -764,11 +773,17 @@ def export_lerobot(episodes: list[Path], out: Path, repo_id: str, trim_unsupervi
 	# Fail before creating output if an episode ended on a branch with privileged failure context or lacks segment
 	# labels (student_frames checks both on its first frame).
 	for path in episodes:
-		frames = student_frames(path)
+		frames = student_frames(path, student_cameras_only=student_cameras_only)
 		try:
 			next(frames)
 		finally:
 			frames.close()
+	cam_shapes = dict(CAMERA_SHAPES)
+	if student_cameras_only:
+		cam_shapes.pop("front", None)
+	else:
+		cam_shapes["top_full"] = [TOP_FULL[1], TOP_FULL[0], 3]
+
 	dataset = LeRobotDataset.create(
 		repo_id=repo_id,
 		fps=FPS,
@@ -778,7 +793,7 @@ def export_lerobot(episodes: list[Path], out: Path, repo_id: str, trim_unsupervi
 		features=lerobot_features(
 			{
 				"state_names": STATE_NAMES,
-				"cameras": {**CAMERA_SHAPES, "top_full": [TOP_FULL[1], TOP_FULL[0], 3]},
+				"cameras": cam_shapes,
 			},
 			video=True,
 		)
@@ -788,7 +803,7 @@ def export_lerobot(episodes: list[Path], out: Path, repo_id: str, trim_unsupervi
 	starts = [unsupervised_prefix_end(p) if trim_unsupervised_prefix else 0 for p in episodes]
 	try:
 		for path, start in zip(episodes, starts, strict=True):
-			for frame in student_frames(path, start):
+			for frame in student_frames(path, start, student_cameras_only=student_cameras_only):
 				dataset.add_frame(frame)
 			dataset.save_episode()
 	finally:
@@ -1225,9 +1240,20 @@ def main():
 		action="store_true",
 		help="Start each episode one row before its first supervised row (paired carry episodes)",
 	)
+	parser.add_argument(
+		"--student-cameras-only",
+		action="store_true",
+		help="Export only canonical student cameras (omit front and top_full)",
+	)
 	parser.add_argument("episodes", nargs="+", type=Path)
 	args = parser.parse_args()
-	export_lerobot(args.episodes, args.out, args.repo_id, trim_unsupervised_prefix=args.trim_unsupervised_prefix)
+	export_lerobot(
+		args.episodes,
+		args.out,
+		args.repo_id,
+		trim_unsupervised_prefix=args.trim_unsupervised_prefix,
+		student_cameras_only=args.student_cameras_only,
+	)
 
 
 if __name__ == "__main__":

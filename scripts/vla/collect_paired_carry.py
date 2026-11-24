@@ -137,13 +137,16 @@ def _expected_frames(eps: list[Path]) -> int:
 	return frames
 
 
-def _export_shard(shard: Path, eps: list[Path], lerobot_python: Path) -> None:
+def _export_shard(shard: Path, eps: list[Path], lerobot_python: Path, student_cameras_only: bool = True) -> None:
 	"""Export ``eps`` (trimmed to their supervised part) into ``shard``, read it back, then delete their ``*.mkv``."""
 	if shard.exists():
 		shutil.rmtree(shard)  # an unfinished export (no episodes.json)
 	log = shard.with_suffix(".log")
 	cmd = [str(lerobot_python), "-m", "digital_twin_armigo.agent.twin_record", "--out", str(shard)]
-	cmd += ["--repo-id", REPO_ID, "--trim-unsupervised-prefix", *map(str, eps)]
+	cmd += ["--repo-id", REPO_ID, "--trim-unsupervised-prefix"]
+	if student_cameras_only:
+		cmd.append("--student-cameras-only")
+	cmd += map(str, eps)
 	with log.open("w", encoding="utf-8") as fh:
 		subprocess.run(cmd, check=True, cwd=ROOT, env=_env(), stdout=fh, stderr=subprocess.STDOUT)
 	check = (
@@ -165,7 +168,7 @@ def _export_shard(shard: Path, eps: list[Path], lerobot_python: Path) -> None:
 	print(f"[export] {shard.name}: {n_eps} episodes / {n_frames} frames verified; deleted {len(mkvs)} mkv", flush=True)
 
 
-def export_pending(out: Path, lerobot_python: Path, jobs: int = 1) -> list[Path]:
+def export_pending(out: Path, lerobot_python: Path, jobs: int = 1, student_cameras_only: bool = True) -> list[Path]:
 	"""Export accepted episodes not yet in a shard into new shards (``jobs`` exporters at once, pairs kept together)."""
 	from concurrent.futures import ThreadPoolExecutor
 
@@ -181,7 +184,7 @@ def export_pending(out: Path, lerobot_python: Path, jobs: int = 1) -> list[Path]
 	shards[0].parent.mkdir(parents=True, exist_ok=True)
 	with ThreadPoolExecutor(len(parts)) as pool:
 		futs = [
-			pool.submit(_export_shard, s, [e for pair in part for e in pair], lerobot_python)
+			pool.submit(_export_shard, s, [e for pair in part for e in pair], lerobot_python, student_cameras_only)
 			for s, part in zip(shards, parts, strict=True)
 		]
 		for f in futs:
@@ -192,16 +195,23 @@ def export_pending(out: Path, lerobot_python: Path, jobs: int = 1) -> list[Path]
 class BackgroundExport:
 	"""Runs :func:`export_pending` after each rollout batch without blocking the next batch (one export at a time)."""
 
-	def __init__(self, out: Path, lerobot_python: Path, jobs: int):
+	def __init__(self, out: Path, lerobot_python: Path, jobs: int, student_cameras_only: bool = True):
 		from concurrent.futures import ThreadPoolExecutor
 
-		self.out, self.lerobot_python, self.jobs = out, lerobot_python, jobs
+		self.out, self.lerobot_python, self.jobs, self.student_cameras_only = (
+			out,
+			lerobot_python,
+			jobs,
+			student_cameras_only,
+		)
 		self.pool = ThreadPoolExecutor(1)
 		self.pending = None
 
 	def __call__(self) -> None:
 		self.wait()
-		self.pending = self.pool.submit(export_pending, self.out, self.lerobot_python, self.jobs)
+		self.pending = self.pool.submit(
+			export_pending, self.out, self.lerobot_python, self.jobs, self.student_cameras_only
+		)
 
 	def wait(self) -> None:
 		if self.pending is not None:
@@ -241,6 +251,12 @@ def main(argv=None) -> int:
 	p.add_argument("--merge-out", type=Path, default=None, help="Merge --merge-with datasets and all shards here")
 	p.add_argument("--merge-with", type=Path, nargs="*", default=[], help="Datasets merged before the shards")
 	p.add_argument("--lerobot-python", type=Path, default=LEROBOT_PYTHON)
+	p.add_argument(
+		"--student-cameras-only",
+		action=argparse.BooleanOptionalAction,
+		default=True,
+		help="Export only canonical student cameras (omit front and top_full)",
+	)
 	args = p.parse_args(argv)
 
 	from digital_twin_armigo.vla.dagger import DEFAULT_FORBID_SUITES, assert_train_layouts_only
@@ -253,12 +269,16 @@ def main(argv=None) -> int:
 		cases = cases[: args.max_episodes]
 	args.out.mkdir(parents=True, exist_ok=True)
 	exporting = args.export or args.export_only
-	hook = BackgroundExport(args.out, args.lerobot_python, args.export_jobs) if exporting else None
+	hook = (
+		BackgroundExport(args.out, args.lerobot_python, args.export_jobs, args.student_cameras_only)
+		if exporting
+		else None
+	)
 	if not args.export_only:
 		collect(cases, args.out, args.detector, args.workers, args.batch if exporting else None, hook)
 	if exporting:
 		hook.wait()
-		export_pending(args.out, args.lerobot_python, args.export_jobs)
+		export_pending(args.out, args.lerobot_python, args.export_jobs, args.student_cameras_only)
 	if args.merge_out is not None:
 		merge(args.merge_out, [*args.merge_with, *_shards(args.out)], args.lerobot_python)
 	return 0
