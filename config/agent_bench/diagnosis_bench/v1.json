@@ -1,0 +1,9 @@
+[
+  {
+    "traj_id": "agent:v2:m0-smoke/mujoco/truth-v7bot/L600008-D1",
+    "path": "D:\\Armigo_data_v2\\runs\\m0-smoke\\mujoco\\truth-v7bot\\L600008-D1",
+    "root_cause": "none",
+    "mechanism": null,
+    "split": "calib"
+  }
+]
