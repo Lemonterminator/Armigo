@@ -139,11 +139,10 @@ class StudentImageAugmentor:
 		self.depth_noise_std = float(depth_noise_std)
 		self._rng = np.random.default_rng(seed)
 
-	def _random_resized_crop_torch(self, img: Any, scale: tuple[float, float], ratio: tuple[float, float]) -> Any:
-		import torch.nn.functional as F
-		import torchvision.transforms.functional as TF
-
-		_, h, w = img.shape
+	def _draw_crop(
+		self, h: int, w: int, scale: tuple[float, float], ratio: tuple[float, float]
+	) -> tuple[int, int, int, int]:
+		"""``(top, left, crop_h, crop_w)`` of a random resized crop (the draws ``_random_resized_crop_torch`` makes)."""
 		area = h * w
 		target_area = area * float(self._rng.uniform(scale[0], scale[1]))
 		log_ratio = (np.log(ratio[0]), np.log(ratio[1]))
@@ -152,27 +151,52 @@ class StudentImageAugmentor:
 		crop_h = max(1, min(h, round(np.sqrt(target_area / aspect))))
 		top = int(self._rng.integers(0, h - crop_h + 1))
 		left = int(self._rng.integers(0, w - crop_w + 1))
-		cropped = TF.crop(img, top, left, crop_h, crop_w)
+		return top, left, crop_h, crop_w
+
+	@staticmethod
+	def _crop_resize_torch(img: Any, crop: tuple[int, int, int, int]) -> Any:
+		import torch.nn.functional as F
+		import torchvision.transforms.functional as TF
+
+		_, h, w = img.shape
+		cropped = TF.crop(img, *crop)
 		resized = F.interpolate(cropped.unsqueeze(0), size=(h, w), mode="bilinear", align_corners=False).squeeze(0)
 		return resized.clamp(0.0, 1.0)
+
+	def _random_resized_crop_torch(self, img: Any, scale: tuple[float, float], ratio: tuple[float, float]) -> Any:
+		_, h, w = img.shape
+		return self._crop_resize_torch(img, self._draw_crop(h, w, scale, ratio))
+
+	def _draw_rgb(self, h: int, w: int) -> dict[str, Any]:
+		"""One RGB image's augmentation parameters, drawn in the order ``_augment_rgb_torch`` has always drawn them
+		(crop, brightness, contrast, saturation, hue); None for a transform that is off or not drawn."""
+		crop = None
+		if self._rng.random() < self.rgb_crop_prob:
+			crop = self._draw_crop(h, w, self.rgb_crop_scale, self.rgb_crop_ratio)
+		b, c, s = self.brightness, self.contrast, self.saturation
+		return {
+			"crop": crop,
+			"brightness": float(self._rng.uniform(max(0.0, 1.0 - b), 1.0 + b)) if b > 0 else None,
+			"contrast": float(self._rng.uniform(max(0.0, 1.0 - c), 1.0 + c)) if c > 0 else None,
+			"saturation": float(self._rng.uniform(max(0.0, 1.0 - s), 1.0 + s)) if s > 0 else None,
+			"hue": float(self._rng.uniform(-self.hue, self.hue)) if self.hue > 0 else None,
+		}
 
 	def _augment_rgb_torch(self, img: Any) -> Any:
 		import torchvision.transforms.functional as TF
 
-		if self._rng.random() < self.rgb_crop_prob:
-			img = self._random_resized_crop_torch(img, self.rgb_crop_scale, self.rgb_crop_ratio)
-		if self.brightness > 0:
-			img = TF.adjust_brightness(
-				img, float(self._rng.uniform(max(0.0, 1.0 - self.brightness), 1.0 + self.brightness))
-			)
-		if self.contrast > 0:
-			img = TF.adjust_contrast(img, float(self._rng.uniform(max(0.0, 1.0 - self.contrast), 1.0 + self.contrast)))
-		if self.saturation > 0:
-			img = TF.adjust_saturation(
-				img, float(self._rng.uniform(max(0.0, 1.0 - self.saturation), 1.0 + self.saturation))
-			)
-		if self.hue > 0:
-			img = TF.adjust_hue(img, float(self._rng.uniform(-self.hue, self.hue)))
+		_, h, w = img.shape
+		p = self._draw_rgb(h, w)
+		if p["crop"] is not None:
+			img = self._crop_resize_torch(img, p["crop"])
+		if p["brightness"] is not None:
+			img = TF.adjust_brightness(img, p["brightness"])
+		if p["contrast"] is not None:
+			img = TF.adjust_contrast(img, p["contrast"])
+		if p["saturation"] is not None:
+			img = TF.adjust_saturation(img, p["saturation"])
+		if p["hue"] is not None:
+			img = TF.adjust_hue(img, p["hue"])
 		if self.rgb_noise_std > 0:
 			noise = torch.randn_like(img) * self.rgb_noise_std
 			img = img + noise
@@ -206,6 +230,92 @@ class StudentImageAugmentor:
 			else:
 				out[key] = self._augment_numpy(np.asarray(img, dtype=np.float32), is_depth=is_depth)
 		return out
+
+	def augment_batch(self, images: Mapping[str, Any]) -> dict[str, Any]:
+		""":meth:`__call__` for whole batches: ``(B, 3, H, W)`` float tensors in [0, 1] on any device (the trainer's
+		``--gpu-augment`` runs it on the GPU instead of in the DataLoader workers). Same transforms, parameter
+		distributions and order as the per-sample path, each sample drawing its own parameters; the crop-resize is one
+		``grid_sample`` (bilinear, edge-clamped, matching ``F.interpolate(align_corners=False)`` of the crop)."""
+		from torchvision.transforms._functional_tensor import _hsv2rgb, _rgb2hsv
+
+		out: dict[str, Any] = {}
+		for key, x in images.items():
+			x = x.float()
+			b, _, h, w = x.shape
+			if key.endswith("top_depth_v2"):
+				crops = [
+					self._draw_crop(h, w, self.depth_crop_scale, self.depth_crop_ratio)
+					if self._rng.random() < self.depth_crop_prob
+					else None
+					for _ in range(b)
+				]
+				x = _batch_crop_resize(x, crops)
+				if self.depth_noise_std > 0:
+					x = x + torch.randn_like(x) * self.depth_noise_std
+				out[key] = x.clamp(0.0, 1.0)
+				continue
+			ps = [self._draw_rgb(h, w) for _ in range(b)]
+			x = _batch_crop_resize(x, [p["crop"] for p in ps])
+
+			def factor(name: str, ps=ps, x=x) -> Any:
+				return torch.tensor([p[name] for p in ps], device=x.device, dtype=x.dtype).view(-1, 1, 1, 1)
+
+			if self.brightness > 0:
+				x = (factor("brightness") * x).clamp(0.0, 1.0)
+			if self.contrast > 0:
+				f = factor("contrast")
+				mean = _grayscale(x).mean(dim=(-3, -2, -1), keepdim=True)
+				x = (f * x + (1.0 - f) * mean).clamp(0.0, 1.0)
+			if self.saturation > 0:
+				f = factor("saturation")
+				x = (f * x + (1.0 - f) * _grayscale(x)).clamp(0.0, 1.0)
+			if self.hue > 0:
+				hh, ss, vv = _rgb2hsv(x).unbind(dim=-3)
+				hh = (hh + factor("hue").view(-1, 1, 1)) % 1.0
+				x = _hsv2rgb(torch.stack((hh, ss, vv), dim=-3))
+			if self.rgb_noise_std > 0:
+				x = x + torch.randn_like(x) * self.rgb_noise_std
+			out[key] = x.clamp(0.0, 1.0)
+		return out
+
+
+def _grayscale(x: Any) -> Any:
+	"""``torchvision`` ``rgb_to_grayscale`` weights, keeping a channel axis."""
+	r, g, b = x.unbind(dim=-3)
+	return (0.2989 * r + 0.587 * g + 0.114 * b).unsqueeze(-3)
+
+
+def _batch_crop_resize(x: Any, crops: Sequence[tuple[int, int, int, int] | None]) -> Any:
+	"""Crop each ``(B, C, H, W)`` image to its ``(top, left, crop_h, crop_w)`` and resize back to ``H x W``
+	(bilinear, ``align_corners=False``, edge-clamped like ``F.interpolate``); None leaves an image untouched."""
+	import torch.nn.functional as F
+
+	idx = [i for i, c in enumerate(crops) if c is not None]
+	if not idx:
+		return x
+	_, c, h, w = x.shape
+	theta = torch.zeros(len(idx), 2, 3, device=x.device, dtype=torch.float32)
+	for j, i in enumerate(idx):
+		top, left, ch, cw = crops[i]
+		theta[j, 0, 0] = cw / w
+		theta[j, 0, 2] = (2 * left + cw) / w - 1.0
+		theta[j, 1, 1] = ch / h
+		theta[j, 1, 2] = (2 * top + ch) / h - 1.0
+	grid = F.affine_grid(theta, [len(idx), c, h, w], align_corners=False)
+	# F.interpolate of the cropped tensor clamps source positions to the crop's edge pixels; clamp the grid to the
+	# crop's first and last pixel centres so edge pixels never blend with pixels outside the crop.
+	lo = torch.tensor([[(2 * crops[i][1] + 1) / w - 1.0, (2 * crops[i][0] + 1) / h - 1.0] for i in idx])
+	hi = torch.tensor(
+		[
+			[(2 * (crops[i][1] + crops[i][3]) - 1) / w - 1.0, (2 * (crops[i][0] + crops[i][2]) - 1) / h - 1.0]
+			for i in idx
+		]
+	)
+	lo, hi = lo.to(grid.device).view(-1, 1, 1, 2), hi.to(grid.device).view(-1, 1, 1, 2)
+	grid = torch.maximum(torch.minimum(grid, hi), lo)
+	out = x.clone()
+	out[idx] = F.grid_sample(x[idx], grid.to(x.dtype), mode="bilinear", padding_mode="border", align_corners=False)
+	return out.clamp(0.0, 1.0)
 
 
 def _segment_roll_rows(ep: _EpisodeData) -> tuple[list[float | None], list[str]]:

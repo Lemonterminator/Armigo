@@ -31,7 +31,7 @@ from digital_twin_armigo.vla.contract import (
 	STATE_DIM,
 	STUDENT_CAMERAS,
 )
-from digital_twin_armigo.vla.dataset import SegmentChunkDataset, vla_collate_fn
+from digital_twin_armigo.vla.dataset import SegmentChunkDataset, StudentImageAugmentor, vla_collate_fn
 from digital_twin_armigo.vla.metrics import EvalAccumulator
 from digital_twin_armigo.vla.models import ACTWithEndHead, SmolVLAWithEndHead, load_act_weights_expanding
 
@@ -208,6 +208,7 @@ def run_training(
 	tiny_for_test: bool = False,
 	local_files_only: bool = False,
 	bowl_token: bool = False,
+	gpu_augmentor: StudentImageAugmentor | None = None,
 ) -> dict[str, Any]:
 	"""Execute the S9 training loop on ``train_ds`` with optional periodic evaluation on ``val_ds``."""
 	_seed_everything(seed)
@@ -242,6 +243,8 @@ def run_training(
 				"end_head_lr": head_lr_val,
 				"weight_decay": wd_val,
 				"bowl_token": bool(bowl_token),
+				"gpu_augment": gpu_augmentor is not None,
+				"init_from": init_from,
 				"train": train_ds.summary(),
 				"val": val_ds.summary() if val_ds is not None else None,
 			},
@@ -319,6 +322,9 @@ def run_training(
 		t0 = time.perf_counter()
 		for step in range(1, steps + 1):
 			batch = next(batch_iter)
+			if gpu_augmentor is not None:  # --gpu-augment: the workers only decode; augment the batch on the device
+				cams = {k: batch[k].to(dev, non_blocking=True) for k in STUDENT_CAMERAS}
+				batch.update(gpu_augmentor.augment_batch(cams))
 			optimizer.zero_grad(set_to_none=True)
 			with torch.amp.autocast("cuda", dtype=torch.bfloat16, enabled=amp_enabled):
 				loss, loss_dict = model(batch)
@@ -428,6 +434,11 @@ def main(argv: list[str] | None = None) -> int:
 	p.add_argument("--device", default="auto")
 	p.add_argument("--no-amp", action="store_true", help="Disable CUDA bfloat16 AMP")
 	p.add_argument("--no-augment", action="store_true", help="Disable training-time image augmentations")
+	p.add_argument(
+		"--gpu-augment",
+		action="store_true",
+		help="Augment whole batches on the training device instead of per sample in the DataLoader workers",
+	)
 	p.add_argument("--val-max-batches", type=int, default=None)
 	p.add_argument("--local-files-only", action="store_true")
 	p.add_argument(
@@ -455,7 +466,7 @@ def main(argv: list[str] | None = None) -> int:
 		repo_id=args.repo_id,
 		horizon=horizon,
 		takeover_weight=args.takeover_weight,
-		augment=not args.no_augment,
+		augment=not args.no_augment and not args.gpu_augment,
 		drop_unsupervised=args.drop_unsupervised,
 	)
 	val_ds = (
@@ -505,6 +516,7 @@ def main(argv: list[str] | None = None) -> int:
 			tiny_for_test=args.tiny_for_test,
 			local_files_only=args.local_files_only,
 			bowl_token=args.bowl_token,
+			gpu_augmentor=StudentImageAugmentor(seed=args.seed) if args.gpu_augment and not args.no_augment else None,
 		)
 		run.log_report(summary["final_val_metrics"] or {}, "val")
 		run.log_metrics({"best_end_step_f1": summary["best_end_step_f1"]})

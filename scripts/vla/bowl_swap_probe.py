@@ -11,6 +11,10 @@ state, closed loop, with only the bowl instruction changed:
 
 Each arm records the TCP path, the TCP and brick at segment end, whether the brick was lost, and the true bowl
 centres. The episode stops after the probe (no release, no grading). Analysis: ``bowl_swap_report.py``.
+
+``--prefix teacher`` runs the realistic expert (segment-split like ``ExpertTracer``) up to the place move instead of
+the student, so only the carry arms are the student's: it tests instruction following alone, independent of whether
+the student's own grasp would get there (docs/vla/SMOLVLA_BOWL_PROBE_2026-11-24.md).
 Protocol: docs/vla/BOWL_SWAP_PROBE_2026-11-23.md.
 """
 
@@ -119,13 +123,60 @@ class BowlSwapTwin(StudentTwin):
 		raise ProbeDone
 
 
-def run_case(case, scorer, out: Path, policy) -> dict:
+class TeacherPrefixBowlSwapTwin(BowlSwapTwin):
+	"""BowlSwapTwin whose motions before the place move are the expert's (``ExpertTracer``'s segment splitting); the
+	place move goes to the probe. The student's previous-action and previous-state inputs follow the expert's frames."""
+
+	def _execute(self, generator):
+		from digital_twin_armigo.agent.student_rollout import ExpertTracer
+		from digital_twin_armigo.agent.twin_mujoco import TwinMujoco
+
+		form, value = self._motion(generator)
+		if form == "composite" and value[0] == "release":
+			generator.close()
+			return self._student_release(value[1])
+		ExpertTracer._tag_carry(self)
+		if form == "simple":
+			self._segment_begin(value)
+			wrapped = generator
+		else:
+			wrapped = ExpertTracer._split(self, generator, *value)
+		error = TwinMujoco._execute(self, wrapped)
+		if self._open_segment is not None:
+			lost = self._open_segment["segment"].held and self.expert.lost
+			self._segment_end(error or ("brick_lost" if lost else "done"))
+		if form == "composite" and value[0] == "grasp_and_lift" and self.held is not None:
+			self.lift_poses.append(np.asarray(self.held[0], dtype=np.float64).copy())
+		return error
+
+	def run_segment(self, seg):
+		"""``return_to_lift`` (the place move's way back from the show pose) is the expert's too: the student runs only
+		the probed ``carry_to_bowl`` arms."""
+		if seg.kind != "return_to_lift":
+			return super().run_segment(seg)
+		from digital_twin_armigo.agent.twin_mujoco import TwinMujoco
+
+		ex = self.expert
+		q_lift = np.asarray(self.held[0], dtype=np.float64).copy()
+		self._segment_begin(seg)
+		error = TwinMujoco._execute(self, ex._move(q_lift, ex._carry_secs(q_lift, ex.p.show_move_s), "show_move"))
+		if self._open_segment is not None:
+			self._segment_end(error or ("brick_lost" if ex.lost else "done"))
+		return error
+
+	def _apply_target(self, obs, target, phase):
+		self._q_prev = np.asarray(obs["q"], dtype=np.float64).copy()
+		self._prev_action = np.asarray(target, dtype=np.float64).copy()
+		return super()._apply_target(obs, target, phase)
+
+
+def run_case(case, scorer, out: Path, policy, prefix: str = "student") -> dict:
 	from digital_twin_armigo.agent.twin_graph import Policy, build_graph
 	from digital_twin_armigo.agent.twin_mujoco import sample_case
 	from digital_twin_armigo.agent.twin_record import EpisodeTrace
 
 	trace = EpisodeTrace(out, video=False)
-	twin = BowlSwapTwin(
+	twin = (TeacherPrefixBowlSwapTwin if prefix == "teacher" else BowlSwapTwin)(
 		sample_case(*case),
 		scorer,
 		trace,
@@ -166,6 +217,7 @@ def main(argv=None) -> int:
 	p.add_argument("--max-episodes", type=int, default=None)
 	p.add_argument("--replan-interval", type=int, default=50)
 	p.add_argument("--timeout-s", type=float, default=30.0)
+	p.add_argument("--prefix", choices=("student", "teacher"), default="student", help="Who moves before the carry")
 	args = p.parse_args(argv)
 
 	cases = ev.assert_suite_allowed(args.suite)
@@ -180,6 +232,7 @@ def main(argv=None) -> int:
 		"clamp_wait_empty_rad": CLAMP_WAIT_EMPTY_RAD,
 		"replan_interval": args.replan_interval,
 		"mode": "sync",
+		"prefix": args.prefix,
 	}
 	(args.out / "probe_meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
 	scorer = default_sup_scorer(args.detector)
@@ -198,7 +251,7 @@ def main(argv=None) -> int:
 				)
 				t0 = time.perf_counter()
 				try:
-					rec = run_case(case, scorer, ep_dir, policy)
+					rec = run_case(case, scorer, ep_dir, policy, args.prefix)
 				finally:
 					policy.close()
 				rec["index"] = idx
