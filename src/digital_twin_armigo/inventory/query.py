@@ -21,7 +21,8 @@ TABLES = {
 FILTERS = {
 	"trajectories": ("category", "engine", "verdict", "verdict_final_cycle", "failure_mode", "failure_mode_final_cycle",
 		"run_group", "category_basis", "control", "sensing", "root", "split_hint",
-		"batch", "group", "camera_condition", "strategy", "detector", "layout_id", "case_id", "run_id", "run_state"),
+		"batch", "group", "camera_condition", "strategy", "detector", "layout_id", "case_id", "run_id", "run_state",
+		"auto_root_cause", "auto_mechanism", "auto_upstream"),
 	"scenes": ("scene_kind", "engine", "split", "dataset_id"),
 	"datasets": ("kind", "engine", "root"),
 }  # fmt: skip
@@ -49,6 +50,9 @@ FACETS = {
 		"run_state",
 		"audit_state",
 		"root_cause",
+		"auto_root_cause",
+		"auto_mechanism",
+		"auto_upstream",
 	),
 	"scenes": ("scene_kind", "engine", "split"),
 	"datasets": ("kind", "engine"),

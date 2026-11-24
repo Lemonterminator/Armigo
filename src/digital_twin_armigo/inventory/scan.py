@@ -315,16 +315,44 @@ def _run_group(directory: Path, root: Path) -> str:
 	return "/".join(directory.relative_to(root).parts[:-1]) or root.name
 
 
+AUTO_COLUMNS = ("auto_root_cause", "auto_mechanism", "auto_upstream")
+
+
+def load_auto_attribution(root: Path) -> dict[str, dict]:
+	"""Rows of ``<root>/../reports/*/scores.jsonl`` (v2 layout) by resolved episode path; newer files win."""
+	reports = Path(root).resolve().parent / "reports"
+	out: dict[str, dict] = {}
+	if not reports.is_dir():
+		return out
+	for f in sorted(reports.glob("*/scores.jsonl"), key=lambda p: p.stat().st_mtime):
+		for line in f.read_text(encoding="utf-8").splitlines():
+			if not line.strip():
+				continue
+			r = json.loads(line)
+			path = r.get("path")
+			if not path:
+				continue
+			out[str(Path(path).resolve()).lower()] = {
+				"auto_root_cause": r.get("root_cause"),
+				"auto_mechanism": r.get("mechanism"),
+				"auto_upstream": r.get("upstream"),
+			}
+	return out
+
+
 def scan_agent_episodes(root: Path, label: str) -> Iterator[dict]:
+	auto = load_auto_attribution(root)
 	for cur, dirs, files in walk(root):
 		if "episode.json" not in files:
 			if RUN_STATUS_FILE in files and (row := unfinished_episode(cur, label, root)) is not None:
 				dirs[:] = []
+				row |= auto.get(str(cur.resolve()).lower(), dict.fromkeys(AUTO_COLUMNS))
 				yield row
 			continue
 		row = agent_episode(cur, label, root)
 		if row is not None:
 			dirs[:] = []  # an episode directory holds only its own files
+			row |= auto.get(str(cur.resolve()).lower(), dict.fromkeys(AUTO_COLUMNS))
 			yield row
 
 

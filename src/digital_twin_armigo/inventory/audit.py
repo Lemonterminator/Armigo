@@ -15,6 +15,7 @@ import sqlite3
 from pathlib import Path
 
 from digital_twin_armigo.experiments.contract import AUDIT_STATES, PHYSICAL_OUTCOMES, ROOT_CAUSES
+from digital_twin_armigo.experiments.precursors import MECHANISMS
 
 SCHEMA = """
 create table if not exists reviews (
@@ -24,6 +25,7 @@ create table if not exists reviews (
 	reviewer text not null,
 	state text not null,
 	root_cause text,
+	mechanism text,
 	physical_outcome text,
 	note text,
 	refs text not null default '[]',
@@ -63,6 +65,10 @@ def connect(path: Path):
 	try:
 		con.execute("pragma journal_mode = wal")
 		con.executescript(SCHEMA)
+		try:
+			con.execute("alter table reviews add column mechanism text")
+		except sqlite3.OperationalError:
+			pass
 		yield con
 	finally:
 		con.close()
@@ -123,6 +129,7 @@ def validate(body: dict) -> dict:
 		"reviewer": reviewer,
 		"state": _enum(body.get("state"), AUDIT_STATES, "state", nullable=False),
 		"root_cause": _enum(body.get("root_cause"), ROOT_CAUSES, "root_cause", nullable=True),
+		"mechanism": _enum(body.get("mechanism"), MECHANISMS, "mechanism", nullable=True),
 		"physical_outcome": _enum(body.get("physical_outcome"), PHYSICAL_OUTCOMES, "physical_outcome", nullable=True),
 		"note": note or None,
 		"refs": _refs(body.get("refs")),
@@ -160,14 +167,15 @@ def append(path: Path, traj_id: str, body: dict, *, expected_latest_id: int | No
 			if (cur["id"] if cur else None) != expected_latest_id:
 				raise Conflict(_row(cur))
 			new_id = con.execute(
-				"insert into reviews (traj_id, created_at, reviewer, state, root_cause, physical_outcome, note, refs, "
-				"code_version, replaces) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+				"insert into reviews (traj_id, created_at, reviewer, state, root_cause, mechanism, physical_outcome, note, refs, "
+				"code_version, replaces) values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 				(
 					traj_id,
 					dt.datetime.now(dt.UTC).isoformat(timespec="seconds"),
 					fields["reviewer"],
 					fields["state"],
 					fields["root_cause"],
+					fields["mechanism"],
 					fields["physical_outcome"],
 					fields["note"],
 					json.dumps(fields["refs"], ensure_ascii=False),
@@ -207,5 +215,6 @@ def enums() -> dict:
 	return {
 		"states": list(AUDIT_STATES),
 		"root_causes": list(ROOT_CAUSES),
+		"mechanism": list(MECHANISMS),
 		"physical_outcomes": list(PHYSICAL_OUTCOMES),
 	}

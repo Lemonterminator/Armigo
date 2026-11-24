@@ -330,3 +330,108 @@ def test_trace_finish_freezes_the_actor_into_provenance(tmp_path):
 	assert "basis" not in actor and actor["rules_version"] == taxonomy.RULES_VERSION
 	row = scan.agent_episode(tmp_path / "ep", "t", tmp_path)
 	assert row["category"] == "agent_realistic" and row["category_basis"] == "explicit"
+
+
+def test_scan_single_agent_episode_joins_auto_attribution(tmp_path):
+	from digital_twin_armigo.agent.twin_record import EpisodeTrace
+
+	runs = tmp_path / "runs"
+	ep_dir = runs / "b1" / "mujoco" / "g" / "ep"
+	trace = EpisodeTrace(ep_dir, video=False)
+	trace.finish(_result("FAILED", consulted=1), {"engine": "mujoco", "sensing": "realistic", "case": [1, False, 0]})
+	rep = tmp_path / "reports" / "b1"
+	rep.mkdir(parents=True)
+	score_row = {
+		"path": str(ep_dir),
+		"root_cause": "recovery_failure",
+		"mechanism": "brick_pose_error",
+		"upstream": "calibration_drift",
+	}
+	(rep / "scores.jsonl").write_text(json.dumps(score_row) + "\n", encoding="utf-8")
+	rows = list(scan.scan_agent_episodes(runs, "t"))
+	assert len(rows) == 1
+	assert rows[0]["auto_root_cause"] == "recovery_failure"
+	assert rows[0]["auto_mechanism"] == "brick_pose_error"
+	assert rows[0]["auto_upstream"] == "calibration_drift"
+
+
+def test_auto_attribution_is_joined_from_reports(tmp_path):
+	from digital_twin_armigo.inventory import query, scan, store
+
+	runs = tmp_path / "runs"
+	ep = runs / "b1" / "mujoco" / "g" / "L7-N"
+	ep.mkdir(parents=True)
+	rep = tmp_path / "reports" / "b1"
+	rep.mkdir(parents=True)
+	row = {
+		"path": str(ep),
+		"root_cause": "recovery_failure",
+		"mechanism": "brick_pose_error",
+		"upstream": "calibration_drift",
+	}
+	(rep / "scores.jsonl").write_text(json.dumps(row) + "\n")
+	auto = scan.load_auto_attribution(runs)
+	assert auto[str(ep.resolve()).lower()] == {"auto_root_cause": "recovery_failure", "auto_mechanism": "brick_pose_error",
+		"auto_upstream": "calibration_drift"}  # fmt: skip
+	assert set(scan.AUTO_COLUMNS) <= set(store.TRAJECTORY_COLUMNS)
+	assert set(scan.AUTO_COLUMNS) <= set(query.FILTERS["trajectories"]) and set(scan.AUTO_COLUMNS) <= set(
+		query.FACETS["trajectories"]
+	)
+
+
+def test_audit_mechanism_is_optional_and_validated(tmp_path):
+	from digital_twin_armigo.inventory import audit
+
+	db = tmp_path / "reviews.sqlite"
+	audit.append(db, "t1", {"reviewer": "x", "state": "confirmed", "root_cause": "recovery_failure",
+		"mechanism": "brick_pose_error"}, expected_latest_id=None, code_version=None)  # fmt: skip
+	assert audit.latest(db, "t1")["mechanism"] == "brick_pose_error"
+	with pytest.raises(audit.ValidationError):
+		audit.append(
+			db,
+			"t2",
+			{"reviewer": "x", "state": "confirmed", "mechanism": "bogus"},
+			expected_latest_id=None,
+			code_version=None,
+		)
+	assert (
+		audit.append(db, "t3", {"reviewer": "x", "state": "confirmed"}, expected_latest_id=None, code_version=None)[
+			"mechanism"
+		]
+		is None
+	)
+	assert "brick_pose_error" in audit.enums()["mechanism"]
+
+
+def test_audit_migrates_legacy_db_without_mechanism_column(tmp_path):
+	from digital_twin_armigo.inventory import audit
+
+	db = tmp_path / "legacy.sqlite"
+	con = sqlite3.connect(db)
+	con.executescript(
+		"""
+		create table reviews (
+			id integer primary key autoincrement,
+			traj_id text not null,
+			created_at text not null,
+			reviewer text not null,
+			state text not null,
+			root_cause text,
+			physical_outcome text,
+			note text,
+			refs text not null default '[]',
+			code_version text,
+			replaces integer
+		);
+		"""
+	)
+	con.commit()
+	con.close()
+	row = audit.append(
+		db,
+		"t1",
+		{"reviewer": "x", "state": "confirmed", "mechanism": "calibration_drift"},
+		expected_latest_id=None,
+		code_version=None,
+	)
+	assert row["mechanism"] == "calibration_drift"
