@@ -102,3 +102,106 @@ def test_recheck_none_is_default_and_matches_open_loop(tmp_path):
 			twin.close()
 
 	assert np.array_equal(_run_pick("default", set_none=False), _run_pick("explicit_none", set_none=True))
+
+
+def test_motion_open_default_matches_via_compare_runs(tmp_path):
+	import pytest
+
+	pytest.importorskip("mujoco")
+	pytest.importorskip("cv2")
+	from digital_twin_armigo.agent.twin_mujoco import TwinMujoco, sample_case
+	from digital_twin_armigo.agent.twin_record import EpisodeTrace
+	from digital_twin_armigo.experiments.diag_mcp import compare_runs
+	from digital_twin_armigo.inspection_scorer import FixedScorer
+
+	def _run_ep(name: str, **kw):
+		ep_dir = tmp_path / name
+		trace = EpisodeTrace(ep_dir, video=False)
+		scorer = FixedScorer(lambda _c, _rgb: -1.0, {"top": 0.0, "wrist_cam": 0.0})
+		twin = TwinMujoco(sample_case(600001, False, 5), scorer, trace, sensing="realistic", **kw)
+		try:
+			assert twin.motion == "open"
+			assert twin.prepare() is None
+			assert twin._grasp() is None
+			assert twin.place("normal") is None
+			res = twin.evaluate("normal", [], [])
+			trace.finish(res, {})
+			return ep_dir
+		finally:
+			trace.close()
+			twin.close()
+
+	a = _run_ep("default")
+	b = _run_ep("explicit_open", motion="open")
+	cmp_out = compare_runs(a, b)
+	assert cmp_out["identical_discrete"] and cmp_out["score_deltas"] == [] and cmp_out["verdict_equal"]
+
+
+def test_closed_loop_w2s_emits_wrist_fix_and_rejects_truth_mode(tmp_path):
+	import pytest
+
+	pytest.importorskip("mujoco")
+	pytest.importorskip("cv2")
+	from digital_twin_armigo.agent.twin_mujoco import TwinMujoco, sample_case
+	from digital_twin_armigo.agent.twin_record import EpisodeTrace
+	from digital_twin_armigo.inspection_scorer import FixedScorer
+
+	scorer = FixedScorer(lambda _c, _rgb: -1.0, {"top": 0.0, "wrist_cam": 0.0})
+	trace_t = EpisodeTrace(tmp_path / "truth", video=False)
+	try:
+		with pytest.raises(ValueError, match="realistic sensing"):
+			TwinMujoco(sample_case(600001, False, 5), scorer, trace_t, sensing="truth", motion="w2s")
+	finally:
+		trace_t.close()
+
+	trace = EpisodeTrace(tmp_path / "w2s", video=False)
+	twin = TwinMujoco(sample_case(600001, False, 5), scorer, trace, sensing="realistic", motion="w2s")
+	try:
+		assert twin.prepare() is None
+		assert twin._grasp() is None
+		fixes = [e for e in trace.events if e["kind"] == "wrist_fix"]
+		assert len(fixes) >= 1
+		assert all(f["mode"] == "sync" and "error_xy_mm" in f and "error_yaw_deg" in f for f in fixes)
+	finally:
+		trace.close()
+		twin.close()
+
+
+def test_step_mcp_last_wrist_fix_strips_truth_keys(tmp_path):
+	import pytest
+
+	pytest.importorskip("mujoco")
+	pytest.importorskip("cv2")
+	from digital_twin_armigo.agent import step_mcp as sm
+	from digital_twin_armigo.agent.twin_mujoco import ROOT
+	from digital_twin_armigo.inspection_scorer import FixedScorer
+
+	det = ROOT / "results/agent-bench/sup-v7bot-local.json"
+	if not det.is_file():
+		pytest.skip("detector spec not present")
+	scorer = FixedScorer(lambda _c, _rgb: -1.0, {"top": 0.0, "wrist_cam": 0.0})
+	svc = sm.StepService(tmp_path / "svc", det, "realistic", [(600001, False, 5)], scorer=scorer)
+	try:
+
+		def _check():
+			started = svc.start(next(iter(svc.cases)))
+			sess = svc.session(started["session_id"])
+			assert sess.last_wrist_fix() is None
+			sess.backend.event(
+				"wrist_fix",
+				height_m=0.05,
+				found=True,
+				accepted=True,
+				mode="sync",
+				error_xy_mm=1.23,
+				error_yaw_deg=0.45,
+			)
+			fix = sess.last_wrist_fix()
+			assert fix is not None
+			assert fix["height_m"] == 0.05 and fix["found"] is True
+			assert "error_xy_mm" not in fix and "error_yaw_deg" not in fix
+			sm.assert_sensor_only(fix)
+
+		svc.run_sync(_check)
+	finally:
+		svc.close()

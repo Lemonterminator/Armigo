@@ -41,6 +41,7 @@ from ..mujoco_cell.table_relocation import RelocateExpert, RelocateParams, plan_
 from ..mujoco_cell.visibility import workspace_visible
 from ..physics import NonIdealityCfg, load_physics_spec
 from .bowl_clearance import PerceivedBowlClearance, with_perceived_bowl_clearance
+from .grasp_loop import VARIANTS, GraspLoop
 from .perception import (
 	BowlEstimate,
 	BrickEstimate,
@@ -55,6 +56,7 @@ from .perception import (
 from .review import MAX_CANDIDATES, MIN_POSE_SEPARATION_RAD, _alarm, llm_choice, review_decision, rule_choice
 from .sensing import GripperContact
 from .twin_graph import Policy, decision, select_skill
+from .wrist_localize import FuseCfg, believed_wrist_from_cam, fuse, localize_from_wrist, wrist_k
 
 ROOT = Path(__file__).resolve().parents[3]
 INITIAL_Q = np.array([*normalized_to_rad(np.array(REST_U, dtype=np.float64))[:5], ExpertParams().open_g])
@@ -675,11 +677,16 @@ class TwinMujoco:
 		cell_factory=None,
 		review_llm=None,
 		oracle=(),
+		motion="open",
 	):
 		if sensing not in SENSING:
 			raise ValueError(f"sensing must be one of {SENSING}")
 		self.sensing = sensing
 		self.realistic = sensing == "realistic"
+		if motion not in VARIANTS:
+			raise ValueError(f"motion must be one of {tuple(VARIANTS)}")
+		self.motion = motion
+		self.fuse_cfg = FuseCfg()
 		raw_oracle = oracle if oracle else getattr(layout, "oracle", ())
 		if isinstance(raw_oracle, str):
 			raw_oracle = [p.strip() for p in raw_oracle.split(",") if p.strip()]
@@ -749,6 +756,7 @@ class TwinMujoco:
 			self.expert_type = with_perceived_bowl_clearance(self.expert_type, self.bowl_clearance)
 			self.expert_type = with_believed_brick_size(self.expert_type, self._believed_brick_size)
 		self.expert = self._make_expert(ExpertParams(), RelocateParams(do_bottom=False, do_scan=False))
+		self._configure_recheck()
 		self.node = ""
 		self.phases: list[int] = []
 		self.targets: list[np.ndarray] = []  # policy target per frame (before the command filter)
@@ -824,6 +832,53 @@ class TwinMujoco:
 		if self.realistic:
 			ex.gripper_monitor = GripperMonitor(GripperMonitorParams(effort_min=0.0, use_effort=False))
 		return ex
+
+	def _configure_recheck(self) -> None:
+		spec = VARIANTS[self.motion]
+		if spec is not None:
+			if not self.realistic:
+				raise ValueError("motion variants are for realistic sensing; truth sees the brick directly")
+			heights, mode = spec
+			self.expert.recheck = GraspLoop(heights, mode, self._wrist_look)
+
+	def _wrist_look(self, h: float):
+		"""One wrist-camera re-localisation during grasp descent: fuse and return replanned grasp or None."""
+		cell, ex = self.cell, self.expert
+		rgb = cell.rgb("wrist_cam")
+		ex.kin.data.qpos[:] = cell.data.qpos
+		w2c = believed_wrist_from_cam(cell, ex.kin.data)
+		cid = mujoco.mj_name2id(cell.model, mujoco.mjtObj.mjOBJ_CAMERA, "wrist_cam")
+		k = wrist_k(float(cell.model.cam_fovy[cid]), rgb.shape)
+		size = self._believed_brick_size()
+		top_z = float(self.brick_est.pos[2] + size[2] / 2)
+		fix, reason = localize_from_wrist(rgb, k, w2c, self.brick_est.pos[:2], self.brick_est.yaw, size, top_z)
+		info: dict = {"accepted": False}
+		if fix is not None:
+			fused, info = fuse(self.brick_est, fix, self.fuse_cfg)
+			info |= {"area_px": fix.area_px, "fill": round(fix.fill, 3), "tilt_deg": round(fix.tilt_deg, 2)}
+			if fused is not None:
+				self.brick_est = fused
+		loop = ex.recheck
+		rot = cell.data.xmat[cell.brick_body].reshape(3, 3)
+		self.event(
+			"wrist_fix",
+			height_m=round(float(h), 4),
+			found=fix is not None,
+			reason=reason,
+			mode=loop.mode,
+			latency_s=loop.latency_s if loop.mode == "async" else 0.0,
+			**info,
+			# Truth diagnostics only (registered in TRUTH_DIAGNOSTIC_KEYS); never read by the agent.
+			error_xy_mm=round(float(np.linalg.norm(self.brick_est.pos[:2] - cell.brick_pos()[:2]) * 1000), 3),
+			error_yaw_deg=round(
+				yaw_error_deg(self.brick_est.yaw, math.atan2(rot[1, 0], rot[0, 0]), self.layout.brick_size), 3
+			),
+		)
+		if not info["accepted"]:
+			return None
+		with self._belief():
+			ex.kin.data.qpos[:] = cell.data.qpos
+			return ex._grasp_plan(open_g=ex._active_open_g)
 
 	@property
 	def recoveries(self) -> int:
@@ -1223,6 +1278,8 @@ class TwinMujoco:
 			"llm_stats": copy.deepcopy(getattr(self, "_llm_stats", None)),
 			"oracle": sorted(self.oracle),
 			"oracle_logged": self._oracle_logged,
+			"motion": self.motion,
+			"fuse_cfg": asdict(self.fuse_cfg),
 			"segments": self._checkpoint_extra(),
 		}
 		if self.perception is not None:
@@ -2162,6 +2219,11 @@ class TwinMujoco:
 		if agent.get("oracle") is not None:
 			self.oracle = frozenset(agent["oracle"]) if self.realistic else frozenset()
 			self._oracle_logged = bool(agent.get("oracle_logged", False))
+		if agent.get("motion") is not None:
+			self.motion = str(agent["motion"])
+		if agent.get("fuse_cfg") is not None:
+			self.fuse_cfg = FuseCfg(**agent["fuse_cfg"])
+		self._configure_recheck()
 		if self.realistic:
 			self._contact.reset()
 			self._contact.prev = agent.get("contact_prev")
@@ -2491,6 +2553,7 @@ class TwinMujoco:
 			"strategy": self.strategy,
 			"scored_views": self.scored_count,
 			"review_views": self.review_count,
+			"motion": getattr(self, "motion", "open"),
 			"health": health,
 			"llm": self._llm_summary(),
 			"smoothness": self._smoothness(),

@@ -204,6 +204,17 @@ class StepSession:
 			assert_no_defect_leakage(payload)
 		return payload
 
+	def last_wrist_fix(self) -> dict | None:
+		"""Most recent ``wrist_fix`` event with only sensor fields (never truth error_* fields)."""
+		for e in reversed(self.backend.record.events):
+			if e.get("kind") == "wrist_fix":
+				return {
+					k: v
+					for k, v in e.items()
+					if k not in ("kind", "node", "branch", "frame", "seq", "t") and not k.startswith("error_")
+				}
+		return None
+
 	def log_tool(self, tool: str, latency_s: float, *, args=None, returned=None, error: str | None = None) -> None:
 		if isinstance(returned, (list, tuple)):  # image content blocks
 			returned = {"n_images": len(returned)}
@@ -573,7 +584,9 @@ def create_step_mcp(service: StepService, host="127.0.0.1", port=8766):
 	def session_tool(method_name: str):
 		async def run(session_id: str):
 			session = service.session(session_id)
-			return session._out(await service.call(getattr(session, method_name)))
+			out = dict(await service.call(getattr(session, method_name)))
+			out["last_wrist_fix"] = session.last_wrist_fix()
+			return session._out(out)
 
 		return run
 
