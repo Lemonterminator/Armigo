@@ -63,6 +63,11 @@ ROOT_CAUSES = (
 	"placement_failure",
 	"infra_failure",
 	"evidence_insufficient",  # label correct, but no view before the decision could tell the bricks apart
+	"perception_pose_error",
+	"calibration_stale",
+	"bowl_localization",
+	"wrong_bowl_carry",
+	"tool_contract",
 	"none",  # success with sufficient evidence
 	"other",
 )
