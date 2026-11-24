@@ -14,6 +14,7 @@ import math
 from collections import Counter, defaultdict
 from pathlib import Path
 
+from .precursors import MECHANISMS
 from .scoring import score_episode
 from .stats import cell_metrics, minimum_detectable_effect, paired_comparison
 
@@ -87,6 +88,18 @@ def _rate(m):
 	return f"{_num(m['value'], True)} [{_num(m['ci_lo'], True)}, {_num(m['ci_hi'], True)}] ({m['k']}/{m['n']})"
 
 
+def mechanism_table(rows: list[dict]) -> dict[str, dict[str, int]]:
+	"""Failed (root_cause != none) episodes counted by symptom x mechanism; ``(none)`` = no precursor explains it."""
+	out: dict[str, dict[str, int]] = {}
+	for r in rows:
+		if r.get("root_cause") in (None, "none"):
+			continue
+		cell = out.setdefault(r["root_cause"], {})
+		key = r.get("mechanism") or "(none)"
+		cell[key] = cell.get(key, 0) + 1
+	return out
+
+
 def build_summary(rows: list[dict], plans: dict, compare: tuple[str, str] | None = None, B: int = BOOTSTRAP_B) -> dict:
 	cells = defaultdict(list)
 	for r in rows:
@@ -103,6 +116,7 @@ def build_summary(rows: list[dict], plans: dict, compare: tuple[str, str] | None
 			for (e, g), c in sorted(cells.items())
 		},
 		"coverage_only": {f"{e}/{g}": v for (e, g), v in cov.items() if (e, g) not in cells},
+		"mechanisms": mechanism_table(rows),
 		"paired": {},
 	}
 	if compare:
@@ -164,6 +178,13 @@ def render_markdown(batch: str, summary: dict) -> str:
 		lines += ["| 引擎/组 | " + " | ".join(causes) + " |", "|---|" + "---:|" * len(causes)]
 		for name, cell in summary["cells"].items():
 			lines.append(f"| {name} | " + " | ".join(str(cell["root_causes"].get(c, 0)) for c in causes) + " |")
+	mechs = summary.get("mechanisms") or {}
+	if mechs:
+		cols = [*MECHANISMS, "(none)"]
+		lines += ["", "## 症状 × 机制（前兆，未经反事实证实）", ""]
+		lines += ["| 症状 | " + " | ".join(cols) + " |", "|---|" + "---:|" * len(cols)]
+		for symptom, counts in sorted(mechs.items()):
+			lines.append(f"| {symptom} | " + " | ".join(str(counts.get(c, 0)) for c in cols) + " |")
 	if summary["paired"]:
 		lines += ["", "## 配对差异（B - A，按 case_id 配对，按布局聚类）", ""]
 		lines += [

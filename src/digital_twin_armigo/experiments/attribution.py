@@ -326,11 +326,12 @@ def first_error(
 	audit: dict | None,
 	physical: dict | None,
 	run_status: dict | None = None,
+	thresholds: dict | None = None,
 ) -> dict:
 	result = (episode or {}).get("result") or {}
 	findings = _infra(events, episode, result, run_status)
 	if not episode or not result:
-		return _strip(min(findings, key=lambda f: f["seq"]))
+		return _with_mechanism(min(findings, key=lambda f: f["seq"]), events, thresholds)
 
 	case = (task or {}).get("case") or []
 	expected = (audit or {}).get("true_label") or (("defective" if case[1] else "normal") if len(case) > 1 else None)
@@ -360,8 +361,27 @@ def first_error(
 			if bad:
 				findings.append(bad)
 	if not findings:
-		return {"root_cause": "none", "frame": None, "branch": None, "view_id": None, "detail": "sufficient evidence"}
-	return _strip(min(findings, key=lambda f: f["seq"]))
+		return _with_mechanism(
+			{
+				"root_cause": "none",
+				"frame": None,
+				"branch": None,
+				"view_id": None,
+				"detail": "sufficient evidence",
+				"seq": 10**9,
+			},
+			events,
+			thresholds,
+		)
+	return _with_mechanism(min(findings, key=lambda f: f["seq"]), events, thresholds)
+
+
+def _with_mechanism(finding: dict, events: list[dict], thresholds) -> dict:
+	from .precursors import explain, precursors
+
+	found = precursors(events, thresholds)
+	seq = finding.get("seq", 10**9)
+	return {**_strip(finding), **explain(finding["root_cause"], seq, found), "precursors": found}
 
 
 def _strip(finding: dict) -> dict:

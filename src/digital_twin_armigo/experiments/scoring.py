@@ -232,6 +232,8 @@ def score_episode(path) -> dict:
 		"infra_failed": error["root_cause"] == "infra_failure",
 		"first_error": error,
 		"root_cause": error["root_cause"],
+		"mechanism": error.get("mechanism"),
+		"upstream": error.get("upstream"),
 		**_counts(events, result, views),
 	}
 	return row
