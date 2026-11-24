@@ -46,6 +46,9 @@ MIN_DEFICIT_M = 0.003  # a fitted side this much shorter than the brick is check
 OCCLUDER_GAP_M = 0.01  # a pixel is covered when its depth is this much nearer than the hidden top face
 # Bowl colours as OpenCV HSV bounds (H 0-180): hue low, hue high, minimum saturation, minimum value.
 BOWL_HSV = {"green": (45, 85, 70, 30), "pink": (150, 178, 40, 90)}
+# Engine-specific colour bands, calibrated on development renders only (plan 2026-11-24, section 四): the Isaac RTX
+# scene renders the pink bowl pastel (saturation ~20 against ~106 in MuJoCo), the green bowl passes unchanged.
+BOWL_HSV_BY_ENGINE: dict[str, dict[str, tuple[int, int, int, int]]] = {"isaac": {"pink": (150, 178, 12, 90)}}
 BOWL_MIN_PIXELS = 3000
 RIM_INLIER_M = 0.004
 FILL_GAP_M = 0.008  # a bowl pixel is filled when it came this much nearer the camera
@@ -216,7 +219,7 @@ def _plane_heights(p: np.ndarray, bowls_hint=()) -> np.ndarray | None:
 
 
 def locate_bowls(
-	rgb: np.ndarray, depth: np.ndarray, k: np.ndarray, world_from_cam: np.ndarray
+	rgb: np.ndarray, depth: np.ndarray, k: np.ndarray, world_from_cam: np.ndarray, *, engine: str = "mujoco"
 ) -> dict[str, BowlEstimate | None]:
 	"""The green and pink bowls in a top image: the largest blob of each colour, then a circle fitted to the 3D points
 	of its outer contour that stand on the rim (the contour also runs along occluders and the image edge; those
@@ -227,7 +230,7 @@ def locate_bowls(
 	pts = depth_points(depth, k, world_from_cam)
 	heights = _plane_heights(pts.reshape(-1, 3))
 	out: dict[str, BowlEstimate | None] = {}
-	for name, (lo, hi, smin, vmin) in BOWL_HSV.items():
+	for name, (lo, hi, smin, vmin) in {**BOWL_HSV, **BOWL_HSV_BY_ENGINE.get(engine, {})}.items():
 		out[name] = None
 		mask = (hsv[..., 0] >= lo) & (hsv[..., 0] <= hi) & (hsv[..., 1] >= smin) & (hsv[..., 2] >= vmin)
 		n, labels, stats, _ = cv2.connectedComponentsWithStats(mask.astype(np.uint8), connectivity=8)

@@ -72,9 +72,21 @@ def build_graph(backend, policy: Policy, checkpointer=None):
 
 	def choose_view(state: InspectionState):
 		views = state["views"]
-		label, covered = decision(views)
-		if label != "unknown":
-			return {"label": label, "action": "place"}
+		if getattr(backend, "strategy", "A") == "A":
+			label, covered = decision(views)
+			if label != "unknown":
+				return {"label": label, "action": "place"}
+		else:
+			# Decision point 2 (B / C): before placing, an unresolved alarm is re-viewed while the budget lasts; when it
+			# cannot be, the brick is unknown. A confirmed alarm or six cleared faces label it.
+			from .review import review_decision
+
+			label, covered, pending = review_decision(views)
+			if label != "unknown":
+				return {"label": label, "action": "place"}
+			if pending:
+				_, possible = backend.review_pending(views)
+				return {"label": "unknown", "action": "review" if possible else "place"}
 		wrist = bool(set(range(5)) - covered) and backend.can_scan_wrist(policy)
 		bottom = 5 not in covered and backend.can_present_bottom(policy)
 		order = ("scan_wrist", "present_bottom") if policy.order == "wrist_first" else ("present_bottom", "scan_wrist")
@@ -110,6 +122,7 @@ def build_graph(backend, policy: Policy, checkpointer=None):
 		("choose_view", choose_view),
 		("scan_wrist", observe("scan_wrist")),
 		("present_bottom", observe("present_bottom")),
+		("review", observe("review")),
 		("recover", recover),
 		("place", place),
 		("evaluate", evaluate),
@@ -126,8 +139,10 @@ def build_graph(backend, policy: Policy, checkpointer=None):
 		lambda state: "recover" if state["error"] else "choose_view",
 		["recover", "choose_view"],
 	)
-	graph.add_conditional_edges("choose_view", lambda s: s["action"], ["scan_wrist", "present_bottom", "place"])
-	for name in ("scan_wrist", "present_bottom", "place"):
+	graph.add_conditional_edges(
+		"choose_view", lambda s: s["action"], ["scan_wrist", "present_bottom", "review", "place"]
+	)
+	for name in ("scan_wrist", "present_bottom", "review", "place"):
 		next_node = "evaluate" if name == "place" else "choose_view"
 		graph.add_conditional_edges(
 			name,

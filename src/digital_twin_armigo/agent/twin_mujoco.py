@@ -47,6 +47,7 @@ from .perception import (
 	locate_brick,
 	yaw_error_deg,
 )
+from .review import MAX_CANDIDATES, MIN_POSE_SEPARATION_RAD, _alarm, llm_choice, review_decision, rule_choice
 from .sensing import GripperContact
 from .twin_graph import Policy, decision, select_skill
 
@@ -56,12 +57,16 @@ STATE_SPEC = mujoco.mjtState.mjSTATE_INTEGRATION
 
 PROFILE = "mujoco-close-top-1.35"
 BOTTOM_MIN_PX = 400
+REVIEW_FACE_PX_CAP = 6000.0  # re-view ranking: pixels of one face beyond this add nothing (agent/review.py)
 WRIST_MIN_PX = 800
 MIN_BRICK_PX = 150
 MAX_TOTAL_FRAMES = 6300
 # ``truth``: skills read the simulator (brick, bowls, contact forces), optionally with the brick perceived (see
 # .perception). ``realistic``: skills see only what a real cell senses, see TwinMujoco.
 SENSING = ("truth", "realistic")
+STRATEGIES = ("A", "B", "C")
+BOUNDARIES = ("belief_cell", "legacy")
+MAX_REVIEW_VIEWS = 2  # extra re-views per episode (strategies B and C)
 NEUTRAL_XY = (0.25, 0.0)  # constructor target of a realistic expert; every target it uses is set later
 RETRY_MOVED_M = 0.005  # a brick found this far from where it was believed has moved: its face numbering is lost
 RETRY_MOVED_DEG = 3.0
@@ -70,7 +75,12 @@ BOTTOM_BORDER_PX = 40  # realistic bottom views keep the believed brick this far
 
 # Case options (the optional 4th element of a case, see sample_case / load_suite).
 CASE_OPTIONS = ("prior", "cameras")
-CAMERA_MODES = ("fixed", "jitter")
+CAMERA_MODES = ("fixed", "jitter", "jitter_extrinsic", "drift")
+# Plan 2026-11-24 camera conditions: ``jitter_extrinsic`` draws exactly the ``jitter`` sample but keeps every focal
+# length nominal (intrinsics known), so only the mounts move; ``drift`` is ``jitter_extrinsic`` after a calibration
+# made on the nominal rig: the hand-eye estimate is solved on ``FIXED_TOP`` (``Layout.calib_top``) and kept while the
+# real top camera sits at its perturbed pose.
+EXTRINSIC_ONLY = ("jitter_extrinsic", "drift")
 # ``cameras="jitter"`` (plan decision D3): per-layout perturbation of the fixed top and front cameras, drawn from a
 # separate random stream of the seed so every other layout quantity stays identical to ``cameras="fixed"``. Top
 # sigmas match sample_layout's own top-camera jitter; the wrist camera rides on the arm and is never perturbed.
@@ -115,6 +125,7 @@ def case_cameras(seed: int, cameras: str = "fixed") -> tuple[CameraPose, CameraP
 	if cameras == "fixed":
 		return FIXED_TOP, look_from((0.20, 0.0), f["distance_m"], f["height_m"], f["yaw_deg"], focal_px=f["focal_px"])
 	rng = np.random.default_rng([seed, CAMERA_STREAM])
+	keep_focal = cameras in EXTRINSIC_ONLY  # the focal draws still happen so the extrinsic draws stay identical
 	t, j = FIXED_TOP, TOP_JITTER
 	top = CameraPose(
 		t.x + rng.normal(0, j["xy_m"]),
@@ -123,7 +134,7 @@ def case_cameras(seed: int, cameras: str = "fixed") -> tuple[CameraPose, CameraP
 		t.yaw_deg + rng.normal(0, j["yaw_deg"]),
 		t.tilt_deg + rng.normal(0, j["tilt_deg"]),
 		t.roll_deg + rng.normal(0, j["roll_deg"]),
-		t.focal_px * (1 + rng.uniform(-j["focal_rel"], j["focal_rel"])),
+		t.focal_px * (1 + (0.0 * rng.uniform() if keep_focal else rng.uniform(-j["focal_rel"], j["focal_rel"]))),
 	)
 	j = FRONT_JITTER
 	front = look_from(
@@ -131,7 +142,8 @@ def case_cameras(seed: int, cameras: str = "fixed") -> tuple[CameraPose, CameraP
 		f["distance_m"] + rng.uniform(-j["distance_m"], j["distance_m"]),
 		f["height_m"] + rng.uniform(-j["height_m"], j["height_m"]),
 		f["yaw_deg"] + rng.uniform(-j["yaw_deg"], j["yaw_deg"]),
-		focal_px=f["focal_px"] * (1 + rng.uniform(-j["focal_rel"], j["focal_rel"])),
+		focal_px=f["focal_px"]
+		* (1 + (0.0 * rng.uniform() if keep_focal else rng.uniform(-j["focal_rel"], j["focal_rel"]))),
 	)
 	return top, front
 
@@ -169,6 +181,8 @@ def sample_case(seed: int, positive: bool, face: int, options: dict | None = Non
 	layout = sample_layout(np.random.default_rng(seed), CameraPose(**raw["camera"]), defective=positive, prior=prior)
 	layout.top, layout.front = case_cameras(seed, opts["cameras"])
 	layout.wrist_cam_offset = case_wrist_offset(seed, opts["cameras"])
+	# The pose the hand-eye calibration is solved on: the real top camera, except under ``drift``.
+	layout.calib_top = FIXED_TOP if opts["cameras"] == "drift" else None
 	layout.defect_kind = "cross_var"
 	layout.defect_face = face
 	layout.defect_seed = 19_199 + seed * 100_019
@@ -201,6 +215,30 @@ def load_suite(path: Path) -> list[tuple]:
 			_case_options(row[3])
 		cases.append(tuple(row) if options is None else (*row, options))
 	return cases
+
+
+def _pose(a, b) -> float:
+	return float(np.linalg.norm(np.asarray(a, dtype=np.float64)[:6] - np.asarray(b, dtype=np.float64)[:6]))
+
+
+# Hover-scan settings of _scan_plan's fallback, reused for re-view candidates.
+TABLE_SCAN_MODES = (
+	{"heights": (0.06, 0.075, 0.09), "offset_m": 0.03},
+	{"heights": (0.07, 0.085, 0.10), "offset_m": 0.02},
+	{"heights": (0.055, 0.08, 0.095), "offset_m": 0.04},
+)
+
+
+def set_cv_camera(cell, name: str, world_from_cam: np.ndarray) -> None:
+	"""Place ``cell``'s camera ``name`` at an OpenCV world-from-camera pose (x right, y down, z forward); MuJoCo
+	cameras look along -z with y up. Intrinsics are left as they are."""
+	cid = cell.camera_id(name)
+	mat = np.asarray(world_from_cam, dtype=np.float64)[:3, :3] @ np.diag([1.0, -1.0, -1.0])
+	quat = np.zeros(4)
+	mujoco.mju_mat2Quat(quat, mat.flatten())
+	cell.model.cam_pos[cid] = np.asarray(world_from_cam, dtype=np.float64)[:3, 3]
+	cell.model.cam_quat[cid] = quat
+	mujoco.mj_forward(cell.model, cell.data)
 
 
 @contextmanager
@@ -523,11 +561,37 @@ class TwinMujoco:
 		on_frame=None,
 		smooth_carry=False,
 		sensing="truth",
+		strategy="A",
+		max_scored_views=None,
+		max_review_views=MAX_REVIEW_VIEWS,
+		boundary="belief_cell",
+		cell_factory=None,
+		review_llm=None,
 	):
 		if sensing not in SENSING:
 			raise ValueError(f"sensing must be one of {SENSING}")
 		self.sensing = sensing
 		self.realistic = sensing == "realistic"
+		if strategy not in STRATEGIES:
+			raise ValueError(f"strategy must be one of {STRATEGIES}")
+		if boundary not in BOUNDARIES:
+			raise ValueError(f"boundary must be one of {BOUNDARIES}")
+		# Re-view strategy (plan 2026-11-24 section 5.3): A decides on the first qualifying alarm; B and C hold an alarm
+		# for review from another angle, B choosing the view by rule and C by asking the LLM with images.
+		self.strategy = strategy
+		self.max_scored_views = max_scored_views  # None: no episode-wide cap (phase-1 / historical behaviour)
+		self.max_review_views = max_review_views
+		# realistic only: "belief_cell" computes crops, visible faces and view plans on a separate MuJoCo cell built
+		# from what the agent believes (perceived brick size class and pose, perceived bowls, hand-eye top camera,
+		# designed wrist mount); "legacy" moves the simulator's own brick to the believed pose (development control).
+		self.boundary = boundary
+		self.review_llm = review_llm  # strategy C's view chooser; separate from ``llm`` (text skill selection)
+		self._belief_cells = {}
+		self.review_count = 0  # re-views taken (B / C)
+		self.scored_count = 0  # scored views taken in the whole episode, rewound branches included
+		self.review_exhausted: set[str] = set()  # alarms no reachable re-view was found for
+		self._crops: dict[str, np.ndarray] = {}  # detector input of each view, for the LLM re-view chooser
+		self._llm_sent: set[str] = set()  # image keys already shown to the LLM in this episode
 		self._expert_xy = NEUTRAL_XY if self.realistic else layout.brick_xy
 		self.layout = layout
 		self.scorer = scorer
@@ -546,9 +610,12 @@ class TwinMujoco:
 			velocity_limit_rad_s=self.spec.arm_actuator.velocity_limit,
 			encoder_ticks=4096,
 		)
-		self.cell = Cell(
+		# ``cell_factory`` swaps the physics engine (e.g. isaac_bridge.mirror.IsaacMirrorCell): the factory gets the
+		# same arguments as Cell and returns a Cell whose ``step`` advances that engine and mirrors its state.
+		self.cell = (cell_factory or Cell)(
 			layout, SO101_MJCF_DIR, physics=self.spec, dynamic_clutter=True, assisted_grasp=False, face_probes=True
 		)
+		self.engine = getattr(self.cell, "engine", "mujoco")
 		self.ep = PhysicsEpisode(self.cell, INITIAL_Q, layout.brick_xy, layout.brick_yaw_deg, cfg)
 		# Bowl centres the skills use; realistic replaces both with the perceived ones (_sense_bowls) before any motion.
 		self.bowls = {
@@ -603,7 +670,21 @@ class TwinMujoco:
 		self.scene_error = None
 		if self.perception is not None:
 			seed = int(getattr(layout, "defect_seed", 0))
-			self._cam_k, self._cam_est, info = calibrate_layout(layout, seed, self.perception.calibration)
+			calib_layout = layout
+			if getattr(layout, "calib_top", None) is not None:  # drift: calibrated on the nominal rig, then moved
+				calib_layout = copy.copy(layout)
+				calib_layout.top = layout.calib_top
+			self._cam_k, self._cam_est, info = calibrate_layout(calib_layout, seed, self.perception.calibration)
+			info["calibrated_on"] = "nominal" if calib_layout is not layout else "actual"
+			# Error of the estimate against the camera as it is mounted now (differs from cam_*_err under drift).
+			top = layout.top
+			right, up = top.axes()
+			forward = -np.cross(right, up)  # MuJoCo cameras look along -z; OpenCV column 2 is the viewing axis
+			info["actual_cam_pos_err_mm"] = round(
+				float(np.linalg.norm(self._cam_est[:3, 3] - (top.x, top.y, top.height)) * 1000), 3
+			)
+			cosang = float(np.clip(np.dot(self._cam_est[:3, 2], forward / np.linalg.norm(forward)), -1.0, 1.0))
+			info["actual_cam_axis_err_deg"] = round(math.degrees(math.acos(cosang)), 4)
 			self._depth_rng = np.random.default_rng(seed + 30_000)
 			self.event("camera_calibrated", **info)
 		if self.realistic:
@@ -625,7 +706,7 @@ class TwinMujoco:
 	def _sense_bowls(self):
 		"""Locate both bowls in the top images and keep the depth image as the empty-bowl reference."""
 		depth = self._top_depth()
-		found = locate_bowls(self.cell.rgb("top"), depth, self._cam_k, self._cam_est)
+		found = locate_bowls(self.cell.rgb("top"), depth, self._cam_k, self._cam_est, engine=self.engine)
 		self._baseline_depth = depth
 		errors = {}
 		for name, est in found.items():
@@ -644,6 +725,9 @@ class TwinMujoco:
 	def _grip_pose(self) -> np.ndarray:
 		"""World-from-gripper frame from the joint readings (forward kinematics of the robot model)."""
 		d, site = self.cell.data, self.cell.site
+		# After mj_step the kinematics lag the state by one substep; recompute them so the pose does not depend on
+		# whether something else happened to call mj_forward first (state is untouched: no warm-start change).
+		mujoco.mj_forward(self.cell.model, d)
 		tf = np.eye(4)
 		tf[:3, :3] = d.site_xmat[site].reshape(3, 3)
 		tf[:3, 3] = d.site_xpos[site]
@@ -683,13 +767,7 @@ class TwinMujoco:
 		return tf
 
 	def _top_depth(self):
-		r = self.cell.renderer
-		r.enable_depth_rendering()
-		try:
-			r.update_scene(self.cell.data, "top")
-			depth = r.render().astype(np.float64)
-		finally:
-			r.disable_depth_rendering()
+		depth = self.cell.depth("top")  # MuJoCo render, or Isaac RTX through the mirror cell
 		sigma = self.perception.depth_noise_m * (depth / 0.5) ** 2
 		return depth + self._depth_rng.normal(0.0, 1.0, depth.shape) * sigma
 
@@ -774,7 +852,56 @@ class TwinMujoco:
 			d.qpos[adr : adr + 7] = saved
 			mujoco.mj_forward(m, d)
 
+	def _vis_cell(self):
+		"""The cell realistic crops, visible faces and view plans are computed on (``boundary="belief_cell"``).
+
+		It is built only from what the agent believes: the perceived brick size class, the perceived bowl centres,
+		the hand-eye estimate of the top camera and the designed wrist mount; at every call it is synced to the arm
+		readings and the believed brick pose. ``self.cell`` in ``truth`` and under ``boundary="legacy"``."""
+		if not self.realistic or self.boundary != "belief_cell":
+			return self.cell
+		size = tuple(round(float(v), 6) for v in self._believed_brick_size())
+		bc = self._belief_cells.get(size)
+		if bc is None:
+			lay = copy.deepcopy(self.layout)
+			lay.brick_size = size
+			lay.green = tuple(float(v) for v in self.bowls["green"][:2])
+			lay.pink = tuple(float(v) for v in self.bowls["pink"][:2])
+			lay.wrist_cam_offset = None
+			lay.clutter, lay.distractors = [], []
+			bc = Cell(
+				lay, SO101_MJCF_DIR, physics=self.spec, dynamic_clutter=False, assisted_grasp=False, face_probes=True
+			)
+			set_cv_camera(bc, "top", self._cam_est)
+			self._belief_cells[size] = bc
+			self.event("belief_cell", brick_size_m=list(size), top_camera="hand_eye_estimate")
+		d = bc.data
+		d.qpos[bc.qadr] = self.cell.data.qpos[self.cell.qadr]
+		belief = self._brick_belief()
+		if belief is not None:
+			pos, q = belief
+			adr = bc.brick_qadr
+			d.qpos[adr : adr + 3] = pos
+			d.qpos[adr + 3 : adr + 7] = (q[3], q[0], q[1], q[2])
+		mujoco.mj_forward(bc.model, d)
+		return bc
+
+	@contextmanager
+	def _planning_view(self):
+		"""The cell planners and the detector crop render on, defect hidden: the belief cell, or (truth / legacy) the
+		simulator's cell with the believed brick and the designed wrist mount shown."""
+		vis = self._vis_cell()
+		if vis is self.cell:
+			with self._belief(), blind_geometry(self.cell):
+				yield self.cell
+		else:
+			with blind_geometry(vis):
+				yield vis
+
 	def close(self):
+		for bc in self._belief_cells.values():
+			bc.close()
+		self._belief_cells.clear()
 		self.cell.close()
 
 	def event(self, kind, **payload):
@@ -911,6 +1038,17 @@ class TwinMujoco:
 			agent["top_depth_rng"] = self._top_depth_rng.bit_generator.state
 		if self.realistic and directory is not None:
 			agent["empty_bowl_depth"] = self._write_depth_reference(directory)
+		# View budget counters (episode-wide, rewound branches included): restored only by a cross-process resume.
+		agent["view_counters"] = {
+			"scored": self.scored_count,
+			"reviews": self.review_count,
+			"review_exhausted": sorted(self.review_exhausted),
+		}
+		snapshot = getattr(self.cell, "engine_snapshot", None)
+		if snapshot is not None:
+			# Isaac: a native checkpoint exists only at the validated boundary (gripper open, brick on the table);
+			# None elsewhere, and rewind_options below never offers such a checkpoint.
+			agent["engine_snapshot"] = snapshot()
 		agent = json.loads(json.dumps(agent, allow_nan=False))  # in memory exactly as on disk (tuples become lists)
 		checkpoint = Checkpoint(
 			f"checkpoint-{len(self.checkpoints)}",
@@ -972,11 +1110,27 @@ class TwinMujoco:
 
 	def can_scan_wrist(self, policy):
 		self.policy = policy  # read by decision_context for the remaining-budget fields
-		return self.wrist_count < policy.max_wrist_views
+		return self.wrist_count < policy.max_wrist_views and self._views_left() > 0
 
 	def can_present_bottom(self, policy):
 		self.policy = policy
-		return self.bottom_count < policy.max_bottom_views
+		return self.bottom_count < policy.max_bottom_views and self._views_left() > 0
+
+	def _views_left(self) -> float:
+		return math.inf if self.max_scored_views is None else self.max_scored_views - self.scored_count
+
+	def _decide(self, views):
+		"""``(label, covered faces)`` under the episode's strategy (A: first alarm decides; B / C: re-view rule)."""
+		if self.strategy == "A":
+			return decision(views)
+		label, covered, _ = review_decision(views)
+		return label, covered
+
+	def review_pending(self, views) -> tuple[list[dict], bool]:
+		"""``(unresolved alarms, a re-view can still be taken for one of them)``."""
+		_, _, pending = review_decision(views)
+		open_ = [p for p in pending if p["alarm"] not in self.review_exhausted]
+		return pending, bool(open_) and self.review_count < self.max_review_views and self._views_left() > 0
 
 	def _geometry(self):
 		cell = self.cell
@@ -1187,9 +1341,9 @@ class TwinMujoco:
 		rgb = cell.rgb(camera)
 		if self.realistic:
 			# Visible faces and the crop come from the believed brick; the image is the real one.
-			with self._belief(), blind_geometry(cell):
-				geometry = capture_view(cell, camera)
-				image, bbox = detector_crop(cell, camera, None, cell.data, self.crop_size, clamp=True, rgb=rgb)
+			with self._planning_view() as vis:
+				geometry = capture_view(vis, camera)
+				image, bbox = detector_crop(vis, camera, None, vis.data, self.crop_size, clamp=True, rgb=rgb)
 		else:
 			with blind_geometry(cell):
 				geometry = capture_view(cell, camera)
@@ -1239,7 +1393,12 @@ class TwinMujoco:
 			"score": score,
 			"threshold": float(threshold),
 			"crop_bbox": bbox,
+			"q": [round(float(v), 5) for v in cell.joints()],
 		}
+		if score is not None:
+			self.scored_count += 1
+		if image is not None:
+			self._crops[view["id"]] = image
 		self.record.view(view, rgb, image)
 		# Scoring only (S6 grader): the true visible faces and cross, over the whole frame and inside the crop the
 		# detector actually received (same bbox, margin, border shift and nearest-neighbour resize), and the true and
@@ -1355,7 +1514,9 @@ class TwinMujoco:
 		pending: list[np.ndarray] = []  # ring poses of skipped views, still swept through to stay on the ring
 		for candidate, via in steps:
 			path = [*pending, *via, candidate.q]
-			_, covered = decision([*previous, *views])
+			if self._views_left() <= 0:
+				break
+			_, covered = self._decide([*previous, *views])
 			if not any(f not in covered and candidate.faces_px[f] >= WRIST_MIN_PX for f in range(5)):
 				pending = path if via else []
 				continue
@@ -1376,7 +1537,10 @@ class TwinMujoco:
 			if error := self._execute(look(path)):
 				return error
 			views.append(self._capture("wrist_cam"))
-			if decision(views)[0] == "defective":
+			# Decision point 1 (B / C): an alarm inside the scan is re-viewed here, before the scan can end.
+			if self.strategy != "A" and _alarm(views[-1]) and (error := self._review(previous, views, "wrist_alarm")):
+				return error
+			if self._decide([*previous, *views])[0] == "defective":
 				break
 		if error := self._execute(ex._go_ready()):
 			return error
@@ -1386,11 +1550,11 @@ class TwinMujoco:
 	def _scan_plan(self, previous, attempt):
 		"""``([(view, via poses)], mode, event fields)``: the orbit scan around the upward face when it covers every
 		side and top face not cleared yet, else the hover scan of :func:`plan_table_scan`."""
-		ex, cell = self.expert, self.cell
-		need = [f for f in range(5) if f not in decision(previous)[1]]
-		with self._belief(), blind_geometry(cell):
+		ex = self.expert
+		need = [f for f in range(5) if f not in self._decide(previous)[1]]
+		with self._planning_view() as vis:
 			plan = plan_orbit_scan(
-				cell,
+				vis,
 				ex.kin,
 				ex.last,
 				gripper=ex.p.open_g,
@@ -1408,9 +1572,9 @@ class TwinMujoco:
 			{"heights": (0.07, 0.085, 0.10), "offset_m": 0.02},
 			{"heights": (0.055, 0.08, 0.095), "offset_m": 0.04},
 		)
-		with self._belief(), blind_geometry(cell):
+		with self._planning_view() as vis:
 			candidates, mode = plan_table_scan(
-				cell, ex.kin, ex.last, gripper=ex.p.open_g, min_px=WRIST_MIN_PX, **modes[attempt]
+				vis, ex.kin, ex.last, gripper=ex.p.open_g, min_px=WRIST_MIN_PX, **modes[attempt]
 			)
 		return [(c, []) for c in candidates], mode, {"orbit_faces": sorted(reached)}
 
@@ -1441,10 +1605,10 @@ class TwinMujoco:
 		self.bottom_count += 1
 		if self.held is None and (error := self._grasp()):
 			return error
-		ex, cell = self.expert, self.cell
-		with self._belief(), blind_geometry(cell):
+		ex = self.expert
+		with self._planning_view() as vis:
 			candidate = plan_bottom_view(
-				cell,
+				vis,
 				ex.last,
 				gripper=ex.p.hold_g,
 				seed=self.recoveries * 71 + self.bottom_count - 1,
@@ -1468,10 +1632,243 @@ class TwinMujoco:
 		views.append(self._capture("top"))
 		return None
 
+	# ---- re-view of alarms (strategies B and C; see .review) ----
+
+	def _review(self, previous, views, trigger):
+		"""Re-view the oldest unresolved alarm until none is left or the budget is spent; appends to ``views``."""
+		while True:
+			pending, possible = self.review_pending([*previous, *views])
+			if not possible:
+				return None
+			target = next(p for p in pending if p["alarm"] not in self.review_exhausted)
+			if error := self._review_once(target, previous, views, trigger):
+				return error
+
+	def _rank_candidates(self, pool, faces, prior_q, *, held, min_px, clears=None):
+		"""Public candidate records (best first, at most MAX_CANDIDATES) and their paths; reachable ones only.
+
+		Ranked by ``priority_px``: each target face's predicted pixels, capped at REVIEW_FACE_PX_CAP so one large
+		face (usually the top) cannot outweigh the others, and divided by 1 + the face's clear views so far, so the
+		faces with the least clear evidence lead (``clears``: face -> clear scored views)."""
+		ex = self.expert
+		clears = clears or {}
+		rows = []
+		for source, cand, path in pool:
+			seen = [f for f in faces if cand.faces_px[f] >= min_px]
+			target_px = int(sum(cand.faces_px[f] for f in seen))
+			if target_px <= 0:
+				continue
+			priority = sum(min(float(cand.faces_px[f]), REVIEW_FACE_PX_CAP) / (1 + clears.get(f, 0)) for f in seen)
+			separation = min((_pose(cand.q, q) for q in prior_q if q is not None), default=math.pi)
+			if separation < MIN_POSE_SEPARATION_RAD:
+				continue
+			path_rad = float(sum(_pose(a, b) for a, b in itertools.pairwise([ex.last, *path])))
+			rows.append((source, cand, path, target_px, separation, path_rad, int(priority)))
+		rows.sort(key=lambda r: (-round(r[6] / 400.0), -round(min(r[4], 1.5), 1), r[5]))
+		chosen = []
+		for row in rows:
+			cand, path = row[1], row[2]
+			if any(_pose(cand.q, c[1].q) < 0.05 for c in chosen):
+				continue
+			if not all(self._straight_clear(a, b, held=held) for a, b in itertools.pairwise([ex.last, *path])):
+				continue
+			chosen.append(row)
+			if len(chosen) == MAX_CANDIDATES:
+				break
+		public = [
+			{
+				"id": f"c{i}",
+				"camera": cand.camera,
+				"planner": source,
+				"target_faces": [f for f in faces if cand.faces_px[f] >= min_px],
+				"target_px": target_px,
+				"face_px": {str(f): int(cand.faces_px[f]) for f in faces if cand.faces_px[f] >= min_px},
+				"priority_px": priority,
+				"brick_px": int(cand.brick_px),
+				"separation_rad": round(separation, 3),
+				"path_rad": round(path_rad, 3),
+			}
+			for i, (source, cand, path, target_px, separation, path_rad, priority) in enumerate(chosen)
+		]
+		return public, {f"c{i}": (row[1], row[2]) for i, row in enumerate(chosen)}
+
+	def _wrist_review_candidates(self, faces, prior_q, clears=None):
+		ex, cell = self.expert, self.cell
+		with self._belief():
+			ex.kin.data.qpos[:] = cell.data.qpos
+		pool = []
+		for k, params in enumerate(ORBIT_ATTEMPTS):
+			with self._planning_view() as vis:
+				plan = plan_orbit_scan(
+					vis,
+					ex.kin,
+					ex.last,
+					gripper=ex.p.open_g,
+					params=params,
+					faces=faces,
+					min_px=WRIST_MIN_PX,
+					brick_size=self._plan_brick_size(),
+				)
+			pending: list[np.ndarray] = []
+			for cand, via in zip(plan.views, plan.via, strict=True):
+				path = [*pending, *via, cand.q]
+				pending = path if via else []
+				pool.append((f"orbit{k}", cand, path))
+		for k, mode in enumerate(TABLE_SCAN_MODES):
+			with self._planning_view() as vis:
+				cands, _ = plan_table_scan(vis, ex.kin, ex.last, gripper=ex.p.open_g, min_px=WRIST_MIN_PX, **mode)
+			pool += [(f"hover{k}", c, [c.q]) for c in cands]
+		return self._rank_candidates(pool, faces, prior_q, held=False, min_px=WRIST_MIN_PX, clears=clears)
+
+	def _bottom_review_candidates(self, prior_q):
+		ex = self.expert
+		pool = []
+		for k in range(6):
+			with self._planning_view() as vis:
+				cand = plan_bottom_view(
+					vis,
+					ex.last,
+					gripper=ex.p.hold_g,
+					seed=10_007 + 97 * k + 13 * self.review_count,
+					clearance=lambda q: self._straight_clear(ex.last, q, held=True),
+					border_px=BOTTOM_BORDER_PX if self.realistic else 0,
+					brick_size=self._plan_brick_size(),
+				)
+			if cand is not None:
+				pool.append((f"bottom{k}", cand, [cand.q]))
+		return self._rank_candidates(pool, [5], prior_q, held=True, min_px=BOTTOM_MIN_PX)
+
+	def _llm_images(self, target, views, camera):
+		"""Images shown to the LLM chooser, one per request: the alarm crop, one earlier crop of the same faces, the
+		current frame of the re-view camera, the front camera and (realistic) a top depth preview. Each is saved
+		under ``llm_images/`` and logged as an ``llm_image`` event; ``cached`` marks an image shown before."""
+		items = []
+		if target["alarm"] in self._crops:
+			items.append((f"alarm crop {target['alarm']}", target["alarm"], self._crops[target["alarm"]]))
+		for v in reversed(views):
+			if v["id"] != target["alarm"] and v["id"] in self._crops and set(v["faces"]) & set(target["faces"]):
+				items.append((f"earlier crop {v['id']}", v["id"], self._crops[v["id"]]))
+				break
+		frame = self.ep.n_frames
+		items.append((f"{camera} now", f"{camera}@{self.branch}:{frame}", self.cell.rgb(camera)))
+		items.append(("front now", f"front@{self.branch}:{frame}", self.cell.rgb("front")))
+		if self.realistic:
+			depth = self._top_depth()
+			lo, hi = np.nanpercentile(depth, 2), np.nanpercentile(depth, 98)
+			gray = (255 * np.clip((hi - np.nan_to_num(depth, nan=hi)) / max(hi - lo, 1e-6), 0, 1)).astype(np.uint8)
+			items.append(
+				("top depth preview, bright is near", f"depth@{self.branch}:{frame}", np.stack([gray] * 3, -1))
+			)
+		from PIL import Image
+
+		directory = self.record.path / "llm_images"
+		directory.mkdir(exist_ok=True)
+		out = []
+		for name, key, image in items:
+			cached = key in self._llm_sent
+			self._llm_sent.add(key)
+			file = directory / f"{self.review_count:02d}-{len(out):02d}.png"
+			Image.fromarray(np.asarray(image, dtype=np.uint8)).save(file)
+			self.event("llm_image", name=name, key=key, cached=cached, file=f"llm_images/{file.name}")
+			out.append({"name": name, "image": image, "cached": cached})
+		return out
+
+	def _review_once(self, target, previous, views, trigger):
+		ex = self.expert
+		faces = list(target["faces"])
+		bottom = faces == [5] or target["camera"] == "top"
+		prior_q = [v.get("q") for v in [*previous, *views] if set(v.get("faces") or []) & set(faces)]
+		clears = {
+			f: sum(
+				f in (v.get("faces") or []) and v.get("score") is not None and v["score"] < v["threshold"]
+				for v in [*previous, *views]
+			)
+			for f in faces
+		}
+		if bottom:
+			if self.held is None and (error := self._grasp()):
+				return error
+			public, paths = self._bottom_review_candidates(prior_q)
+		else:
+			if self.held is not None and (error := self._park_held()):
+				return error
+			# Re-locate only when the estimate is gone (after a park): mid-scan the arm hides the brick from the top
+			# camera, and the untouched brick is where it was last perceived.
+			if self.brick_est is None and (error := self._perceive()):
+				return error
+			public, paths = self._wrist_review_candidates([f for f in faces if f < 5], prior_q, clears)
+		if not public:
+			self.review_exhausted.add(target["alarm"])
+			self.event("review_unavailable", alarm=target["alarm"], trigger=trigger, faces=faces)
+			return None
+		info, source = {}, "rule"
+		if self.strategy == "B":
+			choice = rule_choice(public)
+		elif self.review_llm is None:
+			choice, source, info = rule_choice(public), "fallback", {"reason": "no_llm"}
+		else:
+			camera = "top" if bottom else "wrist_cam"
+			context = {
+				"alarm": {"view": target["alarm"], "camera": target["camera"], "faces": faces},
+				"reviews_left": self.max_review_views - self.review_count,
+				"scored_views_left": None if self.max_scored_views is None else self._views_left(),
+			}
+			assert_no_defect_leakage(context)
+			images = self._llm_images(target, [*previous, *views], camera)
+			choice, source, info = llm_choice(self.review_llm, images, public, context)
+		self.event(
+			"review_decision",
+			trigger=trigger,
+			alarm=target["alarm"],
+			faces=faces,
+			candidates=public,
+			choice=choice,
+			source=source,
+			fallback_reason=info.get("reason"),
+			latency_s=info.get("latency_s"),
+			requests=info.get("requests"),
+			prompt_tokens=info.get("prompt_tokens"),
+			cached_tokens=info.get("cached_tokens"),
+			notes=info.get("notes"),
+		)
+		cand, path = paths[choice]
+		self.review_count += 1
+		if bottom:
+
+			def review_bottom(pose):
+				yield from ex._carry(ex._move(pose, ex._carry_secs(pose, ex.p.show_move_s), "show_move"))
+				yield from ex._carry(ex._hold_servo(pose, ex.rp.bottom_hold_s, "show_hold"))
+
+			if error := self._execute(review_bottom(cand.q.copy())):
+				return error
+			if ex.lost:
+				return "BRICK_LOST"
+			view = self._capture("top")
+		else:
+
+			def review_wrist(path):
+				yield from sweep(ex, path, self.scan_peak_speed, ex.rp.scan_move_s, pause_s=None)
+				yield from ex._hold_servo(path[-1], ex.rp.scan_hold_s, "approach")
+
+			if error := self._execute(review_wrist(path)):
+				return error
+			view = self._capture("wrist_cam")
+		view["review_of"] = target["alarm"]
+		self.event("review_view", id=view["id"], alarm=target["alarm"], candidate=choice)
+		views.append(view)
+		return None
+
 	def inspect(self, node, previous):
 		views = []
 		try:
-			error = self._wrist(previous, views) if node == "scan_wrist" else self._bottom(views)
+			if node == "review":
+				error = self._review(previous, views, "before_place")
+				if not error and self.held is None:
+					error = self._execute(self.expert._go_ready())
+				if not error:
+					self._save([*previous, *views])
+			else:
+				error = self._wrist(previous, views) if node == "scan_wrist" else self._bottom(views)
 		except RuntimeError as exc:
 			# The scoring process can stop independently of simulation. Keep the physical state and trace.
 			from ..inspection_scorer import ScoreServerError
@@ -1511,6 +1908,12 @@ class TwinMujoco:
 		mujoco.mj_setState(m, d, checkpoint.integration, STATE_SPEC)
 		mujoco.mj_forward(m, d)
 		mujoco.mj_setState(m, d, checkpoint.integration, STATE_SPEC)
+		restore_engine = getattr(self.cell, "engine_restore", None)
+		if restore_engine is not None:
+			token = (checkpoint.agent or {}).get("engine_snapshot")
+			if token is None:
+				raise RuntimeError(f"{self.engine} cannot restore {checkpoint.id} natively")
+			restore_engine(token)  # the engine's own state, then mirrored back into the MuJoCo model
 		filt = self.ep.filt
 		filt._queue = deque((np.array(q) for q in checkpoint.filter["queue"]), maxlen=filt._queue.maxlen)
 		filt._prev_out = np.array(checkpoint.filter["prev"])
@@ -1580,6 +1983,10 @@ class TwinMujoco:
 			self.scan_peak_speed = agent["scan_peak_speed"]
 		self.recovery_variants = tuple(agent.get("recovery_variants", ()))
 		self._clipped_frames = agent.get("clipped_frames", 0)
+		counters = agent.get("view_counters") or {}
+		self.scored_count = int(counters.get("scored", 0))
+		self.review_count = int(counters.get("reviews", 0))
+		self.review_exhausted = set(counters.get("review_exhausted", ()))
 		if agent.get("llm_stats") is not None:
 			self._llm_stats = copy.deepcopy(agent["llm_stats"])
 		if history is not None:
@@ -1610,11 +2017,14 @@ class TwinMujoco:
 			note = "recover from the current state and retry with"
 			options = [(f"retry+{v}", f"{note} {VARIANT_NOTES[v]}") for v in variants]
 			return [*options, ("retry", f"{note} unchanged parameters"), stop]
-		if not self.checkpoints:
+		checkpoints = self.checkpoints
+		if self.engine != "mujoco":  # only checkpoints the other engine can restore natively
+			checkpoints = [c for c in checkpoints if (c.agent or {}).get("engine_snapshot") is not None]
+		if not checkpoints:
 			return []
 		stall = stall_start(self.ep.telemetry()["actuator_torques"], self.spec.arm_actuator.effort_limit)
 		stall_node = None if stall is None else node_at(self.record.events, stall)
-		return [*rewind_options(self.checkpoints, failure, stall, stall_node), stop]
+		return [*rewind_options(checkpoints, failure, stall, stall_node), stop]
 
 	def rewind(self, policy: Policy, failures):
 		if self.realistic:
@@ -1830,7 +2240,10 @@ class TwinMujoco:
 			"sim_frames": self.total_frames,
 			"active_frames": self.ep.n_frames,
 			"evidence": [v["id"] for v in views],
-			"cleared_faces": sorted(decision(views)[1]),
+			"cleared_faces": sorted(self._decide(views)[1]),
+			"strategy": self.strategy,
+			"scored_views": self.scored_count,
+			"review_views": self.review_count,
 			"health": health,
 			"llm": self._llm_summary(),
 			"smoothness": self._smoothness(),
@@ -1838,7 +2251,9 @@ class TwinMujoco:
 			"student_eligible": bool(ok and health.get("verdict") == "SUCCESS" and not self.rewinds),
 			"placement_evidence": next(
 				(v["id"] for v in views if v["score"] is not None and v["score"] >= v["threshold"]), None
-			),
+			)
+			if label == "defective"
+			else None,
 			# A paired-target demonstration put the brick in the other bowl on purpose (vla/paired_carry.py).
 			**({"target_swap": True} if getattr(self, "target_swap", False) else {}),
 		}

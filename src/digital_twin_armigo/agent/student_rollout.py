@@ -39,7 +39,7 @@ import hashlib
 import json
 import math
 from collections.abc import Callable
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Protocol
 
@@ -49,7 +49,13 @@ from ..constants import PHASES
 from ..mujoco_cell.gripper_state import GripperMonitor, GripperMonitorParams, GripperState
 from .grasp_tail import GRASP_TAIL_MODES, GraspPlan, GraspTail, expert_tail
 from .twin_mujoco import INITIAL_Q, MAX_TOTAL_FRAMES, WRIST_MIN_PX, TwinMujoco
-from .twin_record import POLICY_FIELDS, POLICY_PARAMS, SEGMENT_KINDS, Segment, policy_inputs
+from .twin_record import (  # noqa: F401 - POLICY_FIELDS / POLICY_PARAMS / SEGMENT_KINDS are re-exported
+	POLICY_FIELDS,
+	POLICY_PARAMS,
+	SEGMENT_KINDS,
+	Segment,
+	policy_inputs,
+)
 
 # Composite expert generators: (segment kind, frame predicate (phase, carried) -> bool) in order. A composite
 # generator's frames belong to the first part, from the current one on, whose predicate holds. ``carried`` marks
@@ -192,6 +198,27 @@ class _SegmentMixin:
 			return "simple", Segment("return_ready")
 		if name == "let_go":
 			return "simple", Segment("let_go")
+		# TwinMujoco._review_once: re-views of a detector alarm reuse the student's fixed segment vocabulary
+		# (SEGMENT_KINDS is a VLA contract); ``mode="review"`` marks them.
+		if name == "review_wrist":
+			path = local["path"]
+			views = len(self._scan_steps) + 1
+			return "simple", Segment(
+				"scan_view",
+				{
+					"mode": "review",
+					"view": views,
+					"views": views,
+					"target_q": _rounded(path[-1]),
+					"via_poses": len(path) - 1,
+					"roll_deg": roll_deg(path[-1][4]),
+				},
+			)
+		if name == "review_bottom":
+			pose = local["pose"]
+			return "simple", Segment(
+				"present_bottom", {"mode": "review", "target_q": _rounded(pose), "roll_deg": roll_deg(pose[4])}
+			)
 		if name == "look" and "path" in local:  # TwinMujoco._wrist: sweep through ``path`` and hold its last pose
 			path = local["path"]
 			k = next((i for i, (c, _) in enumerate(self._scan_steps) if c.q is path[-1]), None)

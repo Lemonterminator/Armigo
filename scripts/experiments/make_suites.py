@@ -1,0 +1,124 @@
+"""Write the v2 experiment suites and their manifest (plan 2026-11-24, sections 三 and 五).
+
+	.venv/Scripts/python scripts/experiments/make_suites.py            # writes config/agent_bench/v2/
+	.venv/Scripts/python scripts/experiments/make_suites.py --check    # verify files match the manifest
+
+Suites (cases are ``[seed, positive, face]``; each layout carries one normal and one defective brick that share the
+face index, as dev_suite_700001 does):
+
+- ``smoke_600008``: the M0/M2 acceptance pair (bench16 cases 14/15).
+- ``bench16``, ``dev_suite_700001``: copies of the existing regression and development suites.
+- ``p1_sealed``: 24 new layouts (seeds 710001-710024), four defective bricks per face.
+- ``p2_dev12``: 12 layouts of dev_suite_700001, two per face (phase-2 development).
+- ``p2_sealed``: 24 new layouts (seeds 720001-720024), four per face; disjoint from p1_sealed.
+
+Seeds of the sealed suites are checked against every suite under config/ so a sealed layout never appeared before.
+"""
+
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[2]
+OUT = ROOT / "config/agent_bench/v2"
+
+
+def _paired(seeds: list[int]) -> list[list]:
+	cases = []
+	for i, seed in enumerate(seeds):
+		face = i % 6
+		cases += [[seed, False, face], [seed, True, face]]
+	return cases
+
+
+def _existing_seeds() -> set[int]:
+	seeds: set[int] = set()
+	for f in (ROOT / "config").rglob("*.json"):
+		if OUT in f.parents:
+			continue
+		try:
+			raw = json.loads(f.read_text(encoding="utf-8-sig"))
+		except (ValueError, UnicodeDecodeError):
+			continue
+		rows = raw.get("cases") if isinstance(raw, dict) else raw
+		if isinstance(rows, list):
+			seeds |= {r[0] for r in rows if isinstance(r, list) and r and type(r[0]) is int}
+	return seeds
+
+
+def build() -> dict[str, list]:
+	bench16 = json.loads((ROOT / "config/agent_bench/bench16.json").read_text(encoding="utf-8"))
+	dev = json.loads((ROOT / "config/agent_bench/dev_suite_700001.json").read_text(encoding="utf-8"))
+	per_face: dict[int, list[int]] = {}
+	for seed, positive, face in dev:
+		if positive and len(per_face.setdefault(face, [])) < 2:
+			per_face[face].append(seed)
+	dev12_seeds = sorted(s for seeds in per_face.values() for s in seeds)
+	dev12 = [c for c in dev if c[0] in dev12_seeds]
+	suites = {
+		"smoke_600008": [c for c in bench16 if c[0] == 600008],
+		"bench16": bench16,
+		"dev_suite_700001": dev,
+		"p1_sealed": _paired(list(range(710001, 710025))),
+		"p2_dev12": dev12,
+		"p2_sealed": _paired(list(range(720001, 720025))),
+	}
+	used = _existing_seeds()
+	for name in ("p1_sealed", "p2_sealed"):
+		clash = {c[0] for c in suites[name]} & used
+		if clash:
+			raise SystemExit(f"{name}: seeds already used elsewhere: {sorted(clash)[:5]}")
+	assert not {c[0] for c in suites["p1_sealed"]} & {c[0] for c in suites["p2_sealed"]}
+	for name in ("p1_sealed", "p2_sealed", "p2_dev12", "dev_suite_700001"):
+		faces = [c[2] for c in suites[name] if c[1]]
+		assert len({faces.count(f) for f in range(6)}) == 1, f"{name} is not face-balanced"
+	return suites
+
+
+def _dump(cases: list) -> str:
+	return "[\n" + ",\n".join("  " + json.dumps(c) for c in cases) + "\n]\n"
+
+
+def main() -> None:
+	p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+	p.add_argument("--check", action="store_true")
+	a = p.parse_args()
+	suites = build()
+	manifest_path = OUT / "manifest.json"
+	if a.check:
+		manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+		for name, meta in manifest["suites"].items():
+			digest = hashlib.sha256((OUT / f"{name}.json").read_bytes()).hexdigest()
+			if digest != meta["sha256"]:
+				raise SystemExit(f"{name}: sha256 differs from the manifest")
+		print("all suites match the manifest")
+		return
+	OUT.mkdir(parents=True, exist_ok=True)
+	manifest = {
+		"plan": "docs/superpowers/plans/2026-11-24-dual-engine-six-face-agent-audit.md",
+		"detectors": {
+			# models-sup/sup.json names the same model but its checkpoint path does not resolve; sup-local.json is the
+			# v6 config the agent benches ran with (sha 83128f68...).
+			"v6": "results/agent-bench/sup-local.json",
+			"v7bot": "results/anomaly/models-sup/sup-v7bot.json",
+		},
+		"suites": {},
+	}
+	for name, cases in suites.items():
+		text = _dump(cases)
+		(OUT / f"{name}.json").write_text(text, encoding="utf-8", newline="\n")
+		manifest["suites"][name] = {
+			"sha256": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+			"cases": len(cases),
+			"layouts": len({c[0] for c in cases}),
+			"sealed": name.endswith("_sealed"),
+		}
+	manifest_path.write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n")
+	print(json.dumps(manifest["suites"], indent=2))
+
+
+if __name__ == "__main__":
+	main()

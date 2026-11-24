@@ -1,0 +1,45 @@
+{
+  "plan": "docs/superpowers/plans/2026-11-24-dual-engine-six-face-agent-audit.md",
+  "detectors": {
+    "v6": "results/agent-bench/sup-local.json",
+    "v7bot": "results/anomaly/models-sup/sup-v7bot.json"
+  },
+  "suites": {
+    "smoke_600008": {
+      "sha256": "f3eb8c8b1e3c2ec4f979b2f31cbdcc14b5aaf4c6074595f56527f63f0820a2e6",
+      "cases": 2,
+      "layouts": 1,
+      "sealed": false
+    },
+    "bench16": {
+      "sha256": "5b8c26a5a56a4514921c6102889aae688a94e04e7a48c3c3ef3fa6648fe417ab",
+      "cases": 16,
+      "layouts": 8,
+      "sealed": false
+    },
+    "dev_suite_700001": {
+      "sha256": "5f7108e75150be42e635ccf2535087d2e5cc383f056191d9bfaf6cc4f5158ae7",
+      "cases": 48,
+      "layouts": 24,
+      "sealed": false
+    },
+    "p1_sealed": {
+      "sha256": "c0b1242ac496ab2587b3ddf30b656dbfc4ebdb347e89ab2812d073918937da43",
+      "cases": 48,
+      "layouts": 24,
+      "sealed": true
+    },
+    "p2_dev12": {
+      "sha256": "9e1242c1d430e72d98553831617a00947e208512fbb264e283b2a2f9e9b9d726",
+      "cases": 24,
+      "layouts": 12,
+      "sealed": false
+    },
+    "p2_sealed": {
+      "sha256": "00e77837ce39cd37af154a08a9f0ea575bf7f020994a197f828c850f474dbde8",
+      "cases": 48,
+      "layouts": 24,
+      "sealed": true
+    }
+  }
+}

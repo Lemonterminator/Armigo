@@ -60,7 +60,9 @@ class Video:
 class EpisodeTrace:
 	def __init__(self, path, *, video):
 		self.path = Path(path)
-		self.path.mkdir(parents=True, exist_ok=False)
+		# A fresh directory; the experiment runner may have put only its run_status.json there already.
+		if not (self.path.is_dir() and {p.name for p in self.path.iterdir()} <= {"run_status.json"}):
+			self.path.mkdir(parents=True, exist_ok=False)
 		self.video = video
 		self.events = []
 		self.branch = 0

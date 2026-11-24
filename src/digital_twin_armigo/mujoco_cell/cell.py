@@ -564,6 +564,16 @@ class Cell:
 		rot = self.data.xmat[self.brick_body].reshape(3, 3)
 		return self.data.xpos[self.brick_body] + rot @ centre, rot @ normal
 
+	def depth(self, camera: str) -> np.ndarray:
+		"""Depth image of ``camera`` in metres along the optical axis (float64, height x width)."""
+		r = self.renderer
+		r.enable_depth_rendering()
+		try:
+			r.update_scene(self.data, camera)
+			return r.render().astype(np.float64)
+		finally:
+			r.disable_depth_rendering()
+
 	def rgb(self, camera: str, out: np.ndarray | None = None) -> np.ndarray:
 		"""Colour image of ``camera`` (height, width, 3), written into ``out`` when given."""
 		self.renderer.disable_depth_rendering()
