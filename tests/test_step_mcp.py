@@ -96,3 +96,22 @@ def test_scripted_client_sorts_a_normal_brick_through_the_step_tools(tmp_path):
 	(episode,) = (tmp_path / "realistic" / "sessions").iterdir()
 	labels = segment_labels(episode)
 	assert len(labels["index"]) == result["sim_frames"] and labels["segments"][0]["kind"] == "prepare"
+
+
+def test_tool_calls_are_recorded_in_order_and_sensor_only(tmp_path):
+	service = _service(tmp_path, "realistic")
+	try:
+		sm.run_scripted(service)
+	finally:
+		service.close()
+	events_files = list((tmp_path / "realistic").rglob("events.jsonl"))
+	assert events_files
+	events = [json.loads(line) for line in events_files[0].read_text(encoding="utf-8").splitlines()]
+	calls = [e for e in events if e["kind"] == "tool_call"]
+	assert calls, "no tool_call events"
+	assert all(isinstance(e["latency_s"], float) and e["latency_s"] >= 0 for e in calls)
+	assert [e["seq"] for e in calls] == sorted(e["seq"] for e in calls)
+	assert {"scan_wrist", "place"} <= {e["tool"] for e in calls}
+	for e in calls:
+		if e["returned"] is not None:
+			sm.assert_sensor_only(e["returned"])

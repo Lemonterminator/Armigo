@@ -22,6 +22,7 @@ import asyncio
 import itertools
 import json
 import math
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
@@ -202,6 +203,21 @@ class StepSession:
 		else:
 			assert_no_defect_leakage(payload)
 		return payload
+
+	def log_tool(self, tool: str, latency_s: float, *, args=None, returned=None, error: str | None = None) -> None:
+		if isinstance(returned, (list, tuple)):  # image content blocks
+			returned = {"n_images": len(returned)}
+		elif isinstance(returned, (bytes, bytearray)):
+			returned = {"n_images": 1}
+		self.backend.event(
+			"tool_call",
+			tool=tool,
+			args=dict(args or {}),
+			latency_s=round(float(latency_s), 4),
+			ok=error is None,
+			error=error,
+			returned=returned,
+		)
 
 	# -- observations shared by both profiles ----------------------------------------------------------------------
 
@@ -470,8 +486,26 @@ class StepService:
 		self.sessions: dict[str, StepSession] = {}
 		self.sim = ThreadPoolExecutor(max_workers=1, thread_name_prefix="armigo-step")  # one GL context, one thread
 
+	def _call_sync(self, fn, *args):
+		session = getattr(fn, "__self__", None)
+		t0 = time.perf_counter()
+		try:
+			out = fn(*args)
+		except Exception as exc:
+			if isinstance(session, StepSession):
+				session.log_tool(
+					fn.__name__,
+					time.perf_counter() - t0,
+					args={"args": list(args)},
+					error=f"{type(exc).__name__}: {exc}",
+				)
+			raise
+		if isinstance(session, StepSession):
+			session.log_tool(fn.__name__, time.perf_counter() - t0, args={"args": list(args)}, returned=out)
+		return out
+
 	async def call(self, fn, *args):
-		return await asyncio.wrap_future(self.sim.submit(fn, *args))
+		return await asyncio.wrap_future(self.sim.submit(self._call_sync, fn, *args))
 
 	def session(self, session_id: str) -> StepSession:
 		if session_id not in self.sessions:
@@ -654,17 +688,17 @@ def _scripted(service: StepService, case_ids) -> list[dict]:
 			if st["finished"] or s.stopped or s.placed:
 				break
 			if s.pending is not None:
-				s.recover(next(iter(st["recovery_choices"])))
+				service._call_sync(s.recover, next(iter(st["recovery_choices"])))
 				continue
 			label = st["evidence_label"]
 			wrist = bool(set(range(5)) - set(st["cleared_faces"])) and st["budget"]["wrist_scans_left"] > 0
 			bottom = 5 not in st["cleared_faces"] and st["budget"]["bottom_views_left"] > 0
 			if label != "unknown" or not (wrist or bottom):
-				s.place(label)
+				service._call_sync(s.place, label)
 			elif wrist:
-				s.scan_wrist()
+				service._call_sync(s.scan_wrist)
 			else:
-				s.present_bottom()
+				service._call_sync(s.present_bottom)
 		results.append({"case": list(s.case), **service.finish(sid)["result"]})
 	return results
 
