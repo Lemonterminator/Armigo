@@ -802,10 +802,7 @@ class TwinMujoco:
 				self.scene_error = "BOWL_NOT_FOUND"
 				continue
 			self.bowls[name] = est.xy
-			if name.startswith("extra:"):
-				truth = np.asarray(self.layout.extra_bowls[int(name.split(":", 1)[1])][1:3])
-			else:
-				truth = np.asarray(getattr(self.layout, name))
+			truth = np.asarray(self._true_bowl_xy(name))
 			errors[name] = round(float(np.linalg.norm(est.xy - truth) * 1000), 3)  # scoring only
 		self.event(
 			"bowls_perceived",
@@ -2238,6 +2235,41 @@ class TwinMujoco:
 		self._save(views)
 		return views
 
+	def _bowl_slots(self) -> tuple[str, ...]:
+		"""All bowl slots in the layout: ``green``, ``pink``, and any ``extra:<i>``."""
+		extra = getattr(self.layout, "extra_bowls", ()) or ()
+		return ("green", "pink", *(f"extra:{i}" for i in range(len(extra))))
+
+	def bowl_colour(self, slot: str) -> str:
+		"""Realized colour word for bowl ``slot`` (``green``, ``pink``, or ``extra:<i>``)."""
+		if slot.startswith("extra:"):
+			idx = int(slot.split(":", 1)[1])
+			extra = getattr(self.layout, "extra_bowls", ()) or ()
+			if not 0 <= idx < len(extra):
+				raise KeyError(slot)
+			return str(extra[idx][0])
+		names = getattr(self.layout, "bowl_names", None)
+		if names and slot in names:
+			return str(names[slot])
+		if slot in ("green", "pink"):
+			return slot
+		raise KeyError(slot)
+
+	def _true_bowl_xy(self, slot: str) -> tuple[float, float]:
+		"""Ground-truth (x, y) centre for bowl ``slot`` (``green``, ``pink``, or ``extra:<i>``)."""
+		if slot == "green":
+			return (float(self.layout.green[0]), float(self.layout.green[1]))
+		if slot == "pink":
+			return (float(self.layout.pink[0]), float(self.layout.pink[1]))
+		if slot.startswith("extra:"):
+			idx = int(slot.split(":", 1)[1])
+			extra = getattr(self.layout, "extra_bowls", ()) or ()
+			if not 0 <= idx < len(extra):
+				raise KeyError(slot)
+			_, x, y, _ = extra[idx]
+			return (float(x), float(y))
+		raise KeyError(slot)
+
 	def target_bowl(self, label: str) -> str:
 		"""The bowl a brick with ``label`` goes to. Subclasses may remap it (vla/paired_carry.TargetSwapTracer); the
 		placement check and the final evaluation then judge the episode against the remapped bowl."""
@@ -2283,7 +2315,8 @@ class TwinMujoco:
 			return error or "BRICK_LOST"
 		self.held = None
 		position = self.cell.brick_pos()
-		for name, xy in (("green", self.layout.green), ("pink", self.layout.pink)):
+		for name in self._bowl_slots():
+			xy = self._true_bowl_xy(name)
 			if np.linalg.norm(position[:2] - xy) < BOWL_R and position[2] < 0.055:
 				self.actual_destination = name  # ground truth, read only by evaluate in realistic
 				break
@@ -2312,9 +2345,10 @@ class TwinMujoco:
 		# Ground truth enters only after the graph has selected and executed its final action.
 		expected = "defective" if self.layout.defective else "normal"
 		true_bowl = self.target_bowl(expected)
-		target = self.layout.pink if true_bowl == "pink" else self.layout.green
+		target = self._true_bowl_xy(true_bowl)
 		health = self._health(target) if self.ep.n_frames and label != "unknown" else {}
 		ok = label == expected and self.actual_destination == true_bowl
+		v3 = getattr(self.layout, "_scene_v3", None)
 		result = {
 			"verdict": "SUCCESS"
 			if ok and health.get("verdict") == "SUCCESS"
@@ -2352,6 +2386,7 @@ class TwinMujoco:
 			else None,
 			# A paired-target demonstration put the brick in the other bowl on purpose (vla/paired_carry.py).
 			**({"target_swap": True} if getattr(self, "target_swap", False) else {}),
+			**({"scene": "v3", "variant": int(v3.variant)} if v3 is not None else {}),
 		}
 		self.record.audit(
 			{"true_label": expected, "true_face": self.layout.defect_face if self.layout.defective else None}

@@ -22,11 +22,13 @@ CARRY_KINDS: tuple[str, ...] = ("carry_to_bowl", "release_in_bowl")
 
 class TargetSwapTracer(HeldCheckpointExpertTracer):
 	"""Expert tracer that also checkpoints the held brick after ``present_bottom``. With ``target_swap`` the brick goes
-	to the other bowl; the placement check and the final verdict are judged against that bowl and the result carries
-	``target_swap: True`` (so a swapped episode is never mistaken for a correct sort)."""
+	to the other bowl (or ``forced_target`` when set); the placement check and the final verdict are judged against
+	that bowl and the result carries ``target_swap: True`` (so a swapped episode is never mistaken for a correct
+	sort)."""
 
-	def __init__(self, *args, target_swap: bool = True, **kwargs):
+	def __init__(self, *args, target_swap: bool = True, forced_target: str | None = None, **kwargs):
 		self.target_swap = bool(target_swap)
+		self.forced_target = forced_target
 		self._in_place = False
 		super().__init__(*args, **kwargs)
 
@@ -53,6 +55,9 @@ class TargetSwapTracer(HeldCheckpointExpertTracer):
 			self._in_place = False
 
 	def target_bowl(self, label: str) -> str:
+		forced = getattr(self, "forced_target", None)
+		if forced is not None:
+			return forced
 		bowl = "pink" if label == "defective" else "green"
 		return SWAP[bowl] if self.target_swap else bowl
 
@@ -219,3 +224,224 @@ def run_pair(case, scorer, out_dir, *, crop_size: int, sensing: str = "realistic
 	else:
 		rec["skip"] = "pair_check_failed"
 	return rec
+
+
+def _resolve_detector(detector, crop_size: int | None):
+	import json
+	from pathlib import Path
+
+	from ..inspection_scorer import default_sup_scorer
+
+	if isinstance(detector, (str, Path)):
+		path = Path(detector)
+		crop = (
+			int(json.loads(path.read_text(encoding="utf-8")).get("crop_size", 256))
+			if crop_size is None
+			else int(crop_size)
+		)
+		return default_sup_scorer(path), crop, True
+	crop = int(getattr(detector, "crop_size", 256) if crop_size is None else crop_size)
+	return detector, crop, False
+
+
+def _available_slots(layout) -> tuple[str, ...]:
+	extra = getattr(layout, "extra_bowls", ()) or ()
+	return ("green", "pink", *(f"extra:{i}" for i in range(len(extra))))
+
+
+def _select_branch_targets(layout, true_slot: str, seed: int) -> list[str]:
+	wrong = [s for s in _available_slots(layout) if s != true_slot]
+	if len(wrong) > 2:
+		rng = np.random.default_rng([int(seed), 0xB8A4C4])
+		idxs = sorted(int(i) for i in rng.choice(len(wrong), size=2, replace=False))
+		wrong = [wrong[i] for i in idxs]
+	return [true_slot, *wrong]
+
+
+def _fork_state_diff(raw_parent, raw_branch, ck) -> float:
+	with (
+		np.load(raw_parent / "branch-0" / "actions.npz", allow_pickle=False) as pz,
+		np.load(raw_branch / f"branch-{ck.branch}" / "actions.npz", allow_pickle=False) as sz,
+	):
+		return float(np.max(np.abs(pz["state_f64"][ck.frame] - sz["state_f64"][0])))
+
+
+def _verify_exportable(ep_dir) -> bool:
+	from ..agent.twin_record import student_frames
+
+	frames = student_frames(ep_dir)
+	try:
+		next(frames)
+		return True
+	except Exception:  # noqa: BLE001 - report branch as non-exportable
+		return False
+	finally:
+		if hasattr(frames, "close"):
+			frames.close()
+
+
+def _strip_replay_mp4(ep_dir) -> None:
+	for mp4 in ep_dir.rglob("replay.mp4"):
+		mp4.unlink()
+
+
+def run_branches(
+	case,
+	out,
+	detector,
+	*,
+	crop_size: int | None = None,
+	sensing: str = "realistic",
+	action_noise=None,
+) -> dict:
+	"""Run a multi-branch demonstration from the held checkpoint for ``case`` into ``out``.
+
+	Branches to the true target bowl plus up to 2 distinct wrong bowls (all 3 bowls on 3-bowl v3 scenes), recording
+	carry-only supervision per branch. Returns ``{"fork_frame", "branches", "fork_state_match", ...}``."""
+	import shutil
+	from pathlib import Path
+
+	from langgraph.checkpoint.memory import InMemorySaver
+
+	from ..agent.twin_graph import Policy, build_graph
+	from ..agent.twin_mujoco import sample_case
+	from ..agent.twin_record import EpisodeTrace, stitch_perturbation_episode
+	from ..agent.twin_resume import load_history, load_plan, restore
+
+	out_dir = Path(out)
+	raw_dir = out_dir / "raw"
+	if raw_dir.exists():
+		shutil.rmtree(raw_dir)
+	raw_parent = raw_dir / "parent"
+	scorer, crop, owns_scorer = _resolve_detector(detector, crop_size)
+	tracer_kwargs: dict = {"crop_size": crop, "sensing": sensing}
+	if action_noise is not None:
+		tracer_kwargs["action_noise"] = action_noise
+	provenance = {"engine": "mujoco", "sensing": sensing, "case": list(case), "paired_carry": True}
+
+	rec: dict = {
+		"case": list(case),
+		"parent_verdict": None,
+		"fork_frame": None,
+		"branches": [],
+		"fork_state_match": False,
+	}
+	try:
+		layout = sample_case(*case)
+		twin = TargetSwapTracer(
+			layout,
+			scorer,
+			EpisodeTrace(raw_parent, video=True),
+			target_swap=False,
+			**tracer_kwargs,
+		)
+		try:
+			parent_result = build_graph(twin, Policy()).invoke({}, config={"recursion_limit": 64})["result"]
+			twin.record.finish(parent_result, {**provenance, "target_swap": False})
+			expected_label = "defective" if layout.defective else "normal"
+			true_slot = twin.target_bowl(expected_label)
+			slot_colours = {s: twin.bowl_colour(s) for s in _available_slots(layout)}
+		finally:
+			twin.close()
+
+		rec["parent_verdict"] = parent_result["verdict"]
+		if parent_result["verdict"] != "SUCCESS" or not parent_result.get("student_eligible"):
+			rec["skip"] = "parent_not_eligible"
+			return rec
+
+		plan = load_plan(raw_parent)
+		held = [i for i, c in enumerate(plan.checkpoints) if c.held is not None] if plan else []
+		if not held:
+			rec["skip"] = "no_held_checkpoint"
+			return rec
+		plan.checkpoints = plan.checkpoints[: held[-1] + 1]
+		ck = plan.latest
+		plan.history, plan.empty_bowl_depth = load_history(raw_parent, ck)
+		rec["fork_frame"] = int(ck.frame)
+
+		targets = _select_branch_targets(layout, true_slot, int(case[0]))
+		wrong_runs = []
+		for idx, slot in enumerate(targets[1:], start=1):
+			raw_branch = raw_dir / f"branch-{idx}"
+			twin = TargetSwapTracer(
+				sample_case(*case),
+				scorer,
+				EpisodeTrace(raw_branch, video=True),
+				target_swap=True,
+				forced_target=slot,
+				**tracer_kwargs,
+			)
+			try:
+				link = restore(twin, plan)
+				graph = build_graph(twin, Policy(), InMemorySaver())
+				config = {"recursion_limit": 64, "configurable": {"thread_id": f"branch-{idx}"}}
+				graph.update_state(config, plan.graph_state(), as_node="prepare")
+				branch_result = graph.invoke(None, config=config)["result"]
+				twin.record.finish(branch_result, {**provenance, "target_swap": True, "resumed_from": link})
+			finally:
+				twin.close()
+			branch_npz = raw_branch / f"branch-{ck.branch}" / "actions.npz"
+			diff = _fork_state_diff(raw_parent, raw_branch, ck) if branch_npz.is_file() else None
+			match = diff is not None and diff <= 1e-6
+			wrong_runs.append((slot, raw_branch, branch_result, match, diff))
+
+		branch_entries = []
+		for slot, raw_branch, branch_result, match, diff in wrong_runs:
+			colour = slot_colours[slot]
+			ep_branch = out_dir / slot.replace(":", "_")
+			if ep_branch.exists():
+				shutil.rmtree(ep_branch)
+			if branch_result["verdict"] == "SUCCESS" and match:
+				stitch_perturbation_episode(raw_parent, ck.branch, ep_branch, branch_episode=raw_branch)
+				_strip_replay_mp4(ep_branch)
+				info = _carry_only(ep_branch, ck.frame)
+				ok_ep = _verify_exportable(ep_branch)
+				if not ok_ep:
+					shutil.rmtree(ep_branch, ignore_errors=True)
+				branch_entries.append(
+					{
+						"target": slot,
+						"colour": colour,
+						"verdict": branch_result["verdict"],
+						"supervised_frames": info["supervised_frames"] if ok_ep else 0,
+						"dir": str(ep_branch) if ok_ep else "",
+						"fork_state_match": match,
+						"fork_state_max_diff_rad": diff,
+					}
+				)
+			else:
+				branch_entries.append(
+					{
+						"target": slot,
+						"colour": colour,
+						"verdict": branch_result["verdict"],
+						"supervised_frames": 0,
+						"dir": "",
+						"fork_state_match": match,
+						"fork_state_max_diff_rad": diff,
+					}
+				)
+
+		ep_parent = out_dir / true_slot.replace(":", "_")
+		if ep_parent.exists():
+			shutil.rmtree(ep_parent)
+		shutil.move(str(raw_parent), str(ep_parent))
+		_strip_replay_mp4(ep_parent)
+		parent_info = _carry_only(ep_parent, ck.frame)
+		ok_parent = _verify_exportable(ep_parent)
+		parent_entry = {
+			"target": true_slot,
+			"colour": slot_colours[true_slot],
+			"verdict": parent_result["verdict"],
+			"supervised_frames": parent_info["supervised_frames"] if ok_parent else 0,
+			"dir": str(ep_parent) if ok_parent else "",
+			"fork_state_match": True,
+			"fork_state_max_diff_rad": 0.0,
+		}
+		shutil.rmtree(raw_dir, ignore_errors=True)
+		rec["branches"] = [parent_entry, *branch_entries]
+		rec["fork_state_match"] = bool(wrong_runs) and all(m for _, _, _, m, _ in wrong_runs)
+		return rec
+	finally:
+		if owns_scorer and hasattr(scorer, "close"):
+			scorer.close()

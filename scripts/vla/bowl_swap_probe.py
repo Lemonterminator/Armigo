@@ -71,6 +71,13 @@ class BowlSwapTwin(StudentTwin):
 			return None
 		seg = segs["carry_to_bowl"]
 		req = seg.params["bowl"]
+		slot_colours = {slot: self.bowl_colour(slot) for slot in self.bowls}
+		other_slots = [slot for slot, col in slot_colours.items() if col != req]
+		arm_specs: list[tuple[str, str]] = [("req", req), ("req2", req)]
+		if other_slots:
+			arm_specs.append(("swap", slot_colours[other_slots[0]]))
+			for slot in other_slots[1:]:
+				arm_specs.append((slot, slot_colours[slot]))
 		views = copy.deepcopy(self.checkpoints[-1].views) if self.checkpoints else []
 		self._save(views)
 		cp = self.checkpoints[-1]
@@ -83,7 +90,7 @@ class BowlSwapTwin(StudentTwin):
 			"retries": int(self.retries),
 		}
 		arms = []
-		for name, bowl in (("req", req), ("req2", req), ("swap", OTHER[req])):
+		for name, bowl in arm_specs:
 			self.restore_checkpoint(cp, count_as_rewind=False, reason=f"bowl_swap_probe:{name}")
 			self.total_frames = total
 			path: list[list[float]] = []
@@ -91,7 +98,7 @@ class BowlSwapTwin(StudentTwin):
 			self.on_frame = lambda twin, path=path: path.append(twin.cell.tcp_pos().tolist())
 			t0 = time.perf_counter()
 			try:
-				error = self.run_segment(Segment("carry_to_bowl", {**seg.params, "bowl": bowl}))
+				error = self.run_segment(Segment("carry_to_bowl", {**seg.params, "bowl": bowl}, variant=seg.variant))
 			finally:
 				self.on_frame = prev_hook
 			row = self.segments[-1]
@@ -111,11 +118,17 @@ class BowlSwapTwin(StudentTwin):
 				}
 			)
 		lay = self.layout
+		bowls_true = {self.bowl_colour(slot): list(self._true_bowl_xy(slot)) for slot in self.bowls}
 		self.probe = {
 			"version": PROBE_VERSION,
 			"requested": req,
-			"bowls_true": {"green": list(lay.green), "pink": list(lay.pink)},
+			"bowls_true": bowls_true,
 			"bowls_perceived": {k: np.asarray(v).tolist() for k, v in self.bowls.items()},
+			**(
+				{"bowl_colours": slot_colours}
+				if getattr(lay, "bowl_names", None) is not None or getattr(lay, "extra_bowls", ())
+				else {}
+			),
 			"brick_xy_initial": list(lay.brick_xy),
 			"start": start,
 			"arms": arms,

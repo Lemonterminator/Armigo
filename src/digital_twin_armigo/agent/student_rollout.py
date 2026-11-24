@@ -217,7 +217,8 @@ class _SegmentMixin:
 
 	def _bowl_name(self) -> str:
 		xy = np.asarray(self.expert.bowl_xy)
-		return next(name for name, b in self.bowls.items() if np.array_equal(np.asarray(b), xy))
+		slot = next(name for name, b in self.bowls.items() if np.array_equal(np.asarray(b), xy))
+		return self.bowl_colour(slot) if hasattr(self, "bowl_colour") else slot
 
 	def _motion(self, generator) -> tuple[str, Any]:
 		"""``("simple", Segment)`` or ``("composite", (name, {kind: Segment}))`` for a skill's motion generator."""
