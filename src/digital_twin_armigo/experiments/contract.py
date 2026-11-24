@@ -28,6 +28,8 @@ CAMERA_CONDITIONS = ("fixed", "recal", "drift")
 STRATEGIES = ("A", "B", "C")
 DETECTORS = ("v6", "v7bot")
 ORACLE_PARTS = ("camera", "brick", "bowls")
+MOTIONS = ("open", "w1s", "w2s", "w3s", "w2a", "w3a", "w4a")
+EVIDENCE = ("hold", "img", "dense-10", "dense-20")
 
 RUN_STATES = ("planned", "running", "interrupted", "done", "infra_failed")
 
@@ -41,6 +43,9 @@ EXPERIMENT_FIELDS = (
 	"detector",  # DETECTORS
 	"detector_sha256",
 	"oracle",  # ORACLE_PARTS subset or None (counterfactual evaluation only)
+	"motion",  # MOTIONS
+	"evidence",  # EVIDENCE
+	"calib_offset_mm",  # float/int injected calibration offset in mm (0 = none)
 	"suite",  # suite file name
 	"suite_sha256",
 	"layout_id",  # "L<seed>"

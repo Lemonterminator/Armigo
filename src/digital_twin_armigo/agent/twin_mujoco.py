@@ -22,7 +22,7 @@ import numpy as np
 from ..benchmarks import SENSITIVITY_MATRIX
 from ..camera import CameraPose, look_from
 from ..constants import BOWL_R, FPS, PHASES, REST_U, SO101_MJCF_DIR
-from ..experiments.contract import ORACLE_PARTS
+from ..experiments.contract import EVIDENCE, ORACLE_PARTS
 from ..inspection import assert_no_defect_leakage
 from ..joints import normalized_to_rad
 from ..metrics import evaluate_episode_health, motion_smoothness
@@ -81,7 +81,7 @@ BOTTOM_BORDER_PX = 40  # realistic bottom views keep the believed brick this far
 
 
 # Case options (the optional 4th element of a case, see sample_case / load_suite).
-CASE_OPTIONS = ("prior", "cameras", "scene", "split", "oracle")
+CASE_OPTIONS = ("prior", "cameras", "scene", "split", "oracle", "calib_offset_mm")
 CAMERA_MODES = ("fixed", "jitter", "jitter_extrinsic", "drift", "wide")
 # Plan 2026-11-24 camera conditions: ``jitter_extrinsic`` draws exactly the ``jitter`` sample but keeps every focal
 # length nominal (intrinsics known), so only the mounts move; ``drift`` is ``jitter_extrinsic`` after a calibration
@@ -138,16 +138,25 @@ def _case_options(options) -> dict:
 		if bad_oracle:
 			raise ValueError(f"case option oracle parts must be in {ORACLE_PARTS}, got {bad_oracle!r}")
 	extra_oracle = {"oracle": oracle} if oracle else {}
+	calib_mm = options.get("calib_offset_mm", 0)
+	if calib_mm is None:
+		calib_mm = 0
+	if isinstance(calib_mm, bool) or not isinstance(calib_mm, (int, float)) or float(calib_mm) < 0:
+		raise ValueError(f"case option calib_offset_mm must be >= 0, got {calib_mm!r}")
+	calib_mm_f = float(calib_mm)
+	if calib_mm_f > 0 and cameras == "drift":
+		raise ValueError("case option calib_offset_mm cannot be combined with cameras='drift'")
+	extra_calib = {"calib_offset_mm": calib_mm_f} if calib_mm_f > 0 else {}
 	if scene is None:
 		if "split" in options:
 			raise ValueError("case option split requires scene='v3'")
-		return {"prior": prior, "cameras": cameras, **extra_oracle}
+		return {"prior": prior, "cameras": cameras, **extra_oracle, **extra_calib}
 	if scene != "v3":
 		raise ValueError(f"case option scene must be 'v3', got {scene!r}")
 	split = options.get("split", "train")
 	if split not in SPLITS:
 		raise ValueError(f"case option split must be one of {SPLITS}")
-	return {"prior": prior, "cameras": cameras, "scene": "v3", "split": split, **extra_oracle}
+	return {"prior": prior, "cameras": cameras, "scene": "v3", "split": split, **extra_oracle, **extra_calib}
 
 
 def _wide_top_pose(cam: dict[str, float]) -> CameraPose:
@@ -277,6 +286,19 @@ def sample_case(seed: int, positive: bool, face: int, options: dict | None = Non
 		layout.wrist_cam_offset = case_wrist_offset(seed, opts["cameras"])
 		# The pose the hand-eye calibration is solved on: the real top camera, except under ``drift``.
 		layout.calib_top = FIXED_TOP if opts["cameras"] == "drift" else None
+	offset_mm = float(opts.get("calib_offset_mm") or 0.0)
+	if offset_mm > 0.0:
+		rng_off = np.random.default_rng([seed, CAMERA_STREAM, 0xC41])
+		theta = float(rng_off.uniform(0.0, 2.0 * math.pi))
+		sign = -1.0 if int(rng_off.integers(0, 2)) == 0 else 1.0
+		d_m = offset_mm / 1000.0
+		base_cam = layout.top
+		layout.calib_top = replace(
+			base_cam,
+			x=base_cam.x + d_m * math.cos(theta),
+			y=base_cam.y + d_m * math.sin(theta),
+			yaw_deg=base_cam.yaw_deg + sign * offset_mm * 0.2,
+		)
 	if opts.get("oracle"):
 		layout.oracle = opts["oracle"]
 	return layout
@@ -695,8 +717,8 @@ class TwinMujoco:
 			raise ValueError(f"motion must be one of {tuple(VARIANTS)}")
 		if belief_cameras not in ("actual", "estimated"):
 			raise ValueError(f"belief_cameras must be 'actual' or 'estimated', got {belief_cameras!r}")
-		if evidence not in ("hold", "img", "dense-10", "dense-20"):
-			raise ValueError(f"evidence must be one of ('hold', 'img', 'dense-10', 'dense-20'), got {evidence!r}")
+		if evidence not in EVIDENCE:
+			raise ValueError(f"evidence must be one of {EVIDENCE}, got {evidence!r}")
 		self.motion = motion
 		self.evidence = evidence
 		self.belief_cameras = "estimated" if evidence != "hold" else belief_cameras

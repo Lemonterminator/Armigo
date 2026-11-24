@@ -35,6 +35,8 @@ from .contract import (
 	CAMERA_CONDITIONS,
 	DETECTORS,
 	ENGINES,
+	EVIDENCE,
+	MOTIONS,
 	ORACLE_PARTS,
 	SENSING,
 	STRATEGIES,
@@ -91,13 +93,33 @@ def _parse_oracle(raw) -> tuple[str, ...]:
 	return tuple(parts)
 
 
-def group_name(sensing: str, camera: str, strategy: str, detector: str, oracle=()) -> str:
+def group_name(
+	sensing: str,
+	camera: str,
+	strategy: str,
+	detector: str,
+	oracle=(),
+	*,
+	motion: str = "open",
+	evidence: str = "hold",
+	calib_offset_mm: float = 0,
+) -> str:
 	if sensing == "truth":
 		base = f"truth-{detector}" if strategy == "A" else f"truth-{strategy}-{detector}"
 	else:
 		base = f"realistic-{camera}-{strategy}-{detector}"
 	parts = sorted({str(p).strip() for p in (oracle or ()) if str(p).strip()})
-	return f"{base}-oracle-{'+'.join(parts)}" if parts else base
+	if parts:
+		base = f"{base}-oracle-{'+'.join(parts)}"
+	off = float(calib_offset_mm or 0)
+	if motion != "open" or evidence != "hold" or off != 0:
+		base = f"{base}-m{motion}"
+		if evidence != "hold":
+			base = f"{base}-e{evidence}"
+		if off != 0:
+			mm = int(off) if off.is_integer() else off
+			base = f"{base}-c{mm}"
+	return base
 
 
 def _attempt_dir(group_dir: Path, cid: str, n: int) -> Path:
@@ -251,8 +273,21 @@ def _dir_mib(path: Path) -> float:
 def plan_group(a) -> tuple[dict, list[dict], Path]:
 	root = Path(a.root)
 	oracle = _parse_oracle(getattr(a, "oracle", ""))
+	motion = str(getattr(a, "motion", "open") or "open")
+	evidence = str(getattr(a, "evidence", "hold") or "hold")
+	calib_offset_mm = float(getattr(a, "calib_offset_mm", 0) or 0)
+	if motion not in MOTIONS:
+		raise SystemExit(f"unknown motion {motion!r}; expected one of {MOTIONS}")
+	if evidence not in EVIDENCE:
+		raise SystemExit(f"unknown evidence {evidence!r}; expected one of {EVIDENCE}")
+	if calib_offset_mm < 0:
+		raise SystemExit(f"calib_offset_mm must be >= 0, got {calib_offset_mm}")
 	if a.sensing == "truth" and a.camera != "fixed":
 		raise SystemExit("omniscient (truth) runs use the fixed cameras")
+	if a.sensing == "truth" and (motion != "open" or evidence != "hold" or calib_offset_mm != 0):
+		raise SystemExit("motion, evidence and calib_offset_mm variants are only for realistic sensing")
+	if calib_offset_mm and a.camera == "drift":
+		raise SystemExit("--calib-offset-mm cannot be combined with --camera drift")
 	if oracle and a.sensing == "truth":
 		raise SystemExit("oracle substitution is only for realistic sensing")
 	suite_path, suite_sha, sealed = _freeze_suite(root, a.suite)
@@ -262,6 +297,10 @@ def plan_group(a) -> tuple[dict, list[dict], Path]:
 	agent_options: dict = {"strategy": a.strategy, "max_scored_views": max_views}
 	if a.sensing == "realistic":
 		agent_options["boundary"] = a.boundary
+	if motion != "open":
+		agent_options["motion"] = motion
+	if evidence != "hold":
+		agent_options["evidence"] = evidence
 	if oracle:
 		agent_options["oracle"] = list(oracle)
 	policy = json.loads(Path(a.policy).read_text(encoding="utf-8")) if a.policy else {}
@@ -283,7 +322,16 @@ def plan_group(a) -> tuple[dict, list[dict], Path]:
 		diffs = [k for k, v in expected.items() if freeze.get(k) != v]
 		if diffs or commit.endswith("-dirty"):
 			raise SystemExit(f"freeze file does not match the current setup: {diffs or ['dirty working tree']}")
-	group = group_name(a.sensing, a.camera, a.strategy, a.detector, oracle=oracle)
+	group = group_name(
+		a.sensing,
+		a.camera,
+		a.strategy,
+		a.detector,
+		oracle=oracle,
+		motion=motion,
+		evidence=evidence,
+		calib_offset_mm=calib_offset_mm,
+	)
 	group_dir = root / "runs" / a.batch / a.engine / group
 	group_dir.mkdir(parents=True, exist_ok=True)
 	from ..agent.twin_mujoco import load_suite
@@ -292,6 +340,8 @@ def plan_group(a) -> tuple[dict, list[dict], Path]:
 	extra_opts: dict = {}
 	if a.camera != "fixed":
 		extra_opts["cameras"] = CAMERA_MODE[a.camera]
+	if calib_offset_mm:
+		extra_opts["calib_offset_mm"] = calib_offset_mm
 	if oracle:
 		extra_opts["oracle"] = list(oracle)
 	if extra_opts:
@@ -307,6 +357,9 @@ def plan_group(a) -> tuple[dict, list[dict], Path]:
 		"detector": a.detector,
 		"detector_sha256": _sha256(det),
 		**({"oracle": list(oracle)} if oracle else {}),
+		"motion": motion,
+		"evidence": evidence,
+		"calib_offset_mm": calib_offset_mm,
 		"suite": a.suite,
 		"suite_sha256": suite_sha,
 		"sealed": sealed,
@@ -359,6 +412,9 @@ def plan_group(a) -> tuple[dict, list[dict], Path]:
 			"detector": a.detector,
 			"detector_sha256": plan["detector_sha256"],
 			"oracle": list(oracle) if oracle else None,
+			"motion": motion,
+			"evidence": evidence,
+			"calib_offset_mm": calib_offset_mm,
 			"suite": a.suite,
 			"suite_sha256": suite_sha,
 			"layout_id": layout_id(case[0]),
@@ -481,6 +537,9 @@ def _common(p):
 	p.add_argument("--max-scored-views", type=int, help="default: 6 for realistic, none for truth")
 	p.add_argument("--boundary", choices=("belief_cell", "legacy"), default="belief_cell")
 	p.add_argument("--oracle", default="", help="comma list of camera,brick,bowls (evaluation only)")
+	p.add_argument("--motion", choices=MOTIONS, default="open")
+	p.add_argument("--evidence", choices=EVIDENCE, default="hold")
+	p.add_argument("--calib-offset-mm", type=float, default=0.0)
 
 
 def main(argv=None) -> int:
