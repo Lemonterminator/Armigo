@@ -18,6 +18,7 @@ from ..constants import FPS, REST_U, STATE_NAMES, TOP_CROP, TOP_FULL
 from ..depth import layered_height_image
 from ..joints import joint_normalization, normalized_to_rad
 from ..sensor_noise import DEFAULT_D415_NOISE, degrade_depth_height
+from ..vla.contract import format_instruction
 from .twin_graph import EDGES, NODES, TASK
 
 CAMERAS = ("front", "wrist", "top_rgb", "top_depth")
@@ -467,6 +468,7 @@ POLICY_FIELDS: tuple[str, ...] = ("kind", "instruction", *POLICY_PARAMS)
 class Segment:
 	kind: str
 	params: dict[str, Any] = field(default_factory=dict)
+	variant: int = 0
 
 	def __post_init__(self):
 		if self.kind not in SEGMENT_KINDS:
@@ -475,10 +477,7 @@ class Segment:
 
 	@property
 	def instruction(self) -> str:
-		text = SEGMENT_KINDS[self.kind][0].format(**self.params)
-		if self.params.get("roll_deg") is not None:
-			text += ROLL_SUFFIX.format(roll_deg=self.params["roll_deg"])
-		return text
+		return format_instruction(self.kind, self.params, variant=self.variant)
 
 	@property
 	def held(self) -> bool:
@@ -499,7 +498,10 @@ class Segment:
 
 	def key(self) -> str:
 		"""Canonical identity used to match a student's segment with a recorded one (includes the diagnostics)."""
-		return json.dumps({"kind": self.kind, "params": self.params}, sort_keys=True, allow_nan=False)
+		d = {"kind": self.kind, "params": self.params}
+		if self.variant != 0:
+			d["variant"] = self.variant
+		return json.dumps(d, sort_keys=True, allow_nan=False)
 
 
 def policy_inputs(segment: Segment) -> dict[str, Any]:
@@ -587,7 +589,8 @@ def segment_labels(episode: Path) -> dict:
 		if not (ids[first:last] == sid).all():
 			raise SegmentLabelError(f"{episode.name}: frames of segment {sid} carry another segment id")
 		# Pull policy-visible conditioning strictly from policy_inputs(Segment(kind, params)), never diagnostics.
-		pi = policy_inputs(Segment(start["segment_kind"], start["params"]))
+		variant = int(start.get("variant", 0))
+		pi = policy_inputs(Segment(start["segment_kind"], start["params"], variant=variant))
 		policy_by_id[sid] = {
 			"bowl": "" if pi["bowl"] is None else str(pi["bowl"]),
 			"view": 0 if pi["view"] is None else int(pi["view"]),
@@ -599,6 +602,7 @@ def segment_labels(episode: Path) -> dict:
 				"kind": start["segment_kind"],
 				"instruction": start["instruction"],
 				"params": start["params"],
+				**({"variant": variant} if variant else {}),
 				"start": first,
 				"end": last,
 				"reason": end["reason"],
@@ -793,6 +797,41 @@ def export_lerobot(episodes: list[Path], out: Path, repo_id: str, trim_unsupervi
 			"goal_task": TASK,
 		},
 	)
+	episodes_meta = []
+	for i, (path, st) in enumerate(zip(episodes, starts, strict=True)):
+		ep_json_path = path / "episode.json"
+		ep_variant = 0
+		ep_scene = None
+		if ep_json_path.exists():
+			ep_manifest = json.loads(ep_json_path.read_text(encoding="utf-8"))
+			prov = ep_manifest.get("provenance") or {}
+			res = ep_manifest.get("result") or {}
+			case = prov.get("case") or []
+			case_opts = case[3] if len(case) == 4 and isinstance(case[3], dict) else {}
+			if prov.get("scene") == "v3" or res.get("scene") == "v3" or case_opts.get("scene") == "v3":
+				ep_scene = "v3"
+			if "variant" in prov:
+				ep_variant = int(prov["variant"])
+			elif "variant" in res:
+				ep_variant = int(res["variant"])
+		# Also check segments for any variant
+		segs_list = _trimmed_segments(segment_labels(path)["segments"], st)
+		for s_item in segs_list:
+			if s_item.get("variant", 0) != 0:
+				ep_variant = int(s_item["variant"])
+		ep_dict: dict[str, Any] = {
+			"episode_index": i,
+			"source": str(path),
+			"segments": segs_list,
+		}
+		if ep_scene == "v3":
+			ep_dict["scene"] = "v3"
+		if ep_variant != 0:
+			ep_dict["variant"] = ep_variant
+		if st:
+			ep_dict["start_frame"] = st
+		episodes_meta.append(ep_dict)
+
 	write_json(
 		out / "meta/segments.json",
 		{
@@ -800,15 +839,7 @@ def export_lerobot(episodes: list[Path], out: Path, repo_id: str, trim_unsupervi
 			"features": sorted(SEGMENT_FEATURES),
 			"segment_done": SEGMENT_DONE_CONVENTION,
 			"chunk_valid_len": CHUNK_VALID_LEN_CONVENTION,
-			"episodes": [
-				{
-					"episode_index": i,
-					"source": str(path),
-					"segments": _trimmed_segments(segment_labels(path)["segments"], st),
-					**({"start_frame": st} if st else {}),
-				}
-				for i, (path, st) in enumerate(zip(episodes, starts, strict=True))
-			],
+			"episodes": episodes_meta,
 		},
 	)
 

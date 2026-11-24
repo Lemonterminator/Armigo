@@ -18,6 +18,7 @@ from .contract import (
 	SEGMENT_KINDS_ORDER,
 	STATE_DIM,
 	STUDENT_CAMERAS,
+	V3_EXTRA_BOWL_COLOURS,
 	ActionNormalizer,
 	encode_state,
 	encode_state_from_task,
@@ -324,14 +325,20 @@ def _segment_roll_rows(ep: _EpisodeData) -> tuple[list[float | None], list[str]]
 	The roll is a segment param (not a per-frame column), so rows take it from their segment (``segment.index`` =
 	the segment row's ``id``). A row whose segment carries a roll gets the instruction formatted with it."""
 	params_by_id = {int(m["id"]): dict(m.get("params") or {}) for m in ep.segments_meta if "id" in m}
+	variant_by_id = {int(m["id"]): int(m.get("variant", ep.variant or 0)) for m in ep.segments_meta if "id" in m}
+	default_variant = int(ep.variant or 0)
 	rolls: list[float | None] = []
 	tasks: list[str] = []
 	for t in range(ep.length):
-		params = params_by_id.get(int(ep.segment_index[t]), {})
+		seg_id = int(ep.segment_index[t])
+		params = params_by_id.get(seg_id, {})
+		var = variant_by_id.get(seg_id, default_variant)
 		roll = params.get("roll_deg")
 		rolls.append(None if roll is None else float(roll))
 		tasks.append(
-			ep.task[t] if roll is None else policy_inputs_from_segment_dict(ep.segment_kind[t], params)["instruction"]
+			ep.task[t]
+			if roll is None
+			else policy_inputs_from_segment_dict(ep.segment_kind[t], params, variant=var)["instruction"]
 		)
 	return rolls, tasks
 
@@ -358,6 +365,8 @@ class _EpisodeData:
 	supervise_action: np.ndarray  # (T,) bool
 	task: list[str]
 	segments_meta: list[dict[str, Any]]
+	scene: str | None = None
+	variant: int | None = None
 	timestamps: np.ndarray | None = None
 	rel_row_indices: np.ndarray | None = None
 	images: dict[str, np.ndarray] | Callable[[int], dict[str, np.ndarray]] | None = None
@@ -452,6 +461,8 @@ def _normalize_in_memory_episode(ep_idx: int, raw: Mapping[str, Any]) -> _Episod
 	if "task" in cols:
 		task = _unwrap_str_col(cols["task"])
 	else:
+		raw_variant = raw.get("variant", 0)
+		ep_var = int(raw_variant) if raw_variant is not None else 0
 		task = [
 			policy_inputs_from_segment_dict(
 				seg_kind[t],
@@ -460,11 +471,14 @@ def _normalize_in_memory_episode(ep_idx: int, raw: Mapping[str, Any]) -> _Episod
 					"view": int(view[t]) if view[t] > 0 else None,
 					"views": int(views[t]) if views[t] > 0 else None,
 				},
+				variant=ep_var,
 			)["instruction"]
 			for t in range(n)
 		]
 
 	segments_meta = list(raw.get("segments", []))
+	scene = raw.get("scene")
+	variant = raw.get("variant")
 	images_payload = raw.get("images")
 	if images_payload is None:
 		# Check if camera arrays exist directly inside cols
@@ -493,6 +507,8 @@ def _normalize_in_memory_episode(ep_idx: int, raw: Mapping[str, Any]) -> _Episod
 		supervise_action=supervise_action,
 		task=task,
 		segments_meta=segments_meta,
+		scene=scene,
+		variant=int(variant) if variant is not None else None,
 		images=images_payload,
 	)
 
@@ -604,11 +620,14 @@ class SegmentChunkDataset(_BaseDataset):
 			self._lerobot_ds = ds
 
 		seg_meta_by_ep: dict[int, list[dict[str, Any]]] = {}
+		ep_meta_extra: dict[int, tuple[str | None, int | None]] = {}
 		seg_meta_path = root / "meta" / "segments.json"
 		if seg_meta_path.exists():
 			seg_meta = json.loads(seg_meta_path.read_text(encoding="utf-8"))
 			for row in seg_meta.get("episodes", []):
-				seg_meta_by_ep[int(row["episode_index"])] = list(row.get("segments", []))
+				ep_idx_i = int(row["episode_index"])
+				seg_meta_by_ep[ep_idx_i] = list(row.get("segments", []))
+				ep_meta_extra[ep_idx_i] = (row.get("scene"), row.get("variant"))
 
 		hf = ds.hf_dataset.with_format(None)
 		required_cols = (
@@ -678,6 +697,7 @@ class SegmentChunkDataset(_BaseDataset):
 					from_ts = float(ep_meta[f"videos/{cam}/from_timestamp"])
 					video_path = str(ds.root / ds.meta.get_video_file_path(ep_i, cam))
 					self._video_lookup[(ep_i, cam)] = (video_path, from_ts)
+			extra_scene, extra_variant = ep_meta_extra.get(ep_i, (None, None))
 			out.append(
 				_EpisodeData(
 					episode_index=ep_i,
@@ -700,6 +720,8 @@ class SegmentChunkDataset(_BaseDataset):
 					supervise_action=supervise_all[idx_arr],
 					task=[task_map[int(task_indices_all[r])] for r in rows],
 					segments_meta=seg_meta_by_ep.get(ep_i, []),
+					scene=extra_scene,
+					variant=extra_variant,
 					timestamps=timestamps_all[idx_arr],
 					rel_row_indices=idx_arr,
 				)
@@ -767,6 +789,7 @@ class SegmentChunkDataset(_BaseDataset):
 				# conservatively drop the end-step label rather than teach it.
 				if unsup_cutoff < min(h, seg_rem):
 					end_target = IGNORE_INDEX
+				zero_bowl = (ep.scene == "v3") or any(b in V3_EXTRA_BOWL_COLOURS for b in ep.bowl)
 				state_vec = encode_state(
 					q_t=ep.state[t],
 					q_prev=q_prev[t],
@@ -778,6 +801,7 @@ class SegmentChunkDataset(_BaseDataset):
 					views=int(ep.views[t]),
 					segment_frame=int(ep.segment_frame[t]),
 					roll_deg=roll_rows[t],
+					zero_bowl=zero_bowl,
 				)
 				weight = self.takeover_weight if bool(ep.is_takeover[t]) else 1.0
 				self._samples.append(
@@ -799,10 +823,12 @@ class SegmentChunkDataset(_BaseDataset):
 			for seg in ep.segments_meta:
 				if int(seg["start"]) == int(seg["end"]) and str(seg.get("reason", "")) == "done":
 					anchor_row = min(int(seg["start"]), n - 1)
-					pi = policy_inputs_from_segment_dict(str(seg["kind"]), seg.get("params"))
+					seg_var = int(seg.get("variant", ep.variant or 0))
+					pi = policy_inputs_from_segment_dict(str(seg["kind"]), seg.get("params"), variant=seg_var)
 					is_blind = bool(ep.is_blind[anchor_row])
 					is_takeover = bool(ep.is_takeover[anchor_row])
 					supervise_action = bool(ep.supervise_action[anchor_row])
+					zero_bowl = (ep.scene == "v3") or any(b in V3_EXTRA_BOWL_COLOURS for b in ep.bowl)
 					state_vec = encode_state_from_task(
 						q_t=ep.state[anchor_row],
 						q_prev=q_prev[anchor_row],
@@ -810,6 +836,7 @@ class SegmentChunkDataset(_BaseDataset):
 						gripper_cmd=ep.gripper_cmd[anchor_row],
 						task=pi,
 						segment_frame=0,
+						zero_bowl=zero_bowl,
 					)
 					action_mask = np.zeros(h, dtype=bool)
 					action_chunk = np.repeat(ep.prev_action[anchor_row][None, :], h, axis=0).astype(np.float32)

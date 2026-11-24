@@ -61,6 +61,109 @@ SEGMENT_TEMPLATES: dict[str, str] = {
 	"let_go": "Open the gripper where it is and rise.",
 }
 
+TRAIN_VARIANTS: tuple[int, ...] = (0, 1, 2, 3, 4)
+HELD_OUT_VARIANT: int = 5
+V3_EXTRA_BOWL_COLOURS: tuple[str, ...] = ("blue", "yellow", "orange", "purple", "white", "black")
+
+INSTRUCTION_VARIANTS: dict[str, tuple[str, ...]] = {
+	"prepare": (
+		"Wait at rest, then move the arm to the ready pose with the gripper open.",
+		"Hold at rest, then drive the arm to ready with the gripper wide.",
+		"Pause at rest, then shift the arm into the ready pose with open jaws.",
+		"Rest briefly, then raise the arm to the ready pose, gripper unlatched.",
+		"Stand by at rest, then command the arm to ready, gripper fully open.",
+		"Wait quietly at rest, then transition the arm to ready position, gripper open.",
+	),
+	"scan_view": (
+		"Move the wrist camera to inspection view {view} of {views} around the brick and hold still.",
+		"Position the wrist camera at view {view} out of {views} near the brick and pause.",
+		"Drive the wrist camera to inspection frame {view} of {views} surrounding the brick and wait.",
+		"Set the wrist camera to view {view} of {views} facing the brick and stay still.",
+		"Direct the wrist camera toward view {view} of {views} by the brick and hold position.",
+		"Shift the wrist camera to inspection slot {view} of {views} next to the brick and halt.",
+	),
+	"return_ready": (
+		"Return the arm to the ready pose with the gripper open.",
+		"Drive the arm back to the ready position, gripper unlatched.",
+		"Bring the arm straight back to ready pose, gripper wide open.",
+		"Retract the arm to the ready stance with open jaws.",
+		"Move the arm back into ready posture, gripper open.",
+		"Head the arm back toward the ready pose, gripper released.",
+	),
+	"grasp": (
+		"Grasp the brick on the table.",
+		"Clamp the brick resting on the table.",
+		"Pick up the brick located on the table surface.",
+		"Secure the brick sitting upon the table.",
+		"Catch the brick resting down on the table.",
+		"Grip the target brick positioned on the table.",
+	),
+	"lift": (
+		"Lift the grasped brick straight up.",
+		"Raise the held brick vertically upward.",
+		"Elevate the gripped brick straight into the air.",
+		"Hoist the captured brick directly upward.",
+		"Take the secured brick straight up.",
+		"Pull the held brick upward off the table.",
+	),
+	"present_bottom": (
+		"Show the bottom face of the held brick to the top camera and hold still.",
+		"Present the underside of the gripped brick toward the top camera and pause.",
+		"Display the bottom surface of the held brick to the overhead camera and halt.",
+		"Expose the underside of the secured brick to the top camera and hold position.",
+		"Turn the bottom face of the caught brick upward to the top camera and wait.",
+		"Reveal the lower face of the held brick to the upper camera and stay still.",
+	),
+	"return_to_lift": (
+		"Move the held brick back to the lift pose.",
+		"Bring the gripped brick back to the lifting posture.",
+		"Shift the carried brick to the lift position.",
+		"Return the secured brick back to the lift spot.",
+		"Drive the held brick backward into lift stance.",
+		"Recollect the carried brick to the lift pose.",
+	),
+	"lower_on_table": (
+		"Carry the held brick back to its spot on the table and lower it onto the table.",
+		"Transport the gripped brick to its table location and set it down.",
+		"Move the carried brick back over its place and lower onto the table.",
+		"Take the secured brick back to its table position and descend.",
+		"Transfer the held brick back to its home spot and lower to the table.",
+		"Bring the carried brick back to its original table point and place down.",
+	),
+	"release_on_table": (
+		"Open the gripper, let the brick settle on the table and lift the gripper clear.",
+		"Unlatch the jaws, allow the brick to rest on the table and raise the gripper.",
+		"Release the gripper, let the brick settle on table surface and retract clear.",
+		"Open the fingers, let the brick drop to the table and lift gripper away.",
+		"Drop the grip, permit the brick to rest on the table and elevate clear.",
+		"Disengage the gripper, let the brick settle on the table and rise up.",
+	),
+	"carry_to_bowl": (
+		"Carry the held brick over the {bowl} bowl and lower it into the bowl.",
+		"Transport the gripped brick above the {bowl} bowl and descend into it.",
+		"Move the carried brick over the {bowl} bowl and lower inside.",
+		"Take the secured brick across the {bowl} bowl and lower down into the bowl.",
+		"Transfer the held brick above the {bowl} bowl and lower it into position.",
+		"Bring the carried brick over to the {bowl} bowl and descend into the container.",
+	),
+	"release_in_bowl": (
+		"Open the gripper to drop the brick into the bowl, lift clear and return to the rest pose.",
+		"Unlatch the jaws to release the brick into the bowl, retract and go to rest.",
+		"Drop the grip to deposit the brick into the bowl, rise and return to rest posture.",
+		"Open fingers to dump the brick inside the bowl, lift clear and return to rest.",
+		"Release the brick into the bowl container, elevate clear and move to rest pose.",
+		"Disengage jaws to drop the brick into the bowl, pull back and return to rest.",
+	),
+	"let_go": (
+		"Open the gripper where it is and rise.",
+		"Unlatch the fingers in place and elevate.",
+		"Release the grip right here and lift up.",
+		"Open the jaws where situated and rise.",
+		"Let go of the grip on the spot and ascend.",
+		"Disengage the gripper in position and pull up.",
+	),
+}
+
 BOWL_VOCAB: tuple[str, ...] = ("", "green", "pink")
 BOWL_TO_INDEX: dict[str, int] = {bowl: idx for idx, bowl in enumerate(BOWL_VOCAB)}
 
@@ -92,12 +195,14 @@ def assert_no_planner_diagnostics(mapping: Mapping[str, Any]) -> None:
 		raise ValueError(f"non-policy key(s) forbidden in student task dict: {sorted(extra)}")
 
 
-def policy_inputs_from_segment_dict(kind: str, params: Mapping[str, Any] | None = None) -> dict[str, Any]:
+def policy_inputs_from_segment_dict(
+	kind: str, params: Mapping[str, Any] | None = None, *, variant: int = 0
+) -> dict[str, Any]:
 	"""Build sanitized ``POLICY_FIELDS`` dict from a segment row without exposing planner diagnostics."""
 	if kind not in SEGMENT_TEMPLATES:
 		raise ValueError(f"unknown segment kind {kind!r}")
 	p = dict(params or {})
-	instruction = format_instruction(kind, p)
+	instruction = format_instruction(kind, p, variant=variant)
 	out: dict[str, Any] = {"kind": kind, "instruction": instruction}
 	for key in POLICY_PARAMS:
 		val = p.get(key)
@@ -111,10 +216,16 @@ def policy_inputs_from_segment_dict(kind: str, params: Mapping[str, Any] | None 
 	return out
 
 
-def format_instruction(kind: str, params: Mapping[str, Any] | None = None) -> str:
+def format_instruction(kind: str, params: Mapping[str, Any] | None = None, variant: int = 0) -> str:
 	"""The segment instruction: the kind's template, plus :data:`ROLL_SUFFIX` when the segment carries a roll."""
+	if kind not in INSTRUCTION_VARIANTS:
+		raise ValueError(f"unknown segment kind {kind!r}")
+	variants = INSTRUCTION_VARIANTS[kind]
+	v_idx = int(variant)
+	if not (0 <= v_idx < len(variants)):
+		raise ValueError(f"invalid variant {v_idx} for kind {kind!r} (expected 0..{len(variants) - 1})")
 	p = dict(params or {})
-	text = SEGMENT_TEMPLATES[kind].format(**p)
+	text = variants[v_idx].format(**p)
 	if p.get("roll_deg") is not None:
 		text += ROLL_SUFFIX.format(roll_deg=p["roll_deg"])
 	return text
@@ -150,6 +261,8 @@ def encode_state(
 	views: int | None = 0,
 	segment_frame: int = 0,
 	roll_deg: float | None = None,
+	*,
+	zero_bowl: bool = False,
 ) -> np.ndarray:
 	"""Encode the canonical 38-dim student state + conditioning vector (float32).
 
@@ -178,9 +291,8 @@ def encode_state(
 	kind_idx = SEGMENT_KIND_TO_INDEX[segment_kind]
 
 	bowl_str = "" if bowl is None else str(bowl)
-	if bowl_str not in BOWL_TO_INDEX:
-		raise ValueError(f"unknown bowl {bowl!r}; expected one of {BOWL_VOCAB}")
-	bowl_idx = BOWL_TO_INDEX[bowl_str]
+	if bowl_str not in BOWL_TO_INDEX and bowl_str not in V3_EXTRA_BOWL_COLOURS:
+		raise ValueError(f"unknown bowl {bowl!r}; expected one of {BOWL_VOCAB} or {V3_EXTRA_BOWL_COLOURS}")
 
 	view_i = 0 if view is None else int(view)
 	views_i = 0 if views is None else int(views)
@@ -199,7 +311,9 @@ def encode_state(
 	out[12:18] = a_prv
 	out[18] = grip_val
 	out[19 + kind_idx] = 1.0
-	out[31 + bowl_idx] = 1.0
+	if not zero_bowl and bowl_str in BOWL_TO_INDEX:
+		bowl_idx = BOWL_TO_INDEX[bowl_str]
+		out[31 + bowl_idx] = 1.0
 	out[34] = view_norm
 	out[35] = seg_frame_norm
 	out[36], out[37] = roll_features(roll_deg)
@@ -213,6 +327,8 @@ def encode_state_from_task(
 	gripper_cmd: Any,
 	task: Mapping[str, Any],
 	segment_frame: int = 0,
+	*,
+	zero_bowl: bool = False,
 ) -> np.ndarray:
 	"""Encode the 38-dim vector from a ``policy_inputs`` task dict after checking for zero planner diagnostics."""
 	assert_no_planner_diagnostics(task)
@@ -227,6 +343,7 @@ def encode_state_from_task(
 		views=task.get("views"),
 		segment_frame=segment_frame,
 		roll_deg=task.get("roll_deg"),
+		zero_bowl=zero_bowl,
 	)
 
 

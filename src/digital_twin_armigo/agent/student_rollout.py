@@ -125,7 +125,7 @@ def roll_deg(roll_rad: float) -> float:
 
 def with_grasp_roll(seg: Segment, roll_rad: float) -> Segment:
 	"""``seg`` (a ``grasp`` segment) with the planned grasp roll as its ``roll_deg`` param."""
-	return Segment(seg.kind, {**seg.params, "roll_deg": roll_deg(roll_rad)})
+	return Segment(seg.kind, {**seg.params, "roll_deg": roll_deg(roll_rad)}, variant=seg.variant)
 
 
 class _SegmentMixin:
@@ -146,10 +146,33 @@ class _SegmentMixin:
 			"lift_poses": [np.asarray(q, dtype=np.float64).tolist() for q in self.lift_poses],
 		}
 
+	def _instruction_variant(self) -> int:
+		if not hasattr(self, "layout"):
+			return int(getattr(self, "variant", 0) or 0)
+		layout = getattr(self, "layout", None)
+		if layout is None:
+			return 0
+		v3 = getattr(layout, "_scene_v3", None)
+		if v3 is not None and hasattr(v3, "variant"):
+			return int(v3.variant)
+		if isinstance(layout, dict):
+			return int(layout.get("variant", 0))
+		return int(getattr(layout, "variant", 0) or 0)
+
 	def _restore_extra(self, extra):
 		if extra is None:
 			return
-		self.segments = [{**row, "segment": Segment(row["kind"], row["params"])} for row in extra["rows"]]
+		self.segments = [
+			{
+				**row,
+				"segment": Segment(
+					row["kind"],
+					row["params"],
+					variant=int(row.get("variant", 0)),
+				),
+			}
+			for row in extra["rows"]
+		]
 		self.lift_poses = [np.array(q, dtype=np.float64) for q in extra["lift_poses"]]
 		self._open_segment = None
 		self.record.segment = -1
@@ -167,13 +190,21 @@ class _SegmentMixin:
 			"kind": seg.kind,
 			"instruction": seg.instruction,
 			"params": seg.params,
+			**({"variant": seg.variant} if seg.variant else {}),
 			"start": self.ep.n_frames,
 			"segment": seg,
 		}
 		self.segments.append(row)
 		self._open_segment = row
 		self.record.segment = row["id"]
-		self.event("segment", id=row["id"], segment_kind=seg.kind, instruction=seg.instruction, params=seg.params)
+		self.event(
+			"segment",
+			id=row["id"],
+			segment_kind=seg.kind,
+			instruction=seg.instruction,
+			params=seg.params,
+			**({"variant": seg.variant} if seg.variant else {}),
+		)
 		return row["id"]
 
 	def _segment_end(self, reason: str):
@@ -192,12 +223,17 @@ class _SegmentMixin:
 		"""``("simple", Segment)`` or ``("composite", (name, {kind: Segment}))`` for a skill's motion generator."""
 		name = generator.__name__
 		local = generator.gi_frame.f_locals if generator.gi_frame is not None else {}
+		v = (
+			self._instruction_variant()
+			if hasattr(self, "_instruction_variant")
+			else _SegmentMixin._instruction_variant(self)
+		)
 		if name == "ready":
-			return "simple", Segment("prepare")
+			return "simple", Segment("prepare", variant=v)
 		if name == "_go_ready":
-			return "simple", Segment("return_ready")
+			return "simple", Segment("return_ready", variant=v)
 		if name == "let_go":
-			return "simple", Segment("let_go")
+			return "simple", Segment("let_go", variant=v)
 		# TwinMujoco._review_once: re-views of a detector alarm reuse the student's fixed segment vocabulary
 		# (SEGMENT_KINDS is a VLA contract); ``mode="review"`` marks them.
 		if name == "review_wrist":
@@ -213,11 +249,14 @@ class _SegmentMixin:
 					"via_poses": len(path) - 1,
 					"roll_deg": roll_deg(path[-1][4]),
 				},
+				variant=v,
 			)
 		if name == "review_bottom":
 			pose = local["pose"]
 			return "simple", Segment(
-				"present_bottom", {"mode": "review", "target_q": _rounded(pose), "roll_deg": roll_deg(pose[4])}
+				"present_bottom",
+				{"mode": "review", "target_q": _rounded(pose), "roll_deg": roll_deg(pose[4])},
+				variant=v,
 			)
 		if name == "look" and "path" in local:  # TwinMujoco._wrist: sweep through ``path`` and hold its last pose
 			path = local["path"]
@@ -234,12 +273,13 @@ class _SegmentMixin:
 				"via_poses": len(path) - 1,
 				"roll_deg": roll_deg(cand.q[4]),
 			}
-			return "simple", Segment("scan_view", params)
+			return "simple", Segment("scan_view", params, variant=v)
 		if name == "look" and "candidate" in local:  # TwinMujoco._bottom
 			cand = local["candidate"]
 			return "simple", Segment(
 				"present_bottom",
 				{"target_q": _rounded(cand.q), "bottom_px": int(cand.faces_px[5]), "roll_deg": roll_deg(cand.q[4])},
+				variant=v,
 			)
 		if name in _PARTS:
 			segs = {}
@@ -249,7 +289,7 @@ class _SegmentMixin:
 					params = {"bowl": self._bowl_name()}
 				elif kind == "lower_on_table":
 					params = {"xy": _rounded(self._park_xy, 4)}
-				segs[kind] = Segment(kind, params)
+				segs[kind] = Segment(kind, params, variant=v)
 			return "composite", (name, segs)
 		raise SegmentMappingError(f"no segment for motion generator {name!r} in node {self.node!r}")
 
