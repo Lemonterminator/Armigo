@@ -41,15 +41,9 @@ PROFILES = ("omniscient", "realistic")
 # Generous fixed budgets: the agent decides how to use them.
 STEP_POLICY = Policy(max_bottom_views=3, max_wrist_views=3, max_rewinds=2)
 MAX_SESSIONS = 4
-# Keys that only the simulator knows. A realistic payload carrying one of them is a bug, not a feature.
-SIMULATOR_KEYS = frozenset(
+# Simulator truth written into events for scoring only (attribution, precursors). Never part of a tool result.
+TRUTH_DIAGNOSTIC_KEYS = frozenset(
 	{
-		"bodies",
-		"brick_position_m",
-		"brick_rotation_xyzw",
-		"bowl_positions_m",
-		"jaw_normal_n",
-		"pinch_normal_n",
 		"true_face_pixels",
 		"true_cross_px",
 		"true_face_pixels_crop",
@@ -58,19 +52,53 @@ SIMULATOR_KEYS = frozenset(
 		"true_cross_px_crop_native",
 		"truth_crop",
 		"true_brick_quat_xyzw",
-		"belief_brick_quat_xyzw",
 		"belief_error_mm",
 		"error_xy_mm",
 		"error_yaw_deg",
 		"cam_pos_err_mm",
 		"cam_rot_err_deg",
-		"bias_deg",
 		"size_correct",
 		"label_correct",
 		"true_label",
 		"true_face",
-		"destination",
+		"actual_cam_pos_err_mm",
+		"actual_cam_axis_err_deg",
+		"calibrated_on",
 	}
+)
+# Keys that only the simulator knows. A realistic payload carrying one of them is a bug, not a feature.
+SIMULATOR_KEYS = (
+	frozenset(
+		{
+			"bodies",
+			"brick_position_m",
+			"brick_rotation_xyzw",
+			"bowl_positions_m",
+			"jaw_normal_n",
+			"pinch_normal_n",
+			"true_face_pixels",
+			"true_cross_px",
+			"true_face_pixels_crop",
+			"true_face_pixels_crop_native",
+			"true_cross_px_crop",
+			"true_cross_px_crop_native",
+			"truth_crop",
+			"true_brick_quat_xyzw",
+			"belief_brick_quat_xyzw",
+			"belief_error_mm",
+			"error_xy_mm",
+			"error_yaw_deg",
+			"cam_pos_err_mm",
+			"cam_rot_err_deg",
+			"bias_deg",
+			"size_correct",
+			"label_correct",
+			"true_label",
+			"true_face",
+			"destination",
+		}
+	)
+	| TRUTH_DIAGNOSTIC_KEYS
 )
 
 
