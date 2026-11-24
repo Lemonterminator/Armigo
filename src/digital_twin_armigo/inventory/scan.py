@@ -14,6 +14,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import sqlite3
 from collections.abc import Iterator
 from pathlib import Path
@@ -127,6 +128,11 @@ def agent_episode(directory: Path, root_label: str, root: Path) -> dict | None:
 	lineage = lineage if isinstance(lineage, dict) and lineage.get("schema") == LINEAGE_SCHEMA else {}
 	case = prov.get("case") or run.get("case") or task.get("case")
 	written_at = file.stat().st_mtime
+	exp = prov.get("experiment") if isinstance(prov.get("experiment"), dict) else {}
+	status = _json(directory / RUN_STATUS_FILE)
+	status = status if isinstance(status, dict) else {}
+	if exp.get("sensing") and not prov.get("sensing"):
+		prov = {**prov, "sensing": exp["sensing"]}
 	actor = taxonomy.classify_provenance(prov, result, written_at=written_at)
 	names = {p.name for p in directory.iterdir()}
 	frames = result.get("sim_frames")
@@ -146,7 +152,7 @@ def agent_episode(directory: Path, root_label: str, root: Path) -> dict | None:
 		"sensing": actor["sensing"],
 		"category_basis": actor["basis"],
 		"category_note": actor.get("note"),
-		"engine": prov.get("engine", "mujoco"),
+		"engine": prov.get("engine") or exp.get("engine") or "mujoco",
 		"scene_id": scene_id_of(case) if case else None,
 		"seed": int(case[0]) if case else None,
 		"defective": bool(case[1]) if case else None,
@@ -170,7 +176,8 @@ def agent_episode(directory: Path, root_label: str, root: Path) -> dict | None:
 		"retries": result.get("retries"),
 		"llm_consulted": (result.get("llm") or {}).get("consulted"),
 		"camera_profile": prov.get("camera_profile"),
-		"detector_sha256": prov.get("detector_sha256"),
+		"detector_sha256": prov.get("detector_sha256") or exp.get("detector_sha256"),
+		**_experiment_columns(exp, status),
 		"takeover_gate": takeover.get("gate") if takeover.get("triggered") else None,
 		"takeover_frame": takeover.get("frame") if takeover.get("triggered") else None,
 		"has_actions": any((directory / n / "actions.npz").is_file() for n in names if n.startswith("branch-")),
@@ -180,12 +187,96 @@ def agent_episode(directory: Path, root_label: str, root: Path) -> dict | None:
 		"has_motion": (directory / "replay" / "motion.npz").is_file(),
 		"split_hint": split_hint(directory.relative_to(root)),
 		"rerun_of": lineage.get("rerun_of"),
-		"attempt": lineage.get("attempt"),
+		"attempt": exp.get("attempt") if exp.get("attempt") is not None else lineage.get("attempt"),
 		"rerun_code": lineage.get("code_commit"),
 		"rerun_info": {k: lineage[k] for k in RERUN_INFO_KEYS if k in lineage} or None,
 		"written_at": file.stat().st_mtime,
 		"episode_sha256": sha256_file(file),
 	}
+
+
+RUN_STATUS_FILE = "run_status.json"
+UNFINISHED_STATES = ("planned", "running", "interrupted", "infra_failed")
+CASE_ID = re.compile(r"^L(\d+)-(?:N|D(\d+))(?:-a(\d+))?$")
+
+
+def _experiment_columns(exp: dict, status: dict) -> dict:
+	"""The v2 experiment columns (``provenance.experiment`` + ``run_status.json``); all ``None`` for older episodes."""
+	return {
+		"batch": exp.get("batch"),
+		"camera_condition": exp.get("camera_condition"),
+		"strategy": exp.get("strategy"),
+		"detector": exp.get("detector"),
+		"layout_id": exp.get("layout_id"),
+		"case_id": exp.get("case_id"),
+		"run_id": exp.get("run_id"),
+		"parent_run": exp.get("parent_run"),
+		"group": exp.get("group"),
+		"run_state": status.get("state") if isinstance(status.get("state"), str) else None,
+	}
+
+
+def unfinished_episode(directory: Path, root_label: str, root: Path) -> dict | None:
+	"""A row for a directory that has ``run_status.json`` (running / interrupted / infra_failed) but no finished
+	``episode.json``, so the inventory tells not-finished runs apart. The fields come from the status file's optional
+	``experiment`` dict, else from the ``<batch>/<engine>/<group>/<case_id>[-aN]`` path."""
+	status = _json(directory / RUN_STATUS_FILE)
+	if not isinstance(status, dict) or status.get("state") not in UNFINISHED_STATES:
+		return None
+	rel = directory.relative_to(root)
+	parts = rel.parts
+	exp = status.get("experiment") if isinstance(status.get("experiment"), dict) else {}
+	if len(parts) >= 4:
+		exp = {"batch": parts[-4], "engine": parts[-3], "group": parts[-2], **exp}
+	m = CASE_ID.match(parts[-1]) if parts else None
+	seed = face = attempt = None
+	if m:
+		seed, face = int(m[1]), (int(m[2]) if m[2] is not None else None)
+		attempt = int(m[3]) if m[3] else 1
+		exp = {
+			"layout_id": f"L{seed}",
+			"case_id": f"L{seed}-N" if face is None else f"L{seed}-D{face}",
+			"attempt": attempt,
+			**exp,
+		}
+	group = exp.get("group") or ""
+	sensing = exp.get("sensing") or next((s for s in ("truth", "realistic") if group.startswith(s)), None)
+	file = directory / RUN_STATUS_FILE
+	actor = taxonomy.classify_provenance(
+		{"sensing": sensing, "engine": exp.get("engine")}, {}, written_at=file.stat().st_mtime
+	)
+	row = _empty_agent_row()
+	row.update(
+		{
+			"traj_id": f"agent:{root_label}:{rel.as_posix()}",
+			"record_kind": "agent_episode",
+			"root": root_label,
+			"path": str(directory),
+			"run_group": _run_group(directory, root),
+			"category": actor["category"],
+			"control": actor["control"],
+			"sensing": actor["sensing"],
+			"category_basis": actor["basis"],
+			"category_note": actor.get("note"),
+			"engine": exp.get("engine") or "mujoco",
+			"seed": seed,
+			"defective": None if seed is None else face is not None,
+			"defect_face": face,
+			"detector_sha256": exp.get("detector_sha256"),
+			"attempt": exp.get("attempt"),
+			"has_events": (directory / "events.jsonl").is_file(),
+			"split_hint": split_hint(rel),
+			"written_at": file.stat().st_mtime,
+			**_experiment_columns(exp, status),
+		}
+	)
+	return row
+
+
+def _empty_agent_row() -> dict:
+	from digital_twin_armigo.inventory import store
+
+	return {c: None for c in store.TRAJECTORY_COLUMNS} | {"fps": 30, "tags": None}
 
 
 def _failure_mode(result: dict, health: dict) -> str | None:
@@ -227,6 +318,9 @@ def _run_group(directory: Path, root: Path) -> str:
 def scan_agent_episodes(root: Path, label: str) -> Iterator[dict]:
 	for cur, dirs, files in walk(root):
 		if "episode.json" not in files:
+			if RUN_STATUS_FILE in files and (row := unfinished_episode(cur, label, root)) is not None:
+				dirs[:] = []
+				yield row
 			continue
 		row = agent_episode(cur, label, root)
 		if row is not None:

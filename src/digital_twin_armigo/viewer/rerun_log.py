@@ -28,7 +28,7 @@ import numpy as np
 
 from digital_twin_armigo.viewer import stats as st
 
-DEFAULT_NODES = ("prepare", "choose_view", "scan_wrist", "present_bottom", "recover", "place", "evaluate")
+DEFAULT_NODES = ("prepare", "choose_view", "scan_wrist", "present_bottom", "review", "recover", "place", "evaluate")
 KEYFRAME = re.compile(r"(\d+)-(\d+)-([A-Za-z_]+)-(frame|crop)\.png")
 MAX_TELEMETRY_COLUMNS = 8
 STEP_EPS_S = 1e-3

@@ -100,7 +100,7 @@ def cmd_serve(a) -> int:
 	from digital_twin_armigo.viewer import server
 
 	print(f"armigo-view: http://127.0.0.1:{a.port}/  (episodes under {a.root.resolve()})", flush=True)
-	server.serve(a.root, a.port, open_browser=a.open, inventory=a.inventory)
+	server.serve(a.root, a.port, open_browser=a.open, inventory=a.inventory, audit=a.audit)
 	return 0
 
 
@@ -138,6 +138,11 @@ def main(argv: list[str] | None = None) -> int:
 		"--inventory",
 		type=Path,
 		help="directory with inventory.sqlite for the /inventory page (default data/inventory)",
+	)
+	s.add_argument(
+		"--audit",
+		type=Path,
+		help="SQLite file of human audit verdicts (default <inventory dir>/../audit/reviews.sqlite; never rebuilt by a scan)",
 	)
 	s.add_argument("--open", action="store_true", help="open the page in the default browser")
 	s.set_defaults(func=cmd_serve)

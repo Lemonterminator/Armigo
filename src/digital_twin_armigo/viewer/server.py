@@ -237,14 +237,19 @@ def default_inventory_dir() -> Path:
 	return store.project_root() / "data" / "inventory"
 
 
-def create_app(root: Path, *, session: RerunSession | None = None, inventory: Path | None = None):
+def create_app(
+	root: Path, *, session: RerunSession | None = None, inventory: Path | None = None, audit: Path | None = None
+):
 	from fastapi import FastAPI, HTTPException
 	from fastapi.responses import FileResponse, JSONResponse
 
+	from digital_twin_armigo.inventory import audit as aud
 	from digital_twin_armigo.inventory import query as inv
 
 	root = Path(root).resolve()
 	inventory_dir = Path(inventory) if inventory else default_inventory_dir()
+	audit_path = Path(audit) if audit else aud.default_path(inventory_dir)
+	code_version: list[str | None] = []  # git HEAD of the repo, looked up once on the first review
 	token = secrets.token_urlsafe(32)
 	rerun = session or RerunSession()
 	cache: dict = {}
@@ -310,24 +315,72 @@ def create_app(root: Path, *, session: RerunSession | None = None, inventory: Pa
 			return path.relative_to(root).as_posix() or "."
 		return INVENTORY_PREFIX + row["traj_id"]
 
+	def inventory_audit_call(fn, *args):
+		return inventory_call(lambda d, *a: fn(d, *a, audit=audit_path), *args)
+
 	@app.get("/api/inventory/summary")
 	def inventory_summary():
 		return inventory_call(inv.summary)
 
 	@app.get("/api/inventory/trajectory")
 	def inventory_trajectory(id: str):
-		row = inventory_call(inv.trajectory, id)
+		row = inventory_audit_call(inv.trajectory, id)
 		if row is None:
 			raise HTTPException(404, "unknown trajectory")
 		return {**row, "viewer_id": viewer_id(row)}
 
+	@app.get("/api/inventory/paired")
+	def inventory_paired(id: str):
+		found = inventory_audit_call(inv.paired, id)
+		if found is None:
+			raise HTTPException(404, "unknown trajectory")
+		return {k: [{**r, "viewer_id": viewer_id(r)} for r in rows] for k, rows in found.items()}
+
 	@app.get("/api/inventory/{table}")
 	def inventory_rows(table: str, request: Request):
-		return inventory_call(inv.rows, table, dict(request.query_params))
+		return inventory_audit_call(inv.rows, table, dict(request.query_params))
 
 	@app.get("/api/inventory/{table}/facets")
 	def inventory_facets(table: str, request: Request):
-		return inventory_call(inv.facets, table, dict(request.query_params))
+		return inventory_audit_call(inv.facets, table, dict(request.query_params))
+
+	@app.get("/api/audit/enums")
+	def audit_enums():
+		return aud.enums()
+
+	@app.get("/api/audit/summary")
+	def audit_summary():
+		return aud.summary(audit_path)
+
+	@app.get("/api/audit/reviews")
+	def audit_reviews(traj: str):
+		return {"traj_id": traj, "reviews": aud.history(audit_path, traj)}
+
+	@app.post("/api/audit/reviews")
+	async def audit_append(request: Request):
+		try:
+			body = await request.json()
+		except ValueError:
+			return JSONResponse({"detail": "body must be JSON"}, status_code=422)
+		if not isinstance(body, dict):
+			return JSONResponse({"detail": "body must be an object"}, status_code=422)
+		if not code_version:
+			from digital_twin_armigo.inventory import store
+
+			code_version.append(store._git_commit())
+		try:
+			row = aud.append(
+				audit_path,
+				body.get("traj_id"),
+				body,
+				expected_latest_id=body.get("expected_latest_id"),
+				code_version=code_version[0],
+			)
+		except aud.ValidationError as exc:
+			return JSONResponse({"detail": str(exc)}, status_code=422)
+		except aud.Conflict as exc:
+			return JSONResponse({"detail": str(exc), "current": exc.current}, status_code=409)
+		return JSONResponse(row, status_code=201)
 
 	@app.get("/api/token")
 	def get_token():
@@ -399,11 +452,13 @@ def create_app(root: Path, *, session: RerunSession | None = None, inventory: Pa
 	return app
 
 
-def serve(root: Path, port: int = 8765, open_browser: bool = False, inventory: Path | None = None) -> None:
+def serve(
+	root: Path, port: int = 8765, open_browser: bool = False, inventory: Path | None = None, audit: Path | None = None
+) -> None:
 	import uvicorn
 
 	if open_browser:
 		import webbrowser
 
 		threading.Timer(1.0, lambda: webbrowser.open(f"http://127.0.0.1:{port}/")).start()
-	uvicorn.run(create_app(root, inventory=inventory), host="127.0.0.1", port=port, log_level="warning")
+	uvicorn.run(create_app(root, inventory=inventory, audit=audit), host="127.0.0.1", port=port, log_level="warning")

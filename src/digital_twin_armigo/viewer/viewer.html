@@ -128,7 +128,7 @@ iframe { width: 100%; height: 640px; border: 0; border-radius: 6px; background: 
 const $ = id => document.getElementById(id);
 // Left to right: set-up, the view decision, the three things it can pick, then recovery / evaluation.
 const POS = { prepare: [80, 200], choose_view: [290, 200], scan_wrist: [520, 70], present_bottom: [520, 200],
-  place: [520, 330], recover: [770, 200], evaluate: [770, 330] };
+  place: [520, 330], recover: [770, 200], evaluate: [770, 330], review: [290, 330] };
 const NW = 124, NH = 58;
 const PALETTE = ['#7cc7ff', '#ffb86b', '#9be37f', '#e59bff', '#ffe27a', '#ff8f8f', '#6fe0d6', '#c1c1ff', '#d6b58a'];
 let token = null, timer = null, current = null;

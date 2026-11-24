@@ -26,6 +26,8 @@ TRAJECTORY_COLUMNS = (
 	"split_hint", "catalog_role", "quality_status", "condition", "alias",
 	"rerun_of", "attempt", "rerun_code", "rerun_info", "superseded_by",
 	"written_at", "episode_sha256", "same_as", "tags",
+	"batch", "group", "camera_condition", "strategy", "detector", "layout_id", "case_id", "run_id", "parent_run",
+	"run_state",
 )  # fmt: skip
 SCENE_COLUMNS = (
 	"scene_id", "scene_kind", "engine", "dataset_id", "seed", "defective", "defect_kind", "defect_face",

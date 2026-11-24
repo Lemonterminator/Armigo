@@ -40,6 +40,14 @@ th.sortable { cursor: pointer; } th.sortable:hover { color: #e3ecee; }
 #detail dl { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 4px 12px; margin: 10px 0; font-size: 12.5px; }
 #detail dt { color: #a5bbc4; } #detail dd { margin: 0; word-break: break-all; }
 #err { color: #ffc49b; }
+#detail h3 { font-size: 13.5px; margin: 14px 0 6px; }
+#detail textarea, #detail input[type=text] { font: inherit; color: inherit; background: #1e2d35; border: 1px solid #3a535e; border-radius: 6px; padding: 5px 8px; width: 100%; box-sizing: border-box; }
+#audit form { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 6px 10px; align-items: center; font-size: 12.5px; }
+#audit form label { color: #a5bbc4; } #audit form .wide { grid-column: 1 / -1; display: flex; gap: 10px; align-items: center; }
+.review { border-left: 3px solid #3a535e; padding: 3px 10px; margin: 6px 0; font-size: 12.5px; }
+.review.latest { border-color: #4fae88; } .review .note { white-space: pre-wrap; color: #c9dce2; }
+.pair { display: flex; gap: 8px; align-items: center; font-size: 12.5px; margin: 3px 0; flex-wrap: wrap; }
+.pair a { cursor: pointer; }
 .yes { color: #6fd3a6; } .no { color: #6b7f88; } .bad { color: #ff9b9b; }
 </style>
 </head>
@@ -82,6 +90,8 @@ th.sortable { cursor: pointer; } th.sortable:hover { color: #e3ecee; }
 <aside id="detail" hidden aria-label="详情">
   <div style="display:flex;justify-content:space-between;align-items:center"><h2 id="detail-title" style="word-break:break-all"></h2><button id="detail-close" type="button">关闭</button></div>
   <div id="detail-links"></div>
+  <div id="paired" hidden><h3>配对记录</h3><div id="paired-body"></div></div>
+  <div id="audit" hidden><h3>人工审计</h3><div id="audit-body"></div></div>
   <dl id="detail-body"></dl>
 </aside>
 
@@ -95,6 +105,7 @@ let CATS = {};
 const COLS = {
   trajectories: [
     ['category', '类别', 'cat'], ['run_group', '批次'], ['engine', '引擎'], ['verdict', '结果', 'verdict'], ['verdict_final_cycle', '末轮', 'verdict'], ['failure_mode', '失败原因'],
+    ['case_id', '案例'], ['camera_condition', '相机'], ['strategy', '策略'], ['detector', '检测器'], ['run_state', '运行态', 'runstate'], ['audit_state', '审计', 'audit'], ['root_cause', '根因'],
     ['seed', '种子', 'num'], ['defective', '缺陷', 'defect'], ['sim_s', '仿真 s', 'num1'], ['wall_s', '墙钟 s', 'num1'],
     ['views', '视角', 'num'], ['rerun_of', '重跑', 'rerun'], ['has_motion', '3D', 'flag'], ['has_video', '视频', 'flag'], ['category_basis', '依据', 'basis'],
     ['split_hint', '划分'], ['written_at', '写入时间', 'time'], ['traj_id', 'id'],
@@ -108,7 +119,7 @@ const COLS = {
     ['item_unit', '单位'], ['root', '根'], ['digest', 'digest'], ['path', '路径'],
   ],
 };
-const FACET_LABELS = { category: '类别', engine: '引擎', verdict: '结果', verdict_final_cycle: '末轮结果', failure_mode: '失败原因', run_group: '批次', category_basis: '依据', root: '根目录', scene_kind: '种类', split: '划分', kind: '种类' };
+const FACET_LABELS = { category: '类别', engine: '引擎', verdict: '结果', verdict_final_cycle: '末轮结果', failure_mode: '失败原因', run_group: '批次', category_basis: '依据', root: '根目录', sensing: '感知', batch: '实验批', group: '实验组', camera_condition: '相机条件', strategy: '策略', detector: '检测器', run_state: '运行态', audit_state: '审计状态', root_cause: '根因', scene_kind: '种类', split: '划分', kind: '种类' };
 
 const FACET_FOLD = 10;  // chips shown per facet before "展开全部"
 const state = { tab: 'trajectories', expanded: new Set(), filters: {}, q: '', distinct: true, latest: false, is_rerun: '', has_motion: '', sort: '', offset: 0, limit: 100, total: 0 };
@@ -135,6 +146,8 @@ function cell(row, [key, , kind]) {
     case 'defect': td.textContent = row.defective ? `缺陷${row.defect_face != null ? ' 面' + row.defect_face : ''}` : '良品'; break;
     case 'rerun': td.append(h('span', { class: 'badge', style: 'background:#8de0b8' }, `重跑 r${row.attempt ?? ''}`)); break;
     case 'basis': td.textContent = BASIS[v] || v; break;
+    case 'runstate': td.append(h('span', { class: v === 'done' ? 'yes' : (v === 'running' ? '' : 'bad') }, v)); break;
+    case 'audit': td.append(h('span', { class: v === 'confirmed' ? 'yes' : (v === 'unreviewed' ? 'muted' : 'bad') }, v)); break;
     case 'time': td.textContent = fmtTime(v); break;
     case 'num1': td.textContent = Number(v).toFixed(1); break;
     default: td.textContent = typeof v === 'object' ? JSON.stringify(v) : v;
@@ -243,7 +256,7 @@ async function refresh() {
 }
 
 function showDetail(row, tr) {
-  document.querySelectorAll('tbody tr.sel').forEach(r => r.classList.remove('sel')); tr.classList.add('sel');
+  document.querySelectorAll('tbody tr.sel').forEach(r => r.classList.remove('sel')); if (tr) tr.classList.add('sel');
   $('detail').hidden = false;
   $('detail-title').textContent = row.traj_id || row.scene_id || row.dataset_id;
   const dl = $('detail-body'); dl.replaceChildren();
@@ -259,7 +272,101 @@ function showDetail(row, tr) {
       if (t.viewer_id) links.append(h('a', { href: '/#' + encodeURIComponent(t.viewer_id), target: '_blank' }, '在状态机页面打开 →'));
       else links.append(h('span', { class: 'muted' }, '该轨迹目录已不存在（或不是 agent 回合），无法回放'));
     }).catch(() => {});
-  }
+    loadPaired(row); loadAudit(row);
+  } else { $('paired').hidden = $('audit').hidden = true; }
+}
+
+// -- paired rows ---------------------------------------------------------------------------------------------------------
+function pairLine(label, r) {
+  const what = [r.engine, r.strategy && 'S' + r.strategy, r.camera_condition, r.detector, r.attempt > 1 ? 'a' + r.attempt : null].filter(Boolean).join(' · ');
+  return h('div', { class: 'pair' },
+    h('span', { class: 'muted' }, label), h('a', { title: r.traj_id, onclick: () => showDetail(r, null) }, `${r.case_id} · ${what}`),
+    r.verdict ? h('span', { class: r.verdict === 'SUCCESS' ? 'yes' : 'bad' }, r.verdict) : h('span', { class: 'muted' }, r.run_state || ''),
+    r.audit_state && r.audit_state !== 'unreviewed' ? h('span', { class: 'badge', style: 'background:#8fb0bd' }, r.audit_state) : null,
+    r.viewer_id ? h('a', { href: '/#' + encodeURIComponent(r.viewer_id), target: '_blank' }, '状态机 →') : null);
+}
+
+async function loadPaired(row) {
+  $('paired').hidden = true;
+  if (!row.batch) return;
+  try {
+    const p = await api('/api/inventory/paired?id=' + encodeURIComponent(row.traj_id));
+    if ($('detail-title').textContent !== row.traj_id) return;
+    const body = $('paired-body'); body.replaceChildren();
+    for (const r of p.layout) body.append(pairLine('同布局另一块', r));
+    for (const r of p.case) body.append(pairLine('同案例', r));
+    $('paired').hidden = !(p.layout.length || p.case.length);
+  } catch (e) { /* no pairs */ }
+}
+
+// -- human audit ---------------------------------------------------------------------------------------------------------
+let ENUMS = null;
+let TOKEN = null;
+async function token() { return TOKEN || (TOKEN = (await api('/api/token')).token); }
+function parseRefs(text) {
+  return text.split(/[\s,;]+/).filter(Boolean).map(t => {
+    const [branch, frame, camera] = t.split(':');
+    if (!/^\d+$/.test(branch || '') || !/^\d+$/.test(frame || '')) throw new Error(`帧引用 "${t}" 应为 分支:帧[:相机]`);
+    return camera ? { branch: +branch, frame: +frame, camera } : { branch: +branch, frame: +frame };
+  });
+}
+function refText(refs) { return (refs || []).map(r => [r.branch, r.frame, r.camera || r.view_id].filter(v => v !== undefined && v !== null && v !== '').join(':')).join(' '); }
+function select(name, values, selected, blank) {
+  const sel = h('select', { name }, blank ? h('option', { value: '' }, blank) : null, values.map(v => h('option', { value: v }, v)));
+  sel.value = selected || ''; return sel;
+}
+
+async function loadAudit(row) {
+  $('audit').hidden = true;
+  try {
+    ENUMS = ENUMS || await api('/api/audit/enums');
+    const data = await api('/api/audit/reviews?traj=' + encodeURIComponent(row.traj_id));
+    if ($('detail-title').textContent !== row.traj_id) return;
+    renderAudit(row, data.reviews); $('audit').hidden = false;
+  } catch (e) { /* audit unavailable */ }
+}
+
+function renderAudit(row, reviews, conflict) {
+  const body = $('audit-body'); body.replaceChildren();
+  const last = reviews[0] || null;
+  const err = h('div', { class: 'bad', role: 'alert' }, conflict || '');
+  const reviewer = h('input', { type: 'text', name: 'reviewer', value: localStorage.getItem('armigo.reviewer') || '', placeholder: '审核人' });
+  const stateSel = select('state', ENUMS.states, last ? last.state : 'confirmed');
+  const cause = select('root_cause', ENUMS.root_causes, last && last.root_cause, '（无）');
+  const outcome = select('physical_outcome', ENUMS.physical_outcomes, last && last.physical_outcome, '（无）');
+  const note = h('textarea', { name: 'note', rows: '3' });
+  const refs = h('input', { type: 'text', name: 'refs', placeholder: '0:312:wrist 1:40', value: refText(last && last.refs) });
+  const submit = h('button', { type: 'submit' }, last ? '追加新结论' : '提交结论');
+  const form = h('form', { onsubmit: async ev => {
+    ev.preventDefault(); err.textContent = '';
+    let parsed;
+    try { parsed = parseRefs(refs.value); } catch (e) { err.textContent = e.message; return; }
+    localStorage.setItem('armigo.reviewer', reviewer.value.trim());
+    submit.disabled = true;
+    try {
+      const r = await fetch('/api/audit/reviews', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Viewer-Token': await token() },
+        body: JSON.stringify({ traj_id: row.traj_id, expected_latest_id: last ? last.id : null, reviewer: reviewer.value, state: stateSel.value,
+          root_cause: cause.value || null, physical_outcome: outcome.value || null, note: note.value || null, refs: parsed }) });
+      const out = await r.json().catch(() => ({}));
+      if (r.status === 409) {
+        const cur = out.current;
+        renderAudit(row, cur ? [cur, ...reviews.filter(x => x.id !== cur.id)] : reviews, cur ? `冲突：${cur.reviewer} 刚提交了新结论（#${cur.id}），已刷新；确认后再提交。` : '冲突：该轨迹的审计记录已变化，请重新打开。');
+        return;
+      }
+      if (!r.ok) throw new Error(typeof out.detail === 'string' ? out.detail : r.statusText);
+      row.audit_state = out.state; row.root_cause = out.root_cause;
+      renderAudit(row, [out, ...reviews]); loadRows();
+    } catch (e) { err.textContent = '提交失败：' + e.message; submit.disabled = false; }
+  } },
+    h('label', {}, '审核人'), reviewer, h('label', {}, '状态'), stateSel, h('label', {}, '根因'), cause, h('label', {}, '物理结果'), outcome,
+    h('label', {}, '帧引用'), refs, h('label', {}, '备注'), note, h('div', { class: 'wide' }, submit));
+  body.append(form, err);
+  if (!reviews.length) body.append(h('div', { class: 'muted' }, '尚无人工结论（unreviewed）'));
+  reviews.forEach((r, i) => body.append(h('div', { class: 'review' + (i === 0 ? ' latest' : '') },
+    h('div', {}, h('b', {}, `#${r.id} ${r.state}`), r.root_cause ? ` · ${r.root_cause}` : '', r.physical_outcome ? ` · ${r.physical_outcome}` : '',
+      h('span', { class: 'muted' }, ` · ${r.reviewer} · ${r.created_at}${r.code_version ? ' · ' + r.code_version : ''}${i === 0 ? ' · 当前' : ''}`)),
+    r.refs && r.refs.length ? h('div', { class: 'muted' }, '帧：' + refText(r.refs)) : null,
+    r.note ? h('div', { class: 'note' }, r.note) : null)));
 }
 
 document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => { state.tab = b.dataset.tab; state.filters = {}; state.sort = ''; state.offset = 0; refresh(); }));

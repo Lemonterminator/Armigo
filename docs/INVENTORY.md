@@ -89,6 +89,32 @@ armigo-inventory scan                                 # 把新旧记录连起来
 
 **数据集** `datasets`：渲染数据集（`layouts.jsonl` + `metadata.jsonl`）和 LeRobot 导出（`meta/info.json`），带条目数、`dataset_manifest.json` 摘要（有则填，见 [MLOPS.md](MLOPS.md)）。
 
+## 实验数据 v2 与人工审计
+
+新实验回合在 `D:/Armigo_data_v2/runs/<batch>/<engine>/<group>/<case_id>[-a<attempt>]/`，扫描和查看：
+
+```powershell
+armigo-inventory scan --root v2=D:/Armigo_data_v2/runs --out D:/Armigo_data_v2/inventory
+armigo-view serve --root D:/Armigo_data_v2/runs --inventory D:/Armigo_data_v2/inventory --port 8767
+```
+
+**新增列**（读 `episode.json` 的 `provenance.experiment` 和 `run_status.json`，旧数据为空）：`batch`、`group`、`camera_condition`、`strategy`、`detector`、`layout_id`、`case_id`、`run_id`、`parent_run`、`run_state`；`sensing`、`detector_sha256`、`attempt` 沿用原有列（有实验字段时取实验值）。都能筛选、出 chips。`traj_id` 不变（`agent:<根>:<相对路径>`）。
+
+**没跑完的回合**：目录里有 `run_status.json`（`running` / `interrupted` / `infra_failed` / `planned`）但还没有 `episode.json` 时，也会成一行，`verdict` 为空，`run_state` 标出状态；批次、引擎、组、案例、尝试号从路径推出。
+
+**人工审计**存在单独的 SQLite，默认 `<清单目录>/../audit/reviews.sqlite`（`armigo-view serve --audit PATH` 可改），WAL 模式，**扫描永远不重建它**。表 `reviews` 只追加：`traj_id`、时间、审核人、`state`（unreviewed / confirmed / disputed / needs_rerun）、`root_cause`、`physical_outcome`、备注、帧引用 `refs`（`[{branch, frame, camera?, view_id?}]`）、`code_version`（服务端取 git HEAD）、`replaces`。一条轨迹的当前结论是它最新的一行。枚举取自 `experiments/contract.py`，服务端校验。
+
+| 接口 | 说明 |
+| --- | --- |
+| `GET /api/audit/reviews?traj=ID` | 该轨迹的审计历史，新的在前 |
+| `POST /api/audit/reviews` | 追加一条（需要 `/api/token` 的 `X-Viewer-Token`）；带 `expected_latest_id`（首次为 `null`），与当前最新 id 不符返回 409 和 `current`；枚举不合法返回 422 |
+| `GET /api/audit/enums` / `GET /api/audit/summary` | 可选值；按最新结论统计的 state、root_cause 计数 |
+| `GET /api/inventory/paired?id=ID` | 配对记录：`layout`（同批次、引擎、组、`layout_id` 的另一块）、`case`（同批次同 `case_id`，引擎 / 策略 / 相机条件 / 检测器不同） |
+
+轨迹列表多两个筛选 `audit_state`、`root_cause`：请求时联接审计库里的最新结论（没有记录算 `unreviewed`），不写进 `inventory.sqlite`，所以重扫不丢结论。
+
+**审核流程**：`/inventory` 里按批次、组、`audit_state=unreviewed` 筛出待审行 → 点行打开详情 → 在“配对记录”里对照另一块砖和另一引擎 / 策略的同案例，用“状态机 →”看回放 → 在“人工审计”里填审核人（记在浏览器 localStorage）、状态、根因、物理结果、备注，帧引用写成 `分支:帧[:相机]`（空格分隔，如 `0:312:wrist 1:40`）→ 提交。别人先提交过会提示冲突并刷新，确认后再追加。要改结论就再追加一条，旧的保留。
+
 ## 限制
 
 - 扫描认的是 `armigo-agent-episode/v1` 的 `episode.json`、`catalog.sqlite` 的 `episodes`、渲染数据集和 LeRobot 目录。其它零散结果（`results/stage1`、`top-camera-reach` 等探索脚本的 json）不算轨迹，没有收入。
@@ -99,7 +125,7 @@ armigo-inventory scan                                 # 把新旧记录连起来
 ## 验证
 
 ```powershell
-uv run pytest tests/test_inventory.py tests/test_inventory_view.py tests/test_inventory_rerun.py -q
+uv run pytest tests/test_inventory.py tests/test_inventory_view.py tests/test_inventory_rerun.py tests/test_audit.py -q
 ```
 
 覆盖分类规则（含旧数据推断与显式冻结）、三个适配器、场景聚合、去重、覆盖规则、CSV、CLI、扫描不改被扫描文件；重跑的计划与跳过原因、`lineage.json` 链接、最新一次筛选、`--redo` 次数。
