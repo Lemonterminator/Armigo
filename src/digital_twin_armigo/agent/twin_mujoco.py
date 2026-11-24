@@ -509,7 +509,7 @@ def apply_variant(name, params, relocate):
 	)
 
 
-def sweep(expert, path, peak_speed, min_s, phase="approach", pause_s=None):
+def sweep(expert, path, peak_speed, min_s, phase="approach", pause_s=None, on_progress=None):
 	"""Targets that move the arm from ``expert.last`` through the joint vectors of ``path`` without stopping at them:
 	min-jerk timing along the piecewise-linear joint path (arc length measured as the largest joint change, so no
 	joint exceeds ``peak_speed``), split into chunks of at most ``max_move_chunk_s`` with the expert's chunk pause
@@ -536,9 +536,14 @@ def sweep(expert, path, peak_speed, min_s, phase="approach", pause_s=None):
 		a, b = total * c / chunks, total * (c + 1) / chunks
 		n = max(2, expert._frames(secs / chunks) + 1)
 		for s in _min_jerk(n)[1:]:
-			yield at(a + s * (b - a)), phase
+			cur = a + s * (b - a)
+			if on_progress is not None:
+				on_progress(cur / total if total > 0 else 1.0)
+			yield at(cur), phase
 		if c < chunks - 1:
 			for _ in range(expert._frames(p.chunk_pause_s if pause_s is None else pause_s)):
+				if on_progress is not None:
+					on_progress(b / total if total > 0 else 1.0)
 				yield at(b), phase
 
 
@@ -680,6 +685,7 @@ class TwinMujoco:
 		motion="open",
 		belief_cameras="actual",
 		evidence="hold",
+		detector_latency_s=0.15,
 	):
 		if sensing not in SENSING:
 			raise ValueError(f"sensing must be one of {SENSING}")
@@ -689,11 +695,12 @@ class TwinMujoco:
 			raise ValueError(f"motion must be one of {tuple(VARIANTS)}")
 		if belief_cameras not in ("actual", "estimated"):
 			raise ValueError(f"belief_cameras must be 'actual' or 'estimated', got {belief_cameras!r}")
-		if evidence not in ("hold", "img"):
-			raise ValueError(f"evidence must be 'hold' or 'img', got {evidence!r}")
+		if evidence not in ("hold", "img", "dense-10", "dense-20"):
+			raise ValueError(f"evidence must be one of ('hold', 'img', 'dense-10', 'dense-20'), got {evidence!r}")
 		self.motion = motion
 		self.evidence = evidence
 		self.belief_cameras = "estimated" if evidence != "hold" else belief_cameras
+		self.detector_latency_s = float(detector_latency_s)
 		self.fuse_cfg = FuseCfg()
 		raw_oracle = oracle if oracle else getattr(layout, "oracle", ())
 		if isinstance(raw_oracle, str):
@@ -1603,7 +1610,7 @@ class TwinMujoco:
 		)
 		return action
 
-	def _capture(self, camera):
+	def _capture(self, camera, *, in_motion: bool | None = None, decided_after_frames: int | None = None):
 		cell = self.cell
 		rgb = cell.rgb(camera)
 		crop_extra: dict = {}
@@ -1680,6 +1687,8 @@ class TwinMujoco:
 			"crop_bbox": bbox,
 			"q": [round(float(v), 5) for v in cell.joints()],
 			**crop_extra,
+			**({"in_motion": bool(in_motion)} if in_motion is not None else {}),
+			**({"decided_after_frames": int(decided_after_frames)} if decided_after_frames is not None else {}),
 		}
 		if score is not None:
 			self.scored_count += 1
@@ -1783,6 +1792,113 @@ class TwinMujoco:
 		self._carry_epoch_start = self.ep.n_frames
 		return None
 
+	def _wrist_dense(self, previous, views, steps):
+		"""C5 dense in-motion scan: sweep once without mid-stops, sample every ``spacing_deg`` with 0.08 m/s TCP gate."""
+		ex, cell = self.expert, self.cell
+		spacing_deg = 10.0 if self.evidence == "dense-10" else 20.0
+		spacing_rad = math.radians(spacing_deg)
+		delay_frames = max(0, round(self.detector_latency_s * FPS))
+
+		full_path: list[np.ndarray] = []
+		pending: list[np.ndarray] = []
+		cursor = ex.last.copy()
+		for candidate, via in steps:
+			seg = [*pending, *via, candidate.q]
+			if not any(candidate.faces_px[f] >= WRIST_MIN_PX for f in range(5)):
+				pending = seg if via else []
+				continue
+			pending = []
+			if not all(self._straight_clear(a, b) for a, b in itertools.pairwise([cursor, *seg])):
+				continue
+			full_path.extend(seg)
+			cursor = seg[-1]
+		if not full_path:
+			return None
+
+		pts = [ex.last.copy(), *full_path]
+		seg_arcs = [
+			float(np.max(np.abs(b[:5] - a[:5])) + 1e-6 * np.sum(np.abs(b - a))) for a, b in itertools.pairwise(pts)
+		]
+		total_arc = float(sum(seg_arcs))
+		progress = [0.0]
+
+		def on_prog(frac: float) -> None:
+			progress[0] = float(frac)
+
+		due: list[tuple[int, dict]] = []
+		next_arc = spacing_rad
+		defer = 0
+		prev_tcp = cell.tcp_pos()
+		stop_early = False
+		step_i = 0
+
+		def _flush_due(cur_step: int) -> bool:
+			remaining = []
+			for ready_step, v in due:
+				if cur_step >= ready_step:
+					views.append(v)
+				else:
+					remaining.append((ready_step, v))
+			due[:] = remaining
+			return self._decide([*previous, *views])[0] == "defective"
+
+		def _run_gen(gen) -> str | None:
+			nonlocal next_arc, defer, prev_tcp, stop_early, step_i
+			ex._gen = gen
+			ex.done = False
+			try:
+				while self.total_frames < MAX_TOTAL_FRAMES:
+					if self.on_frame is not None:
+						self.on_frame(self)
+					obs = self._observe()
+					target, phase = ex.act(obs)
+					if ex.done:
+						return None
+					if err := self._apply_target(obs, target, phase):
+						return err
+					step_i += 1
+					cur_tcp = cell.tcp_pos()
+					tcp_speed = float(np.linalg.norm(cur_tcp - prev_tcp) * FPS)
+					prev_tcp = cur_tcp
+					cur_arc = progress[0] * total_arc
+					if cur_arc >= next_arc or defer > 0:
+						if tcp_speed <= 0.08 or defer >= 5:
+							if self._views_left() - len(due) > 0:
+								v = self._capture("wrist_cam", in_motion=True, decided_after_frames=delay_frames)
+								due.append((step_i + delay_frames, v))
+							next_arc = max(next_arc + spacing_rad, cur_arc + spacing_rad)
+							defer = 0
+						else:
+							defer += 1
+					if _flush_due(step_i):
+						stop_early = True
+						return None
+				return "ACTION_BUDGET_EXHAUSTED"
+			finally:
+				gen.close()
+
+		sweep_gen = sweep(ex, full_path, self.scan_peak_speed, ex.rp.scan_move_s, pause_s=0.0, on_progress=on_prog)
+		if err := _run_gen(sweep_gen):
+			return err
+		if not stop_early and self._decide([*previous, *views])[0] != "defective":
+			if err := self._execute(ex._hold_servo(full_path[-1], ex.rp.scan_hold_s, "approach")):
+				return err
+			_flush_due(step_i + delay_frames + 1)
+			if self._views_left() > 0 and self._decide([*previous, *views])[0] != "defective":
+				views.append(self._capture("wrist_cam", in_motion=False, decided_after_frames=0))
+		if not stop_early:
+			for _, v in due:
+				views.append(v)
+		due.clear()
+		if (
+			self.strategy != "A"
+			and views
+			and _alarm(views[-1])
+			and (err := self._review(previous, views, "wrist_alarm"))
+		):
+			return err
+		return None
+
 	def _wrist(self, previous, views):
 		self.wrist_count += 1
 		if self.held is not None:
@@ -1797,6 +1913,13 @@ class TwinMujoco:
 		attempt = min(self.wrist_count - 1 + self.recoveries, 2)
 		steps, mode, extra = self._scan_plan(previous, attempt)
 		self.event("scan_plan", mode=mode, candidates=len(steps), **extra)
+		if self.evidence.startswith("dense-"):
+			if error := self._wrist_dense(previous, views, steps):
+				return error
+			if error := self._execute(ex._go_ready()):
+				return error
+			self._save([*previous, *views])
+			return None
 		pending: list[np.ndarray] = []  # ring poses of skipped views, still swept through to stay on the ring
 		for candidate, via in steps:
 			path = [*pending, *via, candidate.q]

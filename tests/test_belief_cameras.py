@@ -97,3 +97,46 @@ def test_default_belief_cameras_and_hold_evidence_match_via_compare_runs_and_img
 	v_img, _ = _run_top("img", evidence="img")
 	assert v_img["crop_source"] in ("image", "projection")
 	assert "crop_shift_px" in v_img
+
+
+def test_dense_evidence_captures_in_motion_with_delayed_decision(tmp_path):
+	from digital_twin_armigo.constants import FPS
+
+	twin = _twin(tmp_path, "dense", evidence="dense-20")
+	try:
+		twin.prepare()
+		views: list[dict] = []
+		assert twin._wrist([], views) is None
+		v_events = [e for e in twin.record.events if e["kind"] == "view"]
+		in_mot = [e["observation"] for e in v_events if e["observation"].get("in_motion")]
+		assert len(in_mot) >= 1
+		want_delay = round(0.15 * FPS)
+		assert all(obs["decided_after_frames"] == want_delay for obs in in_mot)
+	finally:
+		twin.close()
+
+
+def test_hold_evidence_wrist_omits_motion_fields_and_matches_via_compare_runs(tmp_path, monkeypatch):
+	from digital_twin_armigo.agent import twin_mujoco as tm
+
+	monkeypatch.setattr(tm.time, "perf_counter", lambda: 0.0)
+
+	def _run_wrist(name: str, **opts):
+		twin = _twin(tmp_path, name, **opts)
+		try:
+			twin.prepare()
+			views: list[dict] = []
+			assert twin._wrist([], views) is None
+			res = twin.evaluate("normal", views, [])
+			twin.record.finish(res, {})
+			return views, tmp_path / name
+		finally:
+			twin.record.close()
+			twin.close()
+
+	views_a, dir_a = _run_wrist("hold_default")
+	views_b, dir_b = _run_wrist("hold_explicit", evidence="hold")
+	assert views_a and all("in_motion" not in v and "decided_after_frames" not in v for v in views_a)
+	assert len(views_a) == len(views_b)
+	cmp_out = compare_runs(dir_a, dir_b)
+	assert cmp_out["identical_discrete"] and cmp_out["score_deltas"] == [] and cmp_out["verdict_equal"]
