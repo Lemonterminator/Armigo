@@ -40,8 +40,9 @@ if str(ROOT / "src") not in sys.path:
 
 import numpy as np
 
+from digital_twin_armigo.agent.act_grasp import canonical_pick
+
 TRAIN_SEED0 = 3_000_001
-SEGMENTS = ("approach", "grasp", "lift")
 
 
 def wrap(a: float) -> float:
@@ -53,26 +54,15 @@ def canonical_index(cands: list[dict], wrist_roll: float) -> int:
 	return int(np.argmin([abs(c["roll"] - wrist_roll) for c in cands]))
 
 
-def canonical_pick(all_cands: list[dict], wrist_roll: float, min_clear: float) -> tuple[dict | None, bool]:
-	"""Nearest symmetric solution over every geometric candidate (clearance ignored, so the label depends only on
-	the brick yaw and the wrist roll); when that one is blocked, the nearest clear one. Returns (candidate,
-	fell_back)."""
-	geo = [c for c in all_cands if c["gap_ok"]]
-	if not geo:
-		return None, False
-	c = geo[canonical_index(geo, wrist_roll)]
-	if c["clearance_m"] >= min_clear:
-		return c, False
-	clear = [c for c in geo if c["clearance_m"] >= min_clear]
-	return (clear[canonical_index(clear, wrist_roll)], True) if clear else (None, True)
-
-
 def visible_yaw(brick_quat_xyzw: np.ndarray, square: bool) -> float:
 	"""Brick yaw modulo its visual symmetry (pi for a rectangle, pi/2 for a square), in degrees."""
 	x, y, z, w = brick_quat_xyzw
 	yaw = math.atan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))
 	sym = math.pi / 2 if square else math.pi
 	return math.degrees(yaw % sym)
+
+
+_OPEN: list = []  # cases built by the current run_case call; their GL contexts are released when it returns
 
 
 class Case:
@@ -99,6 +89,7 @@ class Case:
 			render_enabled=video,
 		)
 		self.qpos0 = self.cell.data.qpos.copy()
+		_OPEN.append(self)
 		self.lo, self.hi = self.cell.jnt_range[:, 0].copy(), self.cell.jnt_range[:, 1].copy()
 
 	def episode(self, q_start: np.ndarray, non_ideal=None, dxy=(0.0, 0.0), dyaw_deg: float = 0.0):
@@ -199,6 +190,7 @@ def probe(case: Case, cand: dict) -> tuple[bool, str]:
 
 
 def sample_home(rng: np.random.Generator, case: Case) -> np.ndarray:
+	"""A tucked pose: ``INITIAL_Q`` or ``ready_q`` plus noise (used by the label-spread test and ``--start tucked``)."""
 	from digital_twin_armigo.agent.twin_mujoco import INITIAL_Q
 
 	base = INITIAL_Q[:5] if rng.uniform() < 0.5 else np.array(case.p.ready_q)
@@ -208,7 +200,52 @@ def sample_home(rng: np.random.Generator, case: Case) -> np.ndarray:
 	return np.array([*q, case.p.open_g])
 
 
-def run_case(seed: int, out: Path | None, video: bool, latency: int, backlash_deg: float, roll_mode: str) -> dict:
+def sample_ready(rng: np.random.Generator, case: Case) -> np.ndarray:
+	"""The ready pose (where a grasp segment starts after ``prepare`` / ``return_ready``) plus small noise."""
+	q = np.array(case.p.ready_q) + rng.normal(0.0, [0.04, 0.04, 0.04, 0.04, 0.15])
+	q = np.clip(q, case.lo[:5] + 0.05, case.hi[:5] - 0.05)
+	return np.array([*q, case.p.open_g])
+
+
+# Near-brick starts: the hover pose an agent reaches from its *believed* brick pose after a top view. Believed
+# position errors of the drift rig are 5-12 mm (top camera height, wrist mount); yaw a few degrees.
+NEAR_XY_M = 0.015
+NEAR_YAW_DEG = 4.0
+NEAR_Z_M = (0.035, 0.07)
+ROLL_PARAM_NOISE_DEG = 3.0  # the instruction's roll comes from the believed yaw at deployment
+
+
+def near_start(rng: np.random.Generator, case: Case, ex, cand: dict) -> tuple[np.ndarray, dict]:
+	"""Hover over the brick with a belief-sized position / yaw error, jaws open, at about the candidate's roll."""
+	r = NEAR_XY_M * math.sqrt(rng.uniform())
+	th = rng.uniform(0, 2 * math.pi)
+	dyaw = math.radians(rng.uniform(-NEAR_YAW_DEG, NEAR_YAW_DEG))
+	z = rng.uniform(*NEAR_Z_M)
+	tgt = np.array([cand["target"][0] + r * math.cos(th), cand["target"][1] + r * math.sin(th), z])
+	roll = float(np.clip(cand["roll"] + dyaw, case.lo[4], case.hi[4]))
+	q = ex._ik(tgt, cand["q"], roll)
+	q[5] = cand["open_g"]
+	return q, {"offset_mm": 1000 * r, "dyaw_deg": math.degrees(dyaw), "z_m": z}
+
+
+def run_case(*args, **kwargs) -> dict:
+	"""One case (see :func:`_run_case`); releases its renderer afterwards (pool workers run many cases)."""
+	try:
+		return _run_case(*args, **kwargs)
+	finally:
+		while _OPEN:
+			_OPEN.pop().cell.close()
+
+
+def _run_case(
+	seed: int,
+	out: Path,
+	video: bool,
+	latency: int,
+	backlash_deg: float,
+	roll_mode: str,
+	start: str = "mix",
+) -> dict:
 	from digital_twin_armigo.constants import FPS
 	from digital_twin_armigo.physics import NonIdealityCfg, load_physics_spec
 
@@ -220,7 +257,8 @@ def run_case(seed: int, out: Path | None, video: bool, latency: int, backlash_de
 		return {**rec, "ok": False, "reason": f"case_build:{type(e).__name__}"}
 	p = case.p
 	rng = np.random.default_rng([seed, 0xAC7])
-	q_home = sample_home(rng, case)
+	mode = start if start != "mix" else ("ready" if rng.uniform() < 0.5 else "near")
+	q_home = sample_home(rng, case) if mode == "tucked" else sample_ready(rng, case)
 	ep = case.episode(q_home)
 	ex = case.expert(ep)
 	all_cands = ex.grasp_candidates()
@@ -228,6 +266,7 @@ def run_case(seed: int, out: Path | None, video: bool, latency: int, backlash_de
 	square = abs(case.layout.brick_size[0] - case.layout.brick_size[1]) < 1e-6
 	bq = case.cell.brick_quat_xyzw()
 	rec.update(
+		start=mode,
 		brick_size=[float(v) for v in case.layout.brick_size],
 		square=square,
 		visible_yaw_deg=visible_yaw(bq, square),
@@ -253,7 +292,7 @@ def run_case(seed: int, out: Path | None, video: bool, latency: int, backlash_de
 	if not ok:
 		return {**rec, "ok": False, "reason": f"probe_{why}", "secs": time.perf_counter() - t0}
 
-	# reverse plan: grasp hover (open) -> tucked home, checked collision-free
+	# reverse plan: pre-grasp -> grasp hover (open) -> start pose, checked collision-free
 	ep = case.episode(q_home)
 	ex = case.expert(ep)
 	q_pre = ex._ik(cand["target"] + np.array([0.0, 0.0, p.pregrasp_dz_m]), cand["q"], cand["roll"])
@@ -261,8 +300,11 @@ def run_case(seed: int, out: Path | None, video: bool, latency: int, backlash_de
 	hover = cand["target"] + np.array([0.0, 0.0, p.hover_z_m - cand["info"]["grasp_z_m"]])
 	q_hov = ex._ik(hover, q_pre, cand["roll"])
 	q_hov[5] = cand["open_g"]
+	if mode == "near":
+		q_home, near = near_start(rng, case, ex, cand)
+		rec.update(near=near, home_roll=float(q_home[4]))
 	back = min_jerk_path(q_pre, q_hov, p.descend_s, FPS)
-	back += min_jerk_path(q_hov, q_home, move_secs(q_hov, q_home, 1.2, 1.2), FPS)
+	back += min_jerk_path(q_hov, q_home, move_secs(q_hov, q_home, 0.6 if mode == "near" else 1.2, 1.2), FPS)
 	clear = case.path_clearance(ex, back[::3])
 	rec["path_clearance_m"] = clear
 	if clear < 0.002:
@@ -277,20 +319,11 @@ def run_case(seed: int, out: Path | None, video: bool, latency: int, backlash_de
 		velocity_limit_rad_s=spec.arm_actuator.velocity_limit,
 		encoder_ticks=4096,
 	)
+	roll_param = float(cand["roll"]) + math.radians(rng.normal(0.0, ROLL_PARAM_NOISE_DEG))
+	path = out / "episodes" / f"ep_{seed}"
 	ep = case.episode(q_home, cfg)
 	z0 = float(case.cell.brick_pos()[2])
-	rows = {"state": [], "action": [], "gripper_cmd": [], "phase": [], "segment": []}
-	frames: dict[str, list[np.ndarray]] = {"wrist": [], "top_rgb": []}
-	for q, seg, phase in plan:
-		rows["state"].append(case.cell.joints())
-		rows["gripper_cmd"].append(float(ep.last("q_cmd")[5]) if ep.n_frames else float(q_home[5]))
-		if video:
-			frames["wrist"].append(case.cell.rgb("wrist_cam"))
-			frames["top_rgb"].append(case.cell.rgb("top"))
-		ep.step(q)
-		rows["action"].append(np.asarray(q, dtype=np.float64))
-		rows["phase"].append(phase)
-		rows["segment"].append(seg)
+	trace, actions = record_episode(case, ep, plan, path, video, roll_param)
 	ok, why = clamped_and_lifted(ep, z0, p)
 	tel = ep.telemetry()
 	pre_i = 6 + len(fwd) - 1
@@ -298,41 +331,101 @@ def run_case(seed: int, out: Path | None, video: bool, latency: int, backlash_de
 		ok=ok,
 		reason="ok" if ok else f"replay_{why}",
 		n_rows=len(plan),
+		roll_param_deg=math.degrees(roll_param),
 		pregrasp_tcp_err_mm=float(1000 * np.linalg.norm(tel["tcp_pos"][pre_i] - ex.kin.site_pose(q_pre)[0])),
-		cmd_state_lag_rad=float(np.mean(np.abs(np.array(rows["action"])[:, :5] - tel["qpos"][:, :5]))),
+		cmd_state_lag_rad=float(np.mean(np.abs(np.array(actions)[:, :5] - tel["qpos"][:, :5]))),
 		secs=time.perf_counter() - t0,
 	)
-	if ok and out is not None:
-		write_episode(out / "episodes" / f"ep_{seed}", rows, frames, rec, video)
+	finish_episode(trace, path, ok, rec)
 	return rec
 
 
-def write_episode(path: Path, rows: dict, frames: dict, rec: dict, video: bool) -> None:
-	b = path / "branch-0"
-	b.mkdir(parents=True, exist_ok=True)
-	state = np.array(rows["state"])
-	action = np.array(rows["action"])
-	np.savez_compressed(
-		b / "actions.npz",
-		state=state.astype("float32"),
-		action=action.astype("float32"),
-		gripper_cmd=np.array(rows["gripper_cmd"], dtype="float32"),
-		phase=np.array(rows["phase"]),
-		segment=np.array(rows["segment"], dtype=np.int32),
-		state_f64=state,
-		action_f64=action,
-	)
-	if video:
-		from digital_twin_armigo.agent.twin_record import Video
+def record_episode(case: Case, ep, plan: list, path: Path, video: bool, roll_param: float):
+	"""Execute ``plan`` and record it as an ``armigo-agent-episode/v1`` trace (agent/twin_record.EpisodeTrace) with
+	a ``grasp`` segment (instruction roll ``roll_param``) and a ``lift`` segment, as the expert tracer writes them.
+	Returns (trace, commanded targets)."""
+	import shutil
 
-		for name, imgs in frames.items():
-			v = Video(b / f"{name}.mkv", imgs[0].shape, lossless=True)
-			for im in imgs:
-				v.put(im)
-			v.close()
-	meta = {k: v for k, v in rec.items() if k != "secs"}
-	meta.update(schema="armigo-reverse-grasp/v0", segments=list(SEGMENTS), cameras=list(frames) if video else [])
-	(path / "meta.json").write_text(json.dumps(meta, indent=2), encoding="utf-8")
+	from digital_twin_armigo.agent.student_rollout import roll_deg
+	from digital_twin_armigo.agent.twin_record import EpisodeTrace, Segment
+	from digital_twin_armigo.mujoco_cell.episode import observe
+
+	if path.exists():
+		shutil.rmtree(path)
+	path.parent.mkdir(parents=True, exist_ok=True)
+	trace = EpisodeTrace(path, video=video)
+	v3 = getattr(case.layout, "_scene_v3", None)
+	variant = int(getattr(v3, "variant", 0) or 0)
+	trace.start(case.cell)
+	trace.initial(case.cell, ep.cell.joints())
+	segs = [Segment("grasp", {"roll_deg": roll_deg(roll_param)}, variant=variant), Segment("lift", {}, variant=variant)]
+
+	def begin(sid: int, frame: int) -> None:
+		s = segs[sid]
+		extra = {"variant": s.variant} if s.variant else {}
+		trace.event(
+			"segment",
+			s.kind,
+			0,
+			frame,
+			id=sid,
+			segment_kind=s.kind,
+			instruction=s.instruction,
+			params=s.params,
+			**extra,
+		)
+		trace.segment = sid
+
+	def end(sid: int, frame: int, start: int) -> None:
+		trace.event(
+			"segment_end",
+			segs[sid].kind,
+			0,
+			frame,
+			id=sid,
+			segment_kind=segs[sid].kind,
+			frames=frame - start,
+			reason="done",
+		)
+
+	actions, sid, start = [], -1, 0
+	for i, (q, seg, phase) in enumerate(plan):
+		want = 0 if seg < 2 else 1
+		if want != sid:
+			if sid >= 0:
+				end(sid, i, start)
+			sid, start = want, i
+			begin(sid, i)
+		obs = observe(case.cell, ep)
+		target = np.asarray(q, dtype=np.float64)
+		trace.command(
+			obs["q"], target, phase, gripper_cmd=float(obs["gripper_cmd"]), effort_frac=float(obs["effort_frac"])
+		)
+		ep.step(target)
+		trace.step(case.cell, segs[sid].kind)
+		actions.append(target)
+	end(sid, len(plan), start)
+	trace.segment = -1
+	return trace, actions
+
+
+def finish_episode(trace, path: Path, ok: bool, rec: dict) -> None:
+	"""Write the manifest; keep the episode only when the grasp clamped and lifted."""
+	import shutil
+
+	result = {
+		"verdict": "SUCCESS" if ok else "FAILED",
+		"student_eligible": bool(ok),
+		"rewinds": 0,
+		"scene": "v3",
+		"reverse_grasp": {k: v for k, v in rec.items() if k != "secs"},
+	}
+	seed = rec["seed"]
+	case_id = [seed, bool(seed % 2), seed % 6, {"scene": "v3", "split": "train", "cameras": "drift"}]
+	provenance = {"student": False, "sensing": "truth", "case": case_id, "scene": "v3", "source": "reverse_grasp_demos"}
+	trace.finish(result, provenance)
+	if not ok:
+		shutil.rmtree(path, ignore_errors=True)
 
 
 def summarize(recs: list[dict]) -> dict:
@@ -404,6 +497,7 @@ def main(argv: list[str] | None = None) -> int:
 	ap.add_argument("--latency", type=int, default=2, help="command latency (frames)")
 	ap.add_argument("--backlash-deg", type=float, default=0.5)
 	ap.add_argument("--roll", choices=("canonical", "planner"), default="canonical")
+	ap.add_argument("--start", choices=("mix", "ready", "near", "tucked"), default="mix")
 	ap.add_argument("--no-video", action="store_true")
 	ap.add_argument("--uniqueness", action="store_true", help="only the label-spread test (no physics replay)")
 	a = ap.parse_args(argv)
@@ -423,13 +517,20 @@ def main(argv: list[str] | None = None) -> int:
 		(a.out / "uniqueness.json").write_text(json.dumps({"summary": summ, "cases": res}, indent=2), encoding="utf-8")
 		print(json.dumps(summ, indent=2))
 		return 0
-	args = (a.out, not a.no_video, a.latency, a.backlash_deg, a.roll)
-	recs = []
-	with (a.out / "results.jsonl").open("w", encoding="utf-8") as fh:
+	args = (a.out, not a.no_video, a.latency, a.backlash_deg, a.roll, a.start)
+	res_path = a.out / "results.jsonl"
+	done = {}
+	if res_path.exists():  # resume: keep finished cases
+		for line in res_path.read_text(encoding="utf-8").splitlines():
+			r = json.loads(line)
+			done[r["seed"]] = r
+	recs = list(done.values())
+	seeds = [s for s in seeds if s not in done]
+	with res_path.open("a", encoding="utf-8") as fh:
 		if a.workers <= 1:
 			it = (run_case(s, *args) for s in seeds)
 		else:
-			pool = ProcessPoolExecutor(a.workers)
+			pool = ProcessPoolExecutor(a.workers, max_tasks_per_child=10)
 			it = (f.result() for f in as_completed([pool.submit(run_case, s, *args) for s in seeds]))
 		for r in it:
 			recs.append(r)
@@ -437,7 +538,13 @@ def main(argv: list[str] | None = None) -> int:
 			fh.flush()
 			print(r["seed"], r["reason"], flush=True)
 	summ = summarize(recs)
-	summ["config"] = {"latency": a.latency, "backlash_deg": a.backlash_deg, "roll": a.roll, "video": not a.no_video}
+	summ["config"] = {
+		"latency": a.latency,
+		"backlash_deg": a.backlash_deg,
+		"roll": a.roll,
+		"start": a.start,
+		"video": not a.no_video,
+	}
 	(a.out / "summary.json").write_text(json.dumps(summ, indent=2), encoding="utf-8")
 	print(json.dumps(summ, indent=2))
 	return 0

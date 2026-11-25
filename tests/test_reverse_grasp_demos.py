@@ -35,8 +35,15 @@ def test_canonical_pick_prefers_nearest_clear_roll():
 def test_one_case_writes_episode(tmp_path):
 	pytest.importorskip("mujoco")
 	mod = _load()
-	rec = mod.run_case(mod.TRAIN_SEED0, tmp_path, False, 2, 0.5, "canonical")
+	rec = mod.run_case(mod.TRAIN_SEED0, tmp_path, False, 2, 0.5, "canonical", "near")
 	assert rec["ok"], rec
-	rows = np.load(tmp_path / "episodes" / f"ep_{mod.TRAIN_SEED0}" / "branch-0" / "actions.npz")
+	ep = tmp_path / "episodes" / f"ep_{mod.TRAIN_SEED0}"
+	rows = np.load(ep / "branch-0" / "actions.npz")
 	assert rows["action"].shape == rows["state"].shape == (rec["n_rows"], 6)
-	assert set(rows["segment"].tolist()) == {0, 1, 2}
+	assert set(rows["segment"].tolist()) == {0, 1}  # grasp, lift
+
+	from digital_twin_armigo.agent.twin_record import segment_labels
+
+	labels = segment_labels(ep)
+	assert [s["kind"] for s in labels["segments"]] == ["grasp", "lift"]
+	assert "wrist roll" in labels["segments"][0]["instruction"]

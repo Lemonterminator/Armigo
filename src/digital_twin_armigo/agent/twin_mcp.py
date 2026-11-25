@@ -763,6 +763,11 @@ def main():
 	step.add_argument("--host", default="127.0.0.1")
 	step.add_argument("--port", type=int, default=8766)
 	step.add_argument("--scripted", action="store_true", help="Run the scripted client over every case instead.")
+	step.add_argument(
+		"--act-server-url",
+		default=None,
+		help="URL of a vla/server.py serving an ACT grasp checkpoint: adds the act_grasp tool (agent/act_grasp.py)",
+	)
 	dashboard = sub.add_parser("dashboard")
 	dashboard.add_argument("--out", type=Path, default=ROOT / "data/catalog/agent")
 	dashboard.add_argument("--port", type=int, default=8095)
