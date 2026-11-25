@@ -319,3 +319,93 @@ Verbatim `report` output (`# Silver Pair Report (6f0ee23e9cc7)`):
 | Trainable gold isolation invariants & deterministic manifest | `pytest tests/test_run_pair.py tests/test_gov_*.py -v` + full `pytest -q -rs` | `24 passed` in governance suite + `1063 passed` overall: trainable products reject `test` split, quarantined, `oracle`, and `realistic_only`; rebuilds produce byte-identical `manifest.jsonl`; `failure_bank` rejects `test` split |
 | Preregistration docs committed before matrix/eval code | `git -C E:/digital_twin_armigo-obs log --oneline -- docs/experiments/` | `46c50be` (`obs C7a`) precedes `092bca7` (`obs C7`); `3404d9d` (`obs U4a`) precedes `0a1660f` (`obs U4b`) |
 | No staging `extend_path` shims & clean formal output scope | `Select-String src/digital_twin_armigo/**/*.py -Pattern extend_path`; `Test-Path E:/Armigo_data_v3/governance` | `extend_path_matches=0`; `misplaced_gov_exists=False`; formal artifact solely `E:/Armigo_data_v3/perception/brickseg-v1` |
+
+
+## Part WP（两轮独立审核整合修复 WP1–WP9）
+
+审核来源：`feat/smolvla-static-v3@16d17e7` 的独立审核、`feat/failure-observability@1b6addb` 的独立审核和整合改进计划（`C:/scratch/obs-dev/independent-audit-1b6addb/`）。WP1–WP6 由 Antigravity 实施并提交；它的额度用尽后，WP7–WP9 由 Claude 接手完成。WP9 的代码由一个 DeepSeek 子代理编写，Claude 复核后提交。
+
+### 每单提交
+
+| 工作单 | 提交 | 改动文件 | 新增测试 | 红灯核对 |
+|---|---|---|---:|---|
+| WP1 保护来源视频与人工裁定历史 | `d99bb2a` | 7 | 5 | Antigravity 记录 |
+| WP2 统一划分、冻结与封存守卫 | `da27de0` | 7 | 4 | Antigravity 记录 |
+| WP3 配对覆盖与逐批分母 | `67ac74c` | 5 | 4 | Antigravity 记录 |
+| WP4 预检、学生裁剪可见性、MCP 真值泄漏 | `1192a77` | 9 | 10 | Antigravity 记录 |
+| WP5 学生输入契约、K 碗探针、导出/视频 | `f674a9e` | 11 | 6 | Antigravity 记录 |
+| WP6 复现判定、反事实主键、F1–F4 | `c08c1dc` | 10 | 19 | Antigravity 记录 |
+| WP7 闭环重试与密集取证 segment | `2a236b7` | 3 | 9 | 在 `c08c1dc` 上 7/9 失败 |
+| WP8 U4 顶视/翻转/手中评测与辅助元数据 | `5530d18` | 4 | 6 | 在 `c08c1dc` 上 6/6 失败 |
+| WP9 C7 矩阵单一来源与 `--plan-only` | `2300f3d` | 8 | `tests/test_cv_motion_plan.py` | 修复前 `--suite` 路径与 `-ehold` 组名均不可运行 |
+| 全量后测试修正（WP4/WP5 遗留） | `acd9a7a` | 2 | 0 | 两条测试在 `1b6addb` 通过、在 `c08c1dc` 失败 |
+
+“新增测试”一栏统计的是新增的 `def test_` 和 `parametrize` 行。
+
+### WP7 核对（Claude 接手）
+
+- 生产入口 `TwinService → ExpertTracer` 下，`dense-10` 和 `dense-20` 都覆盖两条路径：负分走到扫视末端再静止补拍，以及缺陷早停。两条路径都以 SUCCESS 结束，`actions.npz` 的 `segment` 列没有 `-1`，`segment_labels()` 通过。
+- `w2s` 经过真实的 `_retry` 之后，`expert.recheck` 仍然非空，二次抓取产生了 `wrist_fix` 事件。`restore_state` 恢复 open 检查点时，`recheck` 被清空。
+- 默认 `open + hold` 逐位不变：用固定 CPU 评分器，`c08c1dc` 与 WP7 各跑 8 个回合（策略 A/B × 案例 700001-N、700001-D、700002-D、600001-D），`actions.npz` 所有数组和 `comparable_events` 全部相同，0 处不一致。产物在 `C:/scratch/obs-dev/wp7-baseline/{head,new}`。
+- 相关回归：14 个文件，120 passed、3 skipped、1 failed。失败的是 `test_checkpoint_resume.py::test_real_detector_resume_from_disk_exactly`，它在 `c08c1dc` 上同样失败（`assert 'FAILED' == 'SUCCESS'`）。原因是 `CUDA_VISIBLE_DEVICES=""` 下真实检测器无法给出原结果（审核已记录评分器硬编码 CUDA autocast），与 WP7 无关。
+
+### WP8 核对
+
+- `reconstruct_brickseg_aux.py` 以 brickseg-v1 manifest 记录的提交 `230ccde` 加载 `scene_v3`/`visibility`，对 val 和 ood-appearance 重建辅助元数据。2338/2338 帧对齐，max_pos/rot/cam 差 5e-7，没有修改任何分片，产物在 `C:/scratch/brickseg-dev/aux-v1/aux_meta.json`。
+- 顶视帧数：val 493 帧（含翻转/侧放 53 帧），OOD 399 帧（含 51 帧），与审核数字一致。
+- 用微型 ONNX 在正式 val/OOD 上跑冒烟：评测 2338 帧，各分表分母都非零，报表在 `C:/scratch/brickseg-dev/eval-tiny-v1/`。微型模型没有训练，预注册门槛判 FAIL 是预期结果，正式指标要等 U2 GPU 训练。
+- 需要注意的数字：`lab` 基线在 val 腕相机上只成功 12.7%（103/811），失败原因以 BAD_FOOTPRINT 为主（478）。这和本报告 C1 Step 5 的已知结论一致：约 33° 倾角下侧面并入色块。这不是评测 bug，但意味着 U4 的“不劣于 lab”对照门槛偏低。
+- 同色杂物分层很不均衡：val 1020/1304、OOD 811/1034 帧判为 `same_color=True`，主要来自干扰盒的色相判定（饱和度 ≥0.15 且色相差 ≤35°）。这个分层只作信息用途，定义是否合适需要人工确认。
+
+### WP9 核对
+
+- `PLAN_ONLY=1 bash scripts/experiments/cv_motion_matrix.sh all` 的输出是 `plan validation passed: stage1 stage2 stage3 stage4`。`--plan-only --stage stage3b` 退出码为 0。用 `WINNER_MOTION=w9x` 注入错误胜者时，退出码为 1，并报 `winner motion 'w9x' is not part of the stage2 matrix`。
+- Stage 2 为 7 种 motion × {fixed, recal, drift}，共 21 次运行。对比组是 `realistic-drift-B-v7bot` 对 `realistic-drift-B-v7bot-m<motion>`，不再出现 `-ehold`。
+- `loop_01_96` 已登记（sha256 `972680c0…`，96 例，48 布局，split 均为 loop-01，与 p2_dev12 不重叠）。`runner._freeze_suite` 对 `p2_dev12` 和 `loop_01_96` 均冻结成功。
+- **额外发现（既有问题）**：在 Windows 检出（`core.autocrlf=true`）中，`config/agent_bench/v2/*.json` 是 CRLF，而 manifest 的 sha256 是按 LF 字节算的。因此在 v3/obs worktree 里，`runner._freeze_suite` 会拒绝所有 v2 套件，`make_suites.py --check` 也会失败。现已在 `.gitattributes` 里把 `config/agent_bench/**/*.json` 和 `scripts/experiments/*.sh` 固定为 LF，并重新检出了这些未修改的文件；索引内容没有变化。
+- 预注册文档在任何 cv-motion 运行之前修订：Stage 2 加入 recal，Stage 4 套件写成 `loop_01_96`。第 3 节判据原文没有改动。
+
+### WP3 演练库对账（Antigravity 记录，在 scratch 副本上执行）
+
+- 513 行 v2 演练库：`eligible_latest=510`，`represented=510`，`unrepresented=0`。原先缺失的 154 行全部有了显式归类。
+- 跨批次 144 条因严格的 `suite_sha256` 不一致标为 `suite_sha256_mismatch`，按历史子集口径是 `p2-dev` 72 对加 `p2-dev-r2` 72 对。`realistic_only=0`。
+
+### F3 原始复现声明更正
+
+第一轮审核在干净提交上把 `L700007-D0` 重跑了两次。第 372 帧腕部裁剪有 13 个像素相差 1 个灰阶，检测分数落在零阈值两侧，两次分别以 1099 帧 `UNKNOWN` 和 1461 帧 `FAILED` 结束。v3 报告中“`L700007-D0` 可复现”的说法不成立。F3 剔除该例是正确的；`L700006-N` 两次运行一致，保留。
+
+### 全量测试（WP9 提交后，CPU only）
+
+命令：`PYTHONPATH=src CUDA_VISIBLE_DEVICES="" E:/digital_twin_armigo/.venv/Scripts/python -m pytest -q -rs --durations=30`（在 `2300f3d` 上运行，日志在 `C:/scratch/obs-dev/wp-full-pytest.log`）
+
+```
+3 failed, 1137 passed, 15 skipped, 2 xfailed, 16 warnings in 1534.51s (0:25:34)
+```
+
+三项失败的归因与处理：
+
+| 测试 | `1b6addb` | `c08c1dc` | 原因 | 处理 |
+|---|---|---|---|---|
+| `test_checkpoint_resume.py::test_real_detector_resume_from_disk_exactly` | — | 失败 | 加载真实检测器；`CUDA_VISIBLE_DEVICES=""` 下得不到原结果 | 既有问题，未改（待决策 3） |
+| `test_twin_agent.py::test_recorded_camera_observation_precedes_its_action_and_rewound_trace_is_rejected` | 通过 | 失败 | WP5 让旧五相机导出默认不带 `mask.noisy`（为了合并兼容），但这条测试的期望没有同步更新（`test_action_noise.py` 已改） | 按 WP5 契约改正期望集合 |
+| `test_vla_paired_carry.py::test_v3_three_bowl_run_branches_smoke` | 通过 | 失败 | WP4 把 `light_k` 接入光源颜色（色偏约 ±3%，且光照值精度从 2 位小数变为 3 位），v3 渲染随之改变；seed 3000001 的父回合在放置时两次 `no_clamp`。布局本身（种子 3000001–3000003、3100001、3500001）与 WP3 完全相同 | 见下 |
+
+教师成功率对照（v3 train，种子 3000001–3000012，正负交替，策略 B，固定评分器，realistic）：WP3（`67ac74c`）为 9/12，当前为 11/12。失败落在哪些种子会随光照的微小变化而改变：WP3 失败的是 3000005 `no_clamp:place`、3000008、3000012 `BOWL_NOT_FOUND`，当前失败的是 3000001 `no_clamp:place`。色温没有让成功率下降，但教师对 1% 量级的光照变化敏感，与 `L700007-D0` 的 1-LSB 现象同类。这条测试检查的是分叉逻辑，所以改为依次尝试前 3 个三碗候选、取第一个父回合合格的布局，断言没有放宽。
+
+测试修复提交为 `acd9a7a`，这两条测试单独复跑结果是 `2 passed`。复跑时还发现，WP4 收紧学生裁剪可见性之后，v3 train 种子 3000001–3000200 中有 7 个（3000042、3000085、3000104、3000130、3000142、3000169、3000186）在 20 次相机重采样内都无法通过，`sample_case` 会抛出 RuntimeError。`make_scene_suite_v3.py` 会捕获这种情况并丢弃这些种子，属于设计行为；但直接调用 `sample_case` 的代码需要自行处理。修复后没有再跑一次全量：本轮只改了上面两条测试，其余 1137 项的结果仍以 `2300f3d` 上的那次全量为准。
+
+### 隔离与默认值
+
+- 所有提交都在 `feat/failure-observability`，没有推送或合并。`E:/digital_twin_armigo`（`main@0b28091`）和 `E:/digital_twin_armigo-v3`（`feat/smolvla-static-v3@16d17e7`）的工作区与分支没有变化。
+- `ROOT_CAUSES` 没有改动。WP6 只新增了只读的 `ROOT_CAUSE_TO_MECHANISM_COMPAT` 映射，并有测试保证它覆盖全部 `ROOT_CAUSES`。
+- `motion`、`evidence`、`belief_cameras`、`segmenter` 的默认值都没有改。
+- 没有启动 GPU 任务，没有安装包，没有重新渲染 U1 正式数据，`D:/Armigo_data_v2` 和 hackjunction 都只读。
+
+### 阶段结论
+
+- **本轮独立复现通过**：WP7 和 WP8 的红灯/绿灯、默认行为逐位对照、brickseg-v1 辅助元数据对齐、C7 `--plan-only` 全阶段校验。
+- **待人工决策**：
+  1. U4 中 `lab` 基线只有约 13% 的成功率，“不劣于 lab”是否仍作为 OOD 门槛；
+  2. 同色杂物的判定口径；
+  3. `test_real_detector_resume_from_disk_exactly` 在只用 CPU 时必然失败，是否要在没有 CUDA 时改为 skip（本轮没有改动）。
+- **待 GPU 排期**：C7 Stage 1–4（含 3b）、U2 正式训练、U4 Step 4 正式评测、P6 Step 6 容量测试、H6 Step 8。
