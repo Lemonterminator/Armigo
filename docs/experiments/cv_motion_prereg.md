@@ -40,6 +40,8 @@
 
 2026-11-25 修订（任何 cv-motion 运行之前）：Stage 2 增加 recal，使第 3 节硬约束 1 在初筛时可判；Stage 4 套件登记为 `loop_01_96`。
 
+2026-11-25 修订（同上，任何 `cvm-s3b` 运行之前）：阶段 3b 的 `segmenter` 集合扩为 `{lab, unet, silhouette}`，登记见 `brickseg_prereg.md` 第 4 节；本文件第 3 节判据不变。
+
 ## 3. 选优与验收判据（逐字锁定）
 
 - **主指标**：`drift` 下的物理成功率（`scoring` 的 `outcome == "success"`）。

@@ -44,7 +44,7 @@ def test_drift_and_offset_are_exclusive():
 def test_segmenter_suffix_and_contract():
 	from digital_twin_armigo.experiments.contract import SEGMENTERS
 
-	assert SEGMENTERS == ("lab", "unet")
+	assert SEGMENTERS == ("lab", "unet", "silhouette")
 	assert "segmenter" in EXPERIMENT_FIELDS
 	assert group_name("realistic", "drift", "B", "v7bot", segmenter="lab") == "realistic-drift-B-v7bot"
 	assert (

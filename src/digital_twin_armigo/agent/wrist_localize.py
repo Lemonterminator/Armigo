@@ -120,6 +120,12 @@ def localize_from_wrist(
 			gate_m=gate_m,
 			max_tilt_deg=max_tilt_deg,
 		)
+	if segmenter == "silhouette":
+		from .brick_silhouette import fit_silhouette
+
+		return fit_silhouette(
+			rgb, k, world_from_cam, prior_xy, prior_yaw, size, top_z, gate_m=gate_m, max_tilt_deg=max_tilt_deg
+		)
 	if segmenter != "lab":
 		raise ValueError(f"unknown wrist segmenter {segmenter!r}")
 	axis = world_from_cam[:3, 2]

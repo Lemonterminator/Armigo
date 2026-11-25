@@ -30,7 +30,7 @@ DETECTORS = ("v6", "v7bot")
 ORACLE_PARTS = ("camera", "brick", "bowls")
 MOTIONS = ("open", "w1s", "w2s", "w3s", "w2a", "w3a", "w4a")
 EVIDENCE = ("hold", "img", "dense-10", "dense-20")
-SEGMENTERS = ("lab", "unet")
+SEGMENTERS = ("lab", "unet", "silhouette")
 
 RUN_STATES = ("planned", "running", "interrupted", "done", "infra_failed")
 

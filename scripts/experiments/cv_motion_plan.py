@@ -27,7 +27,7 @@ REPO = Path(__file__).resolve().parents[2]
 MANIFEST = REPO / "config/agent_bench/v2/manifest.json"
 
 EVIDENCES = ("hold", "img", "dense-10", "dense-20")
-SEGMENTERS = ("lab", "unet")
+SEGMENTERS = ("lab", "unet", "silhouette")
 CAMERAS = ("fixed", "recal", "drift")
 MOTIONS = tuple(VARIANTS)
 

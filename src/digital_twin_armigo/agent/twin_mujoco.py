@@ -721,8 +721,8 @@ class TwinMujoco:
 			raise ValueError(f"belief_cameras must be 'actual' or 'estimated', got {belief_cameras!r}")
 		if evidence not in EVIDENCE:
 			raise ValueError(f"evidence must be one of {EVIDENCE}")
-		if segmenter not in ("lab", "unet"):
-			raise ValueError(f"segmenter must be 'lab' or 'unet', got {segmenter!r}")
+		if segmenter not in ("lab", "unet", "silhouette"):
+			raise ValueError(f"segmenter must be 'lab', 'unet' or 'silhouette', got {segmenter!r}")
 		self.motion = motion
 		self.evidence = evidence
 		self.belief_cameras = "estimated" if evidence != "hold" else belief_cameras
