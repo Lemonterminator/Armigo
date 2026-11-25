@@ -17,6 +17,7 @@ LEGACY_NPZ = Path(__file__).resolve().parent / "data" / "legacy_actions_600001.n
 CLEAN_CASE = (600001, False, 5)
 OCCLUDED_CASE = (600004, False, 5)
 
+# Values re-pinned on 2026-11-25 when the printed cell markers left the episode scene (sub-mm / few-px shifts).
 LEGACY_600001 = {
 	"camera_calibration": {
 		"camera": "top",
@@ -32,12 +33,12 @@ LEGACY_600001 = {
 		"poses_used": 40,
 	},
 	"locate_bowls": {
-		"bowls_m": {"green": [0.1053, 0.19658], "pink": [0.22885, 0.03994]},
+		"bowls_m": {"green": [0.1053, 0.19658], "pink": [0.22885, 0.03995]},
 		"found_at": "session start",
 	},
 	"locate_brick": {
 		"found": True,
-		"position_m": [0.18471, -0.1171, 0.01155],
+		"position_m": [0.18471, -0.1171, 0.01151],
 		"yaw_deg": -13.758,
 		"size_class": "2x2",
 		"size_m": [0.0318, 0.0318, 0.0192],
@@ -58,7 +59,7 @@ LEGACY_600001 = {
 				"id": "0:535:wrist_cam",
 				"camera": "wrist_cam",
 				"faces": [1, 2, 4],
-				"face_pixels": [23, 2118, 2319, 2, 11793, 0],
+				"face_pixels": [23, 2119, 2319, 2, 11793, 0],
 				"score": -1.0,
 				"threshold": 0.0,
 			},
@@ -71,7 +72,7 @@ LEGACY_600001 = {
 				"id": "0:1044:top",
 				"camera": "top",
 				"faces": [5],
-				"face_pixels": [466, 0, 58, 51, 0, 5082],
+				"face_pixels": [469, 0, 57, 56, 0, 5079],
 				"score": -1.0,
 				"threshold": 0.0,
 			},
