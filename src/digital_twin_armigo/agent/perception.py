@@ -132,15 +132,16 @@ def table_plane(points: np.ndarray) -> np.ndarray | None:
 	return coef
 
 
-def locate_brick(
-	depth: np.ndarray, k: np.ndarray, world_from_cam: np.ndarray, bowls: list[tuple[float, float]]
-) -> BrickEstimate | None:
-	"""The brick on the table in a planar depth image seen through ``world_from_cam``, or None when no blob has a
-	usable top face."""
+def _raised_blobs(depth: np.ndarray, k: np.ndarray, world_from_cam: np.ndarray, bowls):
+	"""``locate_brick``'s segmentation: raised points (height above the fitted table) of the reach band outside the
+	bowls, gridded, closed and split into connected components. Returns ``(plane, points, pixel index, component
+	label per point, component stats)`` or None."""
 	import cv2
 
 	p = depth_points(depth, k, world_from_cam).reshape(-1, 3)
-	p = p[np.isfinite(p).all(axis=1)]
+	idx = np.arange(p.shape[0])
+	finite = np.isfinite(p).all(axis=1)
+	p, idx = p[finite], idx[finite]
 	r = np.hypot(p[:, 0], p[:, 1])
 	area = (r > REACH_M[0]) & (r < 0.45)
 	for bx, by in bowls:
@@ -148,9 +149,11 @@ def locate_brick(
 	plane = table_plane(p[area & (np.abs(p[:, 2]) < TABLE_BAND_M)])
 	if plane is None:
 		return None
-	p = p[area & (r < REACH_M[1])]
+	keep = area & (r < REACH_M[1])
+	p, idx = p[keep], idx[keep]
 	p[:, 2] -= p[:, :2] @ plane[:2] + plane[2]  # height above the fitted table
-	p = p[(p[:, 2] > MIN_HEIGHT_M) & (p[:, 2] < MAX_HEIGHT_M)]
+	keep = (p[:, 2] > MIN_HEIGHT_M) & (p[:, 2] < MAX_HEIGHT_M)
+	p, idx = p[keep], idx[keep]
 	if len(p) < MIN_TOP_POINTS:
 		return None
 	lo = p[:, :2].min(axis=0) - 0.005
@@ -162,8 +165,79 @@ def locate_brick(
 	n, labels, stats, _ = cv2.connectedComponentsWithStats(occ, connectivity=8)
 	if n < 2:
 		return None
-	best = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
-	blob = p[labels[cells[:, 1], cells[:, 0]] == best]
+	return plane, p, idx, labels[cells[:, 1], cells[:, 0]], stats
+
+
+@dataclass
+class BrickBlob:
+	"""One raised blob of the top depth image (a brick candidate)."""
+
+	label: int  # component label (pass to ``locate_brick(..., label=)``)
+	cells: int  # area of the closed component, in GRID_M cells
+	xy: np.ndarray  # mean of its points (robot frame)
+	height_m: float  # 90th-percentile height above the table
+	long_m: float  # long side of the top band's minimum-area rectangle
+	short_m: float
+	pixels: np.ndarray  # (n, 2) image (u, v) of its points
+
+
+def brick_blobs(
+	depth: np.ndarray, k: np.ndarray, world_from_cam: np.ndarray, bowls: list[tuple[float, float]]
+) -> list[BrickBlob]:
+	"""Every raised blob ``locate_brick`` chooses its brick from, largest first."""
+	import cv2
+
+	seg = _raised_blobs(depth, k, world_from_cam, bowls)
+	if seg is None:
+		return []
+	_, p, idx, lab, stats = seg
+	width = depth.shape[1]
+	out = []
+	for label in np.unique(lab):
+		m = lab == label
+		blob = p[m]
+		z_top = float(np.percentile(blob[:, 2], 90))
+		top = blob[blob[:, 2] > z_top - TOP_BAND_M]
+		w = h = 0.0
+		if len(top) >= 3:
+			_, (w, h), _ = cv2.minAreaRect(top[:, :2].astype(np.float32))
+		v, u = np.divmod(idx[m], width)
+		out.append(
+			BrickBlob(
+				int(label),
+				int(stats[label, cv2.CC_STAT_AREA]),
+				blob[:, :2].mean(axis=0),
+				z_top,
+				float(max(w, h)),
+				float(min(w, h)),
+				np.stack([u, v], axis=1),
+			)
+		)
+	out.sort(key=lambda b: -b.cells)
+	return out
+
+
+def locate_brick(
+	depth: np.ndarray,
+	k: np.ndarray,
+	world_from_cam: np.ndarray,
+	bowls: list[tuple[float, float]],
+	*,
+	label: int | None = None,
+) -> BrickEstimate | None:
+	"""The brick on the table in a planar depth image seen through ``world_from_cam``, or None when no blob has a
+	usable top face. The brick is the largest raised blob, or the blob ``label`` of :func:`brick_blobs` (same
+	image) when given."""
+	import cv2
+
+	seg = _raised_blobs(depth, k, world_from_cam, bowls)
+	if seg is None:
+		return None
+	plane, p, _, lab, stats = seg
+	best = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA])) if label is None else int(label)
+	blob = p[lab == best]
+	if len(blob) == 0:
+		return None
 	z_top = float(np.percentile(blob[:, 2], 90))
 	top = blob[blob[:, 2] > z_top - TOP_BAND_M]
 	if len(top) < MIN_TOP_POINTS:

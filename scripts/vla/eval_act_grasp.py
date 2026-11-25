@@ -32,9 +32,21 @@ def _scripted(args: tuple) -> dict:
 	os.environ["CUDA_VISIBLE_DEVICES"] = ""
 	from digital_twin_armigo.agent.act_grasp import grasp_trial
 
-	seed, split, out, overrides, ring = args
+	seed, split, out, overrides, ring, localise, vlm_url = args
+	llm = None
+	if vlm_url:
+		from digital_twin_armigo.agent.llm import OpenAICompatLLM
+
+		llm = OpenAICompatLLM(vlm_url, max_tokens=32, timeout_s=60, retries=1)
 	try:
-		return grasp_trial(make_case(seed, split), out / f"case-{seed}", expert_overrides=overrides, ring_localise=ring)
+		return grasp_trial(
+			make_case(seed, split),
+			out / f"case-{seed}",
+			expert_overrides=overrides,
+			ring_localise=ring,
+			localise=localise,
+			perception_llm=llm,
+		)
 	except Exception as e:  # noqa: BLE001 - a crashed trial is a reported failure
 		return {"case": make_case(seed, split), "lifted": False, "error": f"crash:{type(e).__name__}:{e}"}
 
@@ -87,8 +99,16 @@ def main(argv: list[str] | None = None) -> int:
 	ap.add_argument(
 		"--ring", action="store_true", help="re-localise the brick from a ring of wrist views before the grasp"
 	)
+	ap.add_argument(
+		"--localise",
+		choices=("top", "vote"),
+		default="top",
+		help="vote: the localize node (shape rule + VLM, wrist confirmation, ring, pin) after prepare (scripted arm)",
+	)
+	ap.add_argument("--vlm-url", default=None, help="OpenAI-compatible VLM for --localise vote (none: shape rule only)")
 	a = ap.parse_args(argv)
-	ring_tag = "-ring" if a.ring else ""
+	ring_tag = ("-ring" if a.ring else "") + ("-vote" if a.localise == "vote" else "")
+	vlm_url = a.vlm_url if a.localise == "vote" else None
 	seeds = list(range(a.seed0, a.seed0 + a.n))
 	summary_path = a.out / "summary.json"
 	summary = json.loads(summary_path.read_text(encoding="utf-8")) if summary_path.exists() else {}
@@ -99,7 +119,7 @@ def main(argv: list[str] | None = None) -> int:
 		out = a.out / name
 		out.mkdir(parents=True, exist_ok=True)
 		with ProcessPoolExecutor(a.workers) as pool:
-			rows = list(pool.map(_scripted, [(s, a.split, out, overrides, a.ring) for s in seeds]))
+			rows = list(pool.map(_scripted, [(s, a.split, out, overrides, a.ring, a.localise, vlm_url) for s in seeds]))
 		arms.append((name, rows))
 	if a.ckpt is not None:
 		sys.path.insert(0, str(ROOT / "scripts" / "vla"))

@@ -450,6 +450,7 @@ def params_from_json(cls, raw: dict):
 # defaults. Keys of "expert" / "relocate" are ExpertParams / RelocateParams fields; "scan_peak_speed" is the peak
 # joint speed (rad/s) of the wrist-scan moves (default SCAN_PEAK_SPEED, the value the scan used before variants).
 SCAN_PEAK_SPEED = 1.0
+HINT_GATE_M = 0.015  # a pinned brick (localise="vote") is the blob fitted this close to its pinned top-view x, y
 RECOVERY_BOUNDS = MappingProxyType(
 	{
 		"scan_peak_speed": (0.25, SCAN_PEAK_SPEED),
@@ -712,6 +713,8 @@ class TwinMujoco:
 		segmenter_onnx=None,
 		cell_markers=False,
 		ring_localise=False,
+		localise="top",
+		perception_llm=None,
 	):
 		if sensing not in SENSING:
 			raise ValueError(f"sensing must be one of {SENSING}")
@@ -735,6 +738,15 @@ class TwinMujoco:
 			raise ValueError("ring_localise is for realistic sensing; truth sees the brick directly")
 		# Before each grasp, re-localise the brick from a ring of wrist views (see _ring_localise); off by default.
 		self.ring_localise = bool(ring_localise)
+		if localise not in ("top", "vote"):
+			raise ValueError(f"localise must be 'top' or 'vote', got {localise!r}")
+		if localise == "vote" and sensing != "realistic":
+			raise ValueError("localise='vote' is for realistic sensing")
+		# "vote": the graph's localize node picks the brick (shape rule + VLM, wrist confirmation on disagreement),
+		# refines it with the wrist ring and pins it (see localise_brick). "top": the top view alone (default).
+		self.localise = localise
+		self.perception_llm = perception_llm
+		self._brick_hint = None
 		self._brick_net = None
 		self.fuse_cfg = FuseCfg()
 		# The printed cell markers on the table (ArUco 10, 11, 16, 17) have no use once the top camera is calibrated
@@ -1082,11 +1094,28 @@ class TwinMujoco:
 		sigma = self.perception.depth_noise_m * (depth / 0.5) ** 2
 		return depth + self._depth_rng.normal(0.0, 1.0, depth.shape) * sigma
 
-	def _perceive(self):
-		"""Locate the brick on the table through the calibrated top camera; None, or a failure code."""
+	def _perceive(self, est=None, source=None):
+		"""Locate the brick on the table through the calibrated top camera; None, or a failure code. ``est`` is a
+		brick already located (``localise_brick``); with ``localise="vote"`` a pinned brick (``_brick_hint``) is
+		looked up first, and otherwise the shape rule picks the blob."""
 		if self.perception is None:
 			return None
-		est = locate_brick(self._top_depth(), self._cam_k, self._cam_est, list(self.bowls.values()))
+		if est is None and self.localise == "vote":
+			from .brick_vote import candidates, shape_pick
+			from .perception import brick_blobs
+
+			depth, bowls = self._top_depth(), list(self.bowls.values())
+			if self._brick_hint is not None:
+				est = self._hinted_brick(depth, bowls)
+				source = "pinned" if est is not None else None
+			if est is None:
+				cands = candidates(brick_blobs(depth, self._cam_k, self._cam_est, bowls))
+				i = shape_pick(cands)
+				source = "shape"
+				if i is not None:
+					est = locate_brick(depth, self._cam_k, self._cam_est, bowls, label=cands[i].label)
+		elif est is None:
+			est = locate_brick(self._top_depth(), self._cam_k, self._cam_est, list(self.bowls.values()))
 		if "brick" in self.oracle:
 			rot = self.cell.data.xmat[self.cell.brick_body].reshape(3, 3)
 			true_yaw = math.atan2(rot[1, 0], rot[0, 0])
@@ -1141,6 +1170,7 @@ class TwinMujoco:
 			error_yaw_deg=round(yaw_error_deg(est.yaw, true_yaw, self.layout.brick_size), 3),
 			size_correct=bool(np.allclose(est.size, self.layout.brick_size)),
 			**parked_info,
+			**({"source": source} if source is not None else {}),
 		)
 		return None
 
@@ -1392,6 +1422,10 @@ class TwinMujoco:
 			"segmenter_onnx": None if self.segmenter_onnx is None else str(self.segmenter_onnx),
 			"cell_markers": self.cell_markers,
 			"ring_localise": self.ring_localise,
+			"localise": self.localise,
+			"brick_hint": None
+			if self._brick_hint is None
+			else {k: [float(x) for x in v] for k, v in self._brick_hint.items()},
 			"segments": self._checkpoint_extra(),
 		}
 		if self.perception is not None:
@@ -2094,6 +2128,44 @@ class TwinMujoco:
 		error = self._execute(grasp_and_lift())
 		return error or ("BRICK_LOST" if ex.lost else ex.aborted)
 
+	def _wrist_view(self, est, q, entry: bool, view: int, views: int):
+		"""Move to ring pose ``q`` (from straight above when ``entry``), hold, and fit the brick believed at ``est``
+		in the wrist image (silhouette segmenter, designed mount). Returns ``(fix or None, reject reason, error)``."""
+		from .wrist_ring import RING_ENTRY_DZ_M
+
+		ex, cell = self.expert, self.cell
+		size = tuple(est.size)
+		top_z = float(est.pos[2] + size[2] / 2)
+		q = q.copy()
+		q[5] = ex.last[5]
+		path = [q]
+		if entry:
+			ex.kin.data.qpos[ex.kin.qadr] = q
+			above = ex._ik(np.array([*est.pos[:2], top_z + RING_ENTRY_DZ_M + 0.04]), q, float(q[4]))
+			above[5] = q[5]
+			path = [above, q]
+
+		def ring_locate(path=path, view=view, views=views):
+			yield from sweep(ex, path, self.scan_peak_speed, ex.rp.scan_move_s, pause_s=None)
+			yield from ex._hold_servo(path[-1], ex.rp.scan_hold_s, "approach")
+
+		if error := self._execute(ring_locate()):
+			return None, None, error
+		rgb = cell.rgb("wrist_cam")
+		ex.kin.data.qpos[:] = cell.data.qpos
+		cid = mujoco.mj_name2id(cell.model, mujoco.mjtObj.mjOBJ_CAMERA, "wrist_cam")
+		fix, reason = localize_from_wrist(
+			rgb,
+			wrist_k(float(cell.model.cam_fovy[cid]), rgb.shape),
+			believed_wrist_from_cam(cell, ex.kin.data),
+			est.pos[:2],
+			est.yaw,
+			size,
+			top_z,
+			segmenter="silhouette",
+		)
+		return fix, reason, None
+
 	def _ring_localise(self):
 		"""Re-localise the perceived brick (x, y) from a ring of wrist views (:mod:`.wrist_ring`), then go back to
 		ready. The jaws hang straight down over the believed brick, the tips ``RING_TIP_M`` above its top face, and the
@@ -2101,44 +2173,18 @@ class TwinMujoco:
 		fixes replaces the top-view position (kept when fewer than ``RING_MIN_FIXES`` views fit or the median is more
 		than ``RING_GATE_M`` from it). Yaw, height and size class stay as the top view read them. None, or a failure
 		code of a move."""
-		from .wrist_ring import RING_ENTRY_DZ_M, RING_GATE_M, RING_MIN_FIXES, fuse_ring, ring_poses
+		from .wrist_ring import RING_GATE_M, RING_MIN_FIXES, fuse_ring, ring_poses
 
 		ex, cell, est = self.expert, self.cell, self.brick_est
 		size = self._believed_brick_size()
 		top_z = float(est.pos[2] + size[2] / 2)
 		ex.kin.data.qpos[:] = cell.data.qpos
 		poses = ring_poses(ex, cell, est.pos[:2], top_z)
-		cid = mujoco.mj_name2id(cell.model, mujoco.mjtObj.mjOBJ_CAMERA, "wrist_cam")
 		fixes, rejects = [], {}
-		n_views = len(poses)
 		for k, q in enumerate(poses):
-			q = q.copy()
-			q[5] = ex.last[5]
-			path = [q]
-			if k == 0:  # enter the ring from straight above
-				ex.kin.data.qpos[ex.kin.qadr] = q
-				entry = ex._ik(np.array([*est.pos[:2], top_z + RING_ENTRY_DZ_M + 0.04]), q, float(q[4]))
-				entry[5] = q[5]
-				path = [entry, q]
-
-			def ring_locate(path=path, view=k + 1, views=n_views):
-				yield from sweep(ex, path, self.scan_peak_speed, ex.rp.scan_move_s, pause_s=None)
-				yield from ex._hold_servo(path[-1], ex.rp.scan_hold_s, "approach")
-
-			if error := self._execute(ring_locate()):
+			fix, reason, error = self._wrist_view(est, q, k == 0, k + 1, len(poses))
+			if error:
 				return error
-			rgb = cell.rgb("wrist_cam")
-			ex.kin.data.qpos[:] = cell.data.qpos
-			fix, reason = localize_from_wrist(
-				rgb,
-				wrist_k(float(cell.model.cam_fovy[cid]), rgb.shape),
-				believed_wrist_from_cam(cell, ex.kin.data),
-				est.pos[:2],
-				est.yaw,
-				size,
-				top_z,
-				segmenter="silhouette",
-			)
 			if fix is None:
 				rejects[reason] = rejects.get(reason, 0) + 1
 			else:
@@ -2163,6 +2209,130 @@ class TwinMujoco:
 			error_xy_mm=round(float(np.linalg.norm(self.brick_est.pos[:2] - cell.brick_pos()[:2]) * 1000), 3),
 		)
 		return self._execute(ex._go_ready())
+
+	def can_localise(self) -> bool:
+		"""The graph runs the ``localize`` node (``localise="vote"``) while the brick is on the table."""
+		return self.localise == "vote" and self.held is None
+
+	def _wrist_confirm(self, est):
+		"""One wrist view over candidate ``est`` (mid wrist roll), then back to ready: ``(confirmed, info, error)``.
+		Confirmed when the silhouette fit finds a brick of the believed size within ``RING_GATE_M`` of it."""
+		from .wrist_ring import RING_GATE_M, ring_poses
+
+		ex, cell = self.expert, self.cell
+		top_z = float(est.pos[2] + est.size[2] / 2)
+		ex.kin.data.qpos[:] = cell.data.qpos
+		poses = ring_poses(ex, cell, est.pos[:2], top_z, n=1)
+		if not poses:
+			return False, {"reason": "NO_POSE"}, None
+		fix, reason, error = self._wrist_view(est, poses[0], True, 1, 1)
+		if error:
+			return False, {}, error
+		if error := self._execute(ex._go_ready()):
+			return False, {}, error
+		if fix is None:
+			return False, {"reason": reason}, None
+		step = float(np.linalg.norm(fix.pos_xy - est.pos[:2]))
+		return step <= RING_GATE_M, {"reason": None, "innovation_xy_mm": round(step * 1000, 3)}, None
+
+	def localise_brick(self):
+		"""Graph node ``localize`` (``localise="vote"``): pick the brick among the top-view blobs, refine it with
+		the wrist ring and pin the result for later perceptions. None, or a failure code.
+
+		1. The shape rule and, when ``perception_llm`` is set, the VLM each pick a numbered candidate
+		   (:mod:`.brick_vote`). Agreement (or no VLM vote) is accepted.
+		2. On disagreement each pick (VLM's first) gets one wrist view; the first one confirmed is taken. When none is,
+		   the shape pick stands (the VLM's when the shape rule found none).
+		3. The ring (:meth:`_ring_localise`) refines the chosen brick's x, y. The blob's top-view position and the
+		   ring's correction are pinned (``_brick_hint``): later top-view perceptions take the blob there and add the
+		   correction, until no blob is found within ``HINT_GATE_M`` of it (the brick moved)."""
+		from .brick_vote import candidates, shape_pick, vlm_pick
+		from .perception import brick_blobs
+
+		if self.perception is None:
+			return None
+		depth = self._top_depth()
+		rgb = self.cell.rgb("top")
+		bowls = list(self.bowls.values())
+		cands = candidates(brick_blobs(depth, self._cam_k, self._cam_est, bowls))
+		shape = shape_pick(cands)
+		info: dict = {"candidates": len(cands), "shape": None if shape is None else shape + 1}
+		vlm, voted = shape, False
+		if self.perception_llm is not None and cands:
+			vlm, vinfo = vlm_pick(self.perception_llm, rgb, cands)
+			voted = "error" not in vinfo
+			info |= {"vlm": None if vlm is None else vlm + 1, **{f"vlm_{k}": v for k, v in vinfo.items()}}
+			if not voted:
+				vlm = shape
+		agree = vlm == shape
+		chosen, confirms = (shape, []) if agree else (None, [])
+		if not agree:
+			for i in (vlm, shape):
+				if i is None:
+					continue
+				est_i = locate_brick(depth, self._cam_k, self._cam_est, bowls, label=cands[i].label)
+				if est_i is None:
+					confirms.append({"candidate": i + 1, "confirmed": False, "reason": "NO_FIT"})
+					continue
+				ok, cinfo, error = self._wrist_confirm(est_i)
+				if error:
+					return error
+				confirms.append({"candidate": i + 1, "confirmed": ok, **cinfo})
+				if ok:
+					chosen = i
+					break
+			if chosen is None:
+				chosen = shape if shape is not None else vlm
+		info |= {"agree": agree, "voted": voted, "confirms": confirms, "chosen": None if chosen is None else chosen + 1}
+		est = (
+			None
+			if chosen is None
+			else locate_brick(depth, self._cam_k, self._cam_est, bowls, label=cands[chosen].label)
+		)
+		if est is None:
+			self.event("brick_localised", found=False, **info)
+			return "BRICK_NOT_FOUND"
+		if error := self._perceive(est=est, source="vote"):
+			return error
+		top_xy = self.brick_est.pos[:2].copy()
+		if error := self._ring_localise():
+			return error
+		delta = self.brick_est.pos[:2] - top_xy
+		self._brick_hint = {"top_xy": top_xy, "delta": delta}
+		self.event(
+			"brick_localised",
+			found=True,
+			**info,
+			correction_mm=round(float(np.linalg.norm(delta)) * 1000, 3),
+			# Truth diagnostic only (registered in TRUTH_DIAGNOSTIC_KEYS); never read by the agent.
+			error_xy_mm=round(float(np.linalg.norm(self.brick_est.pos[:2] - self.cell.brick_pos()[:2]) * 1000), 3),
+		)
+		return None
+
+	def _hinted_brick(self, depth, bowls):
+		"""The pinned brick (``_brick_hint``) in a fresh top depth image: the blob whose fit lies within
+		``HINT_GATE_M`` of the pinned top-view position, with the ring's correction added; None (and the pin dropped)
+		when there is none."""
+		from .perception import brick_blobs
+
+		hint = self._brick_hint
+		best, best_d = None, HINT_GATE_M
+		for blob in brick_blobs(depth, self._cam_k, self._cam_est, bowls):
+			if float(np.linalg.norm(blob.xy - hint["top_xy"])) > 2 * HINT_GATE_M + 0.04:
+				continue
+			est = locate_brick(depth, self._cam_k, self._cam_est, bowls, label=blob.label)
+			if est is None:
+				continue
+			d = float(np.linalg.norm(est.pos[:2] - hint["top_xy"]))
+			if d <= best_d:
+				best, best_d = est, d
+		if best is None:
+			self._brick_hint = None
+			self.event("brick_hint_dropped")
+			return None
+		pos = best.pos.copy()
+		pos[:2] += hint["delta"]
+		return replace(best, pos=pos)
 
 	def _bottom(self, views):
 		self.bottom_count += 1
@@ -2549,6 +2719,8 @@ class TwinMujoco:
 			self._contact.prev = agent.get("contact_prev")
 		if self.perception is not None:
 			self.brick_est = brick_from_json(agent.get("brick_est"))
+			hint = agent.get("brick_hint")
+			self._brick_hint = None if hint is None else {k: np.asarray(v, dtype=np.float64) for k, v in hint.items()}
 			size = agent.get("perceived_size")
 			self._perceived_size = None if size is None else tuple(size)
 		self.actual_destination = None

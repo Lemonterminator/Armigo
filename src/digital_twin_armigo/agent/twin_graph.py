@@ -9,10 +9,13 @@ from typing import Literal, TypedDict
 from .llm import ChatLLM, LLMError
 
 TASK = "Inspect the brick for a cross. Sort defective bricks into the pink bowl and normal bricks into the green bowl."
-NODES = ("prepare", "choose_view", "scan_wrist", "present_bottom", "recover", "place", "evaluate")
+NODES = ("prepare", "localize", "choose_view", "scan_wrist", "present_bottom", "recover", "place", "evaluate")
 EDGES = (
 	("prepare", "recover"),
+	("prepare", "localize"),
 	("prepare", "choose_view"),
+	("localize", "choose_view"),
+	("localize", "recover"),
 	("choose_view", "scan_wrist"),
 	("choose_view", "present_bottom"),
 	("choose_view", "place"),
@@ -70,6 +73,10 @@ def build_graph(backend, policy: Policy, checkpointer=None):
 	def prepare(state: InspectionState):
 		return {"views": [], "failures": [], "error": backend.prepare()}
 
+	def localize(state: InspectionState):
+		# Brick localisation before any skill (backend.localise_brick): vote, wrist confirmation, ring, pin.
+		return {"error": backend.localise_brick()}
+
 	def choose_view(state: InspectionState):
 		views = state["views"]
 		if getattr(backend, "strategy", "A") == "A":
@@ -119,6 +126,7 @@ def build_graph(backend, policy: Policy, checkpointer=None):
 	graph = StateGraph(InspectionState)
 	for name, operation in (
 		("prepare", prepare),
+		("localize", localize),
 		("choose_view", choose_view),
 		("scan_wrist", observe("scan_wrist")),
 		("present_bottom", observe("present_bottom")),
@@ -134,8 +142,16 @@ def build_graph(backend, policy: Policy, checkpointer=None):
 
 		graph.add_node(name, node)
 	graph.add_edge(START, "prepare")
+	localise = getattr(backend, "can_localise", None)
 	graph.add_conditional_edges(
 		"prepare",
+		lambda state: (
+			"recover" if state["error"] else "localize" if localise is not None and localise() else "choose_view"
+		),
+		["recover", "localize", "choose_view"],
+	)
+	graph.add_conditional_edges(
+		"localize",
 		lambda state: "recover" if state["error"] else "choose_view",
 		["recover", "choose_view"],
 	)

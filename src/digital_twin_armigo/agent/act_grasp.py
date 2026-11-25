@@ -140,6 +140,8 @@ def grasp_trial(
 	video: bool = False,
 	expert_overrides: dict[str, Any] | None = None,
 	ring_localise: bool = False,
+	localise: str = "top",
+	perception_llm=None,
 ) -> dict[str, Any]:
 	"""``prepare`` then the first grasp and lift of ``case``; the scripted expert when ``policy`` is None, else the
 	hybrid (student grasp). Returns the outcome on truth: ``lifted`` (brick up and between both jaws)."""
@@ -149,7 +151,15 @@ def grasp_trial(
 	trace = EpisodeTrace(out, video=video)
 	layout = sample_case(*case)
 	if policy is None:
-		twin = ExpertTracer(layout, None, trace, sensing=sensing, ring_localise=ring_localise)
+		twin = ExpertTracer(
+			layout,
+			None,
+			trace,
+			sensing=sensing,
+			ring_localise=ring_localise,
+			localise=localise,
+			perception_llm=perception_llm,
+		)
 	else:
 		twin = HybridTwin(
 			layout,
@@ -160,6 +170,8 @@ def grasp_trial(
 			clamp_wait=clamp_wait,
 			clamp_wait_empty_rad=clamp_wait_empty_rad,
 			ring_localise=ring_localise,
+			localise=localise,
+			perception_llm=perception_llm,
 		)
 	if expert_overrides:  # e.g. {"descend_close_ratio": 1.3}: a planner variant for the scripted (and hybrid) arm
 		from dataclasses import replace
@@ -167,10 +179,14 @@ def grasp_trial(
 		twin.expert.p = replace(twin.expert.p, **expert_overrides)
 	z0 = float(twin.cell.brick_pos()[2])
 	error = twin.prepare()
+	if not error and twin.can_localise():  # the graph's localize node (vote, wrist confirmation, ring, pin)
+		twin.enter("localize")
+		error = twin.localise_brick()
 	frames0 = twin.ep.n_frames
 	if not error:
 		error = twin._grasp()
 	ring = next((e for e in reversed(trace.events) if e.get("kind") == "ring_localised"), None)
+	loc = next((e for e in reversed(trace.events) if e.get("kind") == "brick_localised"), None)
 	tel = twin.ep.telemetry()
 	f = tel["pinch_normal"][-1] if len(tel["pinch_normal"]) else np.zeros(2)
 	dz = float(twin.cell.brick_pos()[2] - z0)
@@ -184,6 +200,9 @@ def grasp_trial(
 		"grasp_retries": int(twin.expert.grasp_retries),
 		"grasp_frames": int(twin.ep.n_frames - frames0),
 		"brick_dz_m": dz,
+		"localised": None
+		if loc is None
+		else {k: loc.get(k) for k in ("found", "shape", "vlm", "agree", "confirms", "chosen", "error_xy_mm")},
 		"ring": None
 		if ring is None
 		else {k: ring[k] for k in ("poses", "fixes", "accepted", "error_xy_mm_before", "error_xy_mm")},
