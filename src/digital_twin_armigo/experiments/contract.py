@@ -20,6 +20,9 @@ across engines, detectors, camera conditions and strategies. Neither depends on 
 
 from __future__ import annotations
 
+import hashlib
+import json
+
 ENGINES = ("mujoco", "isaac")
 SENSING = ("truth", "realistic")
 CAMERA_CONDITIONS = ("fixed", "recal", "drift")
@@ -43,10 +46,15 @@ EXPERIMENT_FIELDS = (
 	"strategy",  # STRATEGIES
 	"detector",  # DETECTORS
 	"detector_sha256",
+	"detector_checkpoint_sha256",
+	"freeze_sha256",
+	"sealed",
 	"oracle",  # ORACLE_PARTS subset or None (counterfactual evaluation only)
 	"motion",  # MOTIONS
 	"evidence",  # EVIDENCE
 	"calib_offset_mm",  # float/int injected calibration offset in mm (0 = none)
+	"localise",
+	"drift_alarm",
 	"segmenter",  # SEGMENTERS
 	"suite",  # suite file name
 	"suite_sha256",
@@ -93,3 +101,8 @@ def layout_id(seed: int) -> str:
 
 def case_id(seed: int, positive: bool, face: int) -> str:
 	return f"L{int(seed)}-D{int(face)}" if positive else f"L{int(seed)}-N"
+
+
+def freeze_digest(freeze: dict) -> str:
+	"""Hash the freeze contents independently of whitespace and key ordering."""
+	return hashlib.sha256(json.dumps(freeze, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()

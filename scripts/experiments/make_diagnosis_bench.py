@@ -44,8 +44,8 @@ def _batch_from_path(path: Path) -> str | None:
 	return None
 
 
-def _read_task_json(ep_path: Path) -> dict | None:
-	tf = ep_path / "task.json"
+def _read_episode_file(ep_path: Path, name: str) -> dict | None:
+	tf = ep_path / name
 	if not tf.is_file():
 		return None
 	try:
@@ -72,7 +72,10 @@ def build_benchmark(audit_path: Path, inventory_dir: Path) -> list[dict]:
 		if ep_path is None:
 			continue
 		batch = _batch_from_path(ep_path)
-		task = _read_task_json(ep_path)
+		task = _read_episode_file(ep_path, "task.json")
+		episode = _read_episode_file(ep_path, "episode.json") or {}
+		if ((episode.get("provenance") or {}).get("experiment") or {}).get("sealed") is True:
+			continue
 		case_list = (task or {}).get("case")
 		case_opts = (
 			case_list[3]

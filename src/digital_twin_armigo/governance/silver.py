@@ -8,6 +8,7 @@ import sqlite3
 from collections.abc import Callable
 from pathlib import Path
 
+from ..experiments.contract import freeze_digest
 from ..experiments.scoring import score_episode
 from ..inventory import audit as inv_audit
 from .bronze import FILES, _commit
@@ -123,6 +124,8 @@ def _check_teacher_frozen(row: dict, _path: Path, ctx: dict) -> tuple[bool, str 
 	ep_det = row.get("detector")
 	if f_det and ep_det and str(ep_det) != str(f_det):
 		return False, "detector_mismatch"
+	if ("groups" in freeze or ctx.get("freeze_sha256")) and ctx.get("freeze_sha256") != freeze_digest(freeze):
+		return False, "freeze_digest_mismatch"
 	return True, None
 
 
@@ -228,7 +231,8 @@ def build_silver(
 			if isinstance(case_list, list) and len(case_list) >= 4 and isinstance(case_list[3], dict)
 			else None
 		)
-		split = "test" if is_sealed(seed, batch=row.get("batch"), options=case_opts) else case_split(seed, case_opts)
+		sealed = exp.get("sealed") is True or is_sealed(seed, batch=row.get("batch"), options=case_opts)
+		split = "test" if sealed else case_split(seed, case_opts)
 		pk = pair_key(row) if sensing in ("truth", "realistic") and row.get("engine") and row.get("detector") else None
 		attempt_key = (row.get("batch"), row.get("engine"), row.get("group"), row.get("case_id"))
 		rank = (int(row.get("attempt") or 0), ep_dir.name, p_str)
@@ -275,6 +279,7 @@ def build_silver(
 				"oracle_events": oracle_events,
 				"is_oracle": is_oracle,
 				"provenance_commit": exp.get("code_commit") or (prov.get("git") or {}).get("commit"),
+				"freeze_sha256": exp.get("freeze_sha256"),
 				"suite": exp.get("suite"),
 				"suite_sha256": exp.get("suite_sha256"),
 				"segmenter": exp.get("segmenter") or "lab",
@@ -300,6 +305,7 @@ def build_silver(
 			"oracle_events": item["oracle_events"],
 			"is_oracle": item["is_oracle"],
 			"provenance_commit": item["provenance_commit"],
+			"freeze_sha256": item["freeze_sha256"],
 			"superseded": superseded,
 			"split": item["split"],
 		}
@@ -332,6 +338,7 @@ def build_silver(
 			"split": item["split"],
 			"sha_episode": item["sha_episode"],
 			"provenance_commit": item["provenance_commit"],
+			"freeze_sha256": item["freeze_sha256"],
 			"suite": item["suite"],
 			"suite_sha256": item["suite_sha256"],
 			"segmenter": item["segmenter"],

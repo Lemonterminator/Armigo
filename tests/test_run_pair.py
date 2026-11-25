@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from digital_twin_armigo.experiments import runner
 from digital_twin_armigo.experiments.runner import pair_jobs_order
 
 REPO = Path(__file__).resolve().parents[1]
@@ -71,3 +72,85 @@ def test_lake_cli_db_flag_before_and_after_subcommand(tmp_path, monkeypatch):
 	assert lake_cli.main(["register", "--db", str(db_after), "--root", str(runs), "--source", "t"]) == 0
 	assert db_after.is_file()
 	assert not default_guard.exists()
+
+
+def test_paired_freeze_runs_both_sensing_modes_and_rejects_changed_configuration(tmp_path, monkeypatch):
+	suites_dir = tmp_path / "suites-source"
+	suites_dir.mkdir()
+	suite = suites_dir / "test_suite.json"
+	suite.write_text(json.dumps([[600008, False, 5], [600008, True, 1]]), encoding="utf-8")
+	(suites_dir / "manifest.json").write_text(
+		json.dumps({"suites": {"test_suite": {"sha256": runner._sha256(suite), "sealed": True}}}),
+		encoding="utf-8",
+	)
+	checkpoint = tmp_path / "checkpoint.bin"
+	checkpoint.write_bytes(b"checkpoint")
+	detector = tmp_path / "detector.json"
+	detector.write_text(json.dumps({"checkpoint": checkpoint.name}), encoding="utf-8")
+	monkeypatch.setattr(runner, "SUITES", suites_dir)
+	monkeypatch.setattr(runner, "code_commit", lambda: "frozen-commit")
+	items_seen = []
+
+	def record_jobs(items, *_args):
+		items_seen.extend(items)
+		return 0
+
+	monkeypatch.setattr(runner, "_execute_jobs", record_jobs)
+	freeze = tmp_path / "freeze.json"
+	root = tmp_path / "runs-root"
+	common = [
+		"--detector-spec",
+		str(detector),
+		"--suite",
+		"test_suite",
+		"--strategy",
+		"B",
+		"--real-cameras",
+		"fixed,drift",
+		"--localise",
+		"vote",
+		"--drift-alarm",
+	]
+	assert runner.main(["freeze-pair", *common, "--out", str(freeze)]) == 0
+	args = ["run-pair", *common, "--root", str(root), "--batch", "paired", "--case-limit", "1", "--freeze", str(freeze)]
+	assert runner.main(args) == 0
+	assert len(items_seen) == 3
+	configs, jobs = zip(*items_seen, strict=True)
+	assert [c["sensing"] for c in configs] == ["truth", "realistic", "realistic"]
+	assert "drift_alarm" not in configs[0]["agent_options"]
+	assert all(c["agent_options"]["drift_alarm"] for c in configs[1:])
+	assert all(j["experiment"]["sealed"] for j in jobs)
+	assert len({j["experiment"]["freeze_sha256"] for j in jobs}) == 1
+	assert [j["experiment"]["camera_condition"] for j in jobs] == ["fixed", "fixed", "drift"]
+	assert all(j["experiment"]["detector_checkpoint_sha256"] == runner._sha256(checkpoint) for j in jobs)
+
+	with pytest.raises(SystemExit, match=r"groups\.realistic-fixed-B-v7bot-loc-vote"):
+		runner.main([a for a in args if a != "--drift-alarm"])
+	assert len(items_seen) == 3
+	checkpoint.write_bytes(b"different checkpoint")
+	with pytest.raises(SystemExit, match="detector_checkpoint_sha256"):
+		runner.main(args)
+
+
+def test_dev_resume_refuses_a_different_commit(tmp_path, monkeypatch):
+	detector = tmp_path / "detector.json"
+	detector.write_text("{}", encoding="utf-8")
+	monkeypatch.setattr(runner, "_execute_jobs", lambda *_args: 0)
+	monkeypatch.setattr(runner, "code_commit", lambda: "commit-a")
+	args = [
+		"run-pair",
+		"--suite",
+		"smoke_600008",
+		"--root",
+		str(tmp_path),
+		"--batch",
+		"dev",
+		"--detector-spec",
+		str(detector),
+		"--real-cameras",
+		"fixed",
+	]
+	assert runner.main(args) == 0
+	monkeypatch.setattr(runner, "code_commit", lambda: "commit-b")
+	with pytest.raises(SystemExit, match="planned differently.*code_commit"):
+		runner.main(args)

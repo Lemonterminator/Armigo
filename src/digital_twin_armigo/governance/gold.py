@@ -11,6 +11,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
+from ..experiments.contract import freeze_digest
 from ..vla import dagger
 from .bronze import _commit
 from .segments import DEFAULT_SEED_RANGES, is_sealed
@@ -62,6 +63,9 @@ def _matches_freeze(r: dict, ctx: dict) -> bool:
 		return False
 	ep_commit = r.get("provenance_commit")
 	if ep_commit is not None and ep_commit != freeze.get("code_commit"):
+		return False
+	ep_freeze = r.get("freeze_sha256")
+	if ("groups" in freeze or ep_freeze) and ep_freeze != freeze_digest(freeze):
 		return False
 	f_det = freeze.get("detector")
 	ep_det = r.get("detector")

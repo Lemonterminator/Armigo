@@ -22,8 +22,23 @@
 - 每组第一次运行写 `plan.json`（套件、检测器摘要、选项、案例列表）；以后选项不一致会拒绝运行，避免一个组里混两种设置。
 - 磁盘：每提交一个回合前检查剩余空间，低于 `--min-free-gib`（默认 8）加在途回合的估计体积就停在批次边界，返回码 3。
 - 套件在 `config/agent_bench/v2/`（`scripts/experiments/make_suites.py` 生成，`manifest.json` 记 sha256）；首次使用时复制到 `D:/Armigo_data_v2/suites/` 并校验。
-- **封存套件**（`p1_sealed`、`p2_sealed`）只有带 `--freeze <freeze.json>` 才能跑；freeze 文件由 `runner freeze` 在开发结束、代码已提交时写出，记录提交号、检测器摘要、Agent 选项和 Policy，运行时逐项比对，工作区有未提交改动也拒绝。
+- **封存套件**（`p1_sealed`、`p2_sealed`）只有带 `--freeze <freeze.json>` 才能跑；单组的 freeze 文件由 `runner freeze` 在开发结束、代码已提交时写出，记录提交号、检测器摘要、Agent 选项和 Policy，运行时逐项比对，工作区有未提交改动也拒绝。
 - 检测器：`v6` = `results/agent-bench/sup-local.json`（`models-sup/sup.json` 的检查点相对路径失效），`v7bot` = `results/anomaly/models-sup/sup-v7bot.json`。
+
+## 配对采集和封存
+
+`run-pair` 用同一套件在同一批次写入全知和 realistic 回合。默认包含 fixed、recal、drift。用 `--case-limit` 固定每组的试采案例数，续跑会跳过已完成的回合。每组的计划固定提交和检测器权重哈希。换代码或模型后开新批次。模拟器和检测器等基础设施失败返回 2，任务本身的失败会正常保存轨迹。
+
+新工作树可通过 `--detector-spec` 指向已有模型 JSON。以下命令假定 PowerShell，当前路径为仓库根目录。封存注明套件、引擎、检测器和各组配置，并将 freeze 的内容哈希写入每个回合。两条命令使用相同的组与模型选项。
+
+```powershell
+$armigoDetectorSpec = "E:/digital_twin_armigo/results/anomaly/models-sup/sup-v7bot.json"
+$armigoFreezePath = "D:/Armigo_data_v2/freezes/p2-mujoco-B.json"
+python -m digital_twin_armigo.experiments.runner freeze-pair --engine mujoco --suite p2_sealed --strategy B --detector-spec $armigoDetectorSpec --out $armigoFreezePath
+python -m digital_twin_armigo.experiments.runner run-pair --engine mujoco --suite p2_sealed --strategy B --detector-spec $armigoDetectorSpec --batch p2-sealed-mujoco-B --freeze $armigoFreezePath
+```
+
+`--localise vote` 启用形状投票和腕环定位，`--drift-alarm` 再启用一次顶相机重校准。配对命令只在 realistic 侧应用这两个参数。对照组和告警组有独立的组名。执行封存实验时沿用对应的预注册配置。
 
 ## Agent 侧的新选项（`TwinMujoco`）
 
