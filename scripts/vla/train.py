@@ -209,6 +209,7 @@ def run_training(
 	local_files_only: bool = False,
 	bowl_token: bool = False,
 	gpu_augmentor: StudentImageAugmentor | None = None,
+	normalizer_from: Path | None = None,
 ) -> dict[str, Any]:
 	"""Execute the S9 training loop on ``train_ds`` with optional periodic evaluation on ``val_ds``."""
 	_seed_everything(seed)
@@ -226,7 +227,14 @@ def run_training(
 	head_lr_val = float(end_head_lr if end_head_lr is not None else DEFAULT_END_HEAD_LR[family])
 
 	# Fit stats and end-step class weights EXCLUSIVELY on the training split.
-	normalizer = train_ds.fit_normalizer()
+	if normalizer_from is not None:
+		# Warm start on a narrower dataset (e.g. grasp-only): keep the initial checkpoint's input / action scaling so
+		# its features stay valid, instead of refitting on the new data.
+		from digital_twin_armigo.vla.contract import ActionNormalizer
+
+		normalizer = ActionNormalizer.load(Path(normalizer_from) / "normalizer.json")
+	else:
+		normalizer = train_ds.fit_normalizer()
 	class_weights = train_ds.end_step_class_weights()
 	normalizer.save_alongside_checkpoint(out_dir)
 	(out_dir / "train_summary.json").write_text(
@@ -451,6 +459,12 @@ def main(argv: list[str] | None = None) -> int:
 		action="store_true",
 		help="ACT: target-bowl one-hot as its own encoder token (docs/vla/BOWL_CHANNEL_PAIRED_PLAN_2026-11-23.md)",
 	)
+	p.add_argument(
+		"--normalizer-from",
+		type=Path,
+		default=None,
+		help="Checkpoint directory whose normalizer.json to reuse instead of fitting one (warm start on narrower data)",
+	)
 	p.add_argument("--tiny-for-test", action="store_true", help="Use tiny in-memory backbone for fast smoke tests")
 	p.add_argument("--mlflow", action="store_true", help="Record this run (params, metrics, data digests) in MLflow")
 	p.add_argument("--mlflow-experiment", default="vla-train")
@@ -517,6 +531,7 @@ def main(argv: list[str] | None = None) -> int:
 			local_files_only=args.local_files_only,
 			bowl_token=args.bowl_token,
 			gpu_augmentor=StudentImageAugmentor(seed=args.seed) if args.gpu_augment and not args.no_augment else None,
+			normalizer_from=args.normalizer_from,
 		)
 		run.log_report(summary["final_val_metrics"] or {}, "val")
 		run.log_metrics({"best_end_step_f1": summary["best_end_step_f1"]})

@@ -530,7 +530,7 @@ def main(argv: list[str] | None = None) -> int:
 		if a.workers <= 1:
 			it = (run_case(s, *args) for s in seeds)
 		else:
-			pool = ProcessPoolExecutor(a.workers, max_tasks_per_child=10)
+			pool = ProcessPoolExecutor(a.workers)
 			it = (f.result() for f in as_completed([pool.submit(run_case, s, *args) for s in seeds]))
 		for r in it:
 			recs.append(r)
