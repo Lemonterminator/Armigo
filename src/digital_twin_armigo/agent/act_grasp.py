@@ -202,10 +202,16 @@ def grasp_trial(
 		"brick_dz_m": dz,
 		"localised": None
 		if loc is None
-		else {k: loc.get(k) for k in ("found", "shape", "vlm", "agree", "confirms", "chosen", "error_xy_mm")},
+		else {
+			k: loc.get(k)
+			for k in ("found", "shape", "vlm", "agree", "confirms", "chosen", "correction_mm", "error_xy_mm")
+		},
 		"ring": None
 		if ring is None
-		else {k: ring[k] for k in ("poses", "fixes", "accepted", "error_xy_mm_before", "error_xy_mm")},
+		else {
+			k: ring.get(k)
+			for k in ("poses", "fixes", "accepted", "innovation_xy_mm", "error_xy_mm_before", "error_xy_mm")
+		},
 		"verdict": "SUCCESS" if lifted else "FAILED",
 		"student_eligible": False,
 		"rewinds": 0,
