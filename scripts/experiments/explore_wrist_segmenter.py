@@ -61,7 +61,12 @@ def _work(item):
 	value = 1.0 if job["case"][1] else -1.0
 	if svc.scorer is not None:
 		svc.scorer.close()
-	svc.scorer = FixedScorer(lambda _cam, _img, v=value: v, {"top": 0.0, "wrist_cam": 0.0})
+
+	class _Oracle(FixedScorer):
+		def close(self) -> None:  # the service closes its scorer when the job ends
+			pass
+
+	svc.scorer = _Oracle(lambda _cam, _img, v=value: v, {"top": 0.0, "wrist_cam": 0.0})
 	return runner.run_job(config, job)
 
 
