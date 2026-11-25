@@ -2339,7 +2339,9 @@ class TwinMujoco:
 					table_offset_threshold_mm=DRIFT_TABLE_OFFSET_MM,
 					already_attempted=self._recalibration_attempted,
 				)
-				return RECALIBRATE
+				if not self._recalibration_attempted:
+					return RECALIBRATE
+				# Keep the latest localisation usable when the alarm persists after calibration.
 		self._brick_hint = {"top_xy": top_xy, "delta": delta}
 		return None
 

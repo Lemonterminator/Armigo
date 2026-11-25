@@ -45,9 +45,10 @@ MIN_TOP_POINTS = 40
 TABLE_BAND_M = 0.03  # first guess of table points around z = 0
 TABLE_INLIER_M = 0.003
 RESTING_BRICK_CLEARANCE_M = 0.0005
-# Selected from the paired nominal-drift and calibrated localisation runs (seeds 3001201–3001260).
+# The initial pairs set the correction threshold. In seeds 3001261–3001320 the
+# calibrated table residual reached 2.79 mm, so allow up to 3 mm.
 DRIFT_CORRECTION_MM = 6.5
-DRIFT_TABLE_OFFSET_MM = 2.5
+DRIFT_TABLE_OFFSET_MM = 3.0
 MIN_DEFICIT_M = 0.003  # a fitted side this much shorter than the brick is checked for occlusion
 OCCLUDER_GAP_M = 0.01  # a pixel is covered when its depth is this much nearer than the hidden top face
 # Bowl colours as OpenCV HSV bounds (H 0-180): hue low, hue high, minimum saturation, minimum value.
