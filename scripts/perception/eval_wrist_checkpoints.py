@@ -281,7 +281,7 @@ def main(argv=None) -> int:
 	p.add_argument("--methods", nargs="+", default=["lab", "silhouette"], choices=["lab", "silhouette", "unet"])
 	p.add_argument("--onnx", type=Path, default=None, help="BrickSegNet ONNX for --methods unet")
 	p.add_argument(
-		"--confuser-de", type=float, default=35.0, help="ΔE at or below which a confuser counts as same colour"
+		"--confuser-de", type=float, default=35.0, help="Lab delta-E at or below which a confuser counts as same colour"
 	)
 	p.add_argument("--out", type=Path, required=True)
 	a = p.parse_args(argv)
