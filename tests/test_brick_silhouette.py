@@ -180,3 +180,15 @@ def test_mujoco_wrist_checkpoint_fixes_with_silhouette(tmp_path):
 	fixes = [e for e in trace.events if e["kind"] == "wrist_fix"]
 	assert fixes and fixes[0]["found"] and fixes[0]["accepted"]
 	assert fixes[0]["error_xy_mm"] < 1.5 and fixes[0]["error_yaw_deg"] < 1.5
+
+
+def test_wrong_believed_height_is_corrected_by_the_table_hypothesis():
+	k, w2c, xy, yaw = _setup()
+	img = _draw_cuboid(_table(), k, w2c, xy, yaw)
+	prior_xy, prior_yaw = xy + [0.006, 0.004], yaw - math.radians(6)
+	high = TOP_Z + 0.010  # a top-camera estimate under drift can put the brick 5-12 mm too high
+	off, _ = fit_silhouette(img, k, w2c, prior_xy, prior_yaw, SIZE, high, table_z=None, min_contrast=0.0)
+	fix, why = fit_silhouette(img, k, w2c, prior_xy, prior_yaw, SIZE, high)
+	assert why is None
+	assert _errors(fix, xy, yaw)[0] < 1.0 and abs(fix.z - (TOP_Z - SIZE[2] / 2)) < 1e-6
+	assert _errors(off, xy, yaw)[0] > 2.0  # without it the wrong height shifts the fit along the view direction

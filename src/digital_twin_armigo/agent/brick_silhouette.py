@@ -121,10 +121,11 @@ class _Scorer:
 		cv2.fillConvexPoly(buf, hull, 1, lineType=cv2.LINE_8, shift=_SHIFT)
 		return float(cv2.contourArea(hull.astype(np.float32))) / (1 << (2 * _SHIFT))
 
-	def __call__(self, xy, yaw) -> tuple[float, float, float]:
+	def __call__(self, xy, yaw, top_z=None) -> tuple[float, float, float]:
 		"""(region contrast, foreground fraction inside, fraction of the full silhouette inside the valid region)."""
-		full = self._fill(self.inner, cuboid_corners(xy, yaw, self.size, self.top_z))
-		if full is None or self._fill(self.outer, cuboid_corners(xy, yaw, self.size, self.top_z, grow=_BAND_M)) is None:
+		top = self.top_z if top_z is None else top_z
+		full = self._fill(self.inner, cuboid_corners(xy, yaw, self.size, top))
+		if full is None or self._fill(self.outer, cuboid_corners(xy, yaw, self.size, top, grow=_BAND_M)) is None:
 			return -1.0, 0.0, 0.0
 		inner = self.inner.astype(bool) & self.valid
 		band = self.outer.astype(bool) & ~self.inner.astype(bool) & self.valid
@@ -177,19 +178,27 @@ def _colour_masks(rgb, fg, *, min_px, chroma_tol=0.035, grey_chroma=0.03, dark_s
 	return masks
 
 
-def _descend(score, xy, yaw):
-	best = score(xy, yaw)[0]
+def _descend(score, xy, yaw, top, z_lo, z_hi):
+	"""Coordinate ascent of the contrast over (x, y, yaw) and, when ``z_lo < z_hi``, the top-face height."""
+	best = score(xy, yaw, top)[0]
+	free_z = z_hi > z_lo
 	for d_m, d_deg in _STEPS:
 		d_rad = math.radians(d_deg)
+		moves = [(d_m, 0, 0, 0), (-d_m, 0, 0, 0), (0, d_m, 0, 0), (0, -d_m, 0, 0), (0, 0, d_rad, 0), (0, 0, -d_rad, 0)]
+		if free_z:
+			moves += [(0, 0, 0, d_m), (0, 0, 0, -d_m)]
 		improved = True
 		while improved:
 			improved = False
-			for dx, dy, dt in ((d_m, 0, 0), (-d_m, 0, 0), (0, d_m, 0), (0, -d_m, 0), (0, 0, d_rad), (0, 0, -d_rad)):
+			for dx, dy, dt, dz in moves:
+				cand_top = top + dz
+				if not z_lo <= cand_top <= z_hi:
+					continue
 				cand_xy = (xy[0] + dx, xy[1] + dy)
-				val = score(cand_xy, yaw + dt)[0]
+				val = score(cand_xy, yaw + dt, cand_top)[0]
 				if val > best + 1e-6:
-					best, xy, yaw, improved = val, cand_xy, yaw + dt, True
-	return best, np.asarray(xy, dtype=np.float64), yaw
+					best, xy, yaw, top, improved = val, cand_xy, yaw + dt, cand_top, True
+	return best, np.asarray(xy, dtype=np.float64), yaw, top
 
 
 def _plane_point(k, world_from_cam, u, v, z):
@@ -239,11 +248,20 @@ def fit_silhouette(
 	min_contrast: float = 0.8,
 	min_visible: float = 0.9,
 	tie: float = 0.05,
+	table_z: float | None = 0.0,
+	z_range_m: float = 0.0,
 ):
 	"""Return ``(WristFix, None)`` or ``(None, reason)``; reasons TILTED / NO_BLOB / CLIPPED / BAD_FIT / OUTSIDE_GATE.
 
 	``WristFix.fill`` carries the region contrast of the chosen pose; ``footprint_m`` is the known footprint. Among
-	poses whose contrast is within ``tie`` of the best, the one nearest the prior is taken."""
+	poses whose contrast is within ``tie`` of the best, the one nearest the prior is taken.
+
+	Height: a wrong believed height shifts the fitted position along the view direction (about ``tan(view angle)``
+	times the height error), and a top-camera estimate under camera drift can be 5-12 mm off. So each start is fitted
+	at the believed ``top_z`` and, when ``table_z`` is given, also at ``table_z + size[2]`` (the brick resting flat on
+	the table); the better contrast wins. ``z_range_m > 0`` additionally searches the height continuously within
+	``± z_range_m`` of each hypothesis (off by default: with a correct height it trades scale against depth and loses
+	accuracy). ``WristFix.z`` is the chosen centre height."""
 	axis = world_from_cam[:3, 2]
 	tilt = math.degrees(math.acos(float(np.clip(-axis[2], -1.0, 1.0))))
 	if tilt > max_tilt_deg:
@@ -262,17 +280,25 @@ def fit_silhouette(
 	score = _Scorer(fg.astype(bool), valid, k, cam_from_world, size, top_z)
 	# Smallest region worth a start: a quarter of the brick's top face at this depth.
 	min_area = 0.25 * size[0] * size[1] * (k[0, 0] / depth) ** 2
+	tops = [float(top_z)]
+	if table_z is not None and abs(table_z + size[2] - top_z) > 0.001:
+		tops.append(float(table_z + size[2]))
 	fits = []
 	# All foreground, then each dominant colour on its own: an object of another colour touching the brick (a marker
 	# card, the gripper) then lies outside the brick's mask and no longer counts as leak in the band.
 	for mask in [fg, *_colour_masks(rgb, fg * valid, min_px=min_area)]:
 		sc = score if mask is fg else _Scorer(mask.astype(bool), valid, k, cam_from_world, size, top_z)
 		for xy0, yaw0 in _starts(mask, k, world_from_cam, size, top_z, prior_xy, prior_yaw, min_area):
-			fits.append(_descend(sc, (float(xy0[0]), float(xy0[1])), float(yaw0)))
+			for top0 in tops:
+				fits.append(
+					_descend(sc, (float(xy0[0]), float(xy0[1])), float(yaw0), top0, top0 - z_range_m, top0 + z_range_m)
+				)
 	best = max(f[0] for f in fits)
 	prior = np.asarray(prior_xy, dtype=np.float64)
-	contrast, xy, yaw = min((f for f in fits if f[0] >= best - tie), key=lambda f: float(np.linalg.norm(f[1] - prior)))
-	_, _, visible = score(xy, yaw)
+	contrast, xy, yaw, top = min(
+		(f for f in fits if f[0] >= best - tie), key=lambda f: float(np.linalg.norm(f[1] - prior))
+	)
+	_, _, visible = score(xy, yaw, top)
 	if visible < min_visible:
 		return None, "CLIPPED"
 	if contrast < min_contrast:
@@ -282,4 +308,7 @@ def fit_silhouette(
 	period = math.pi / 2 if abs(size[0] - size[1]) < 1e-6 else math.pi
 	yaw += period * round((prior_yaw - yaw) / period)
 	footprint = tuple(sorted((float(size[0]), float(size[1])), reverse=True))
-	return WristFix(xy, float(yaw), int(np.count_nonzero(fg)), float(contrast), footprint, tilt), None
+	fix = WristFix(
+		xy, float(yaw), int(np.count_nonzero(fg)), float(contrast), footprint, tilt, z=float(top - size[2] / 2)
+	)
+	return fix, None
