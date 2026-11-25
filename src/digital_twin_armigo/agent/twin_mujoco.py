@@ -807,7 +807,6 @@ class TwinMujoco:
 			self.expert_type = with_perceived_bowl_clearance(self.expert_type, self.bowl_clearance)
 			self.expert_type = with_believed_brick_size(self.expert_type, self._believed_brick_size)
 		self.expert = self._make_expert(ExpertParams(), RelocateParams(do_bottom=False, do_scan=False))
-		self._configure_recheck()
 		self.node = ""
 		self.phases: list[int] = []
 		self.targets: list[np.ndarray] = []  # policy target per frame (before the command filter)
@@ -882,15 +881,19 @@ class TwinMujoco:
 		ex = self.expert_type(self.cell, INITIAL_Q, self._expert_xy, params, relocate)
 		if self.realistic:
 			ex.gripper_monitor = GripperMonitor(GripperMonitorParams(effort_min=0.0, use_effort=False))
+		self._configure_recheck(ex)
 		return ex
 
-	def _configure_recheck(self) -> None:
+	def _configure_recheck(self, expert=None) -> None:
+		ex = self.expert if expert is None else expert
 		spec = VARIANTS[self.motion]
-		if spec is not None:
-			if not self.realistic:
-				raise ValueError("motion variants are for realistic sensing; truth sees the brick directly")
-			heights, mode = spec
-			self.expert.recheck = GraspLoop(heights, mode, self._wrist_look)
+		if spec is None:
+			ex.recheck = None
+			return
+		if not self.realistic:
+			raise ValueError("motion variants are for realistic sensing; truth sees the brick directly")
+		heights, mode = spec
+		ex.recheck = GraspLoop(heights, mode, self._wrist_look)
 
 	def _get_brick_net(self):
 		if self._brick_net is None:
@@ -1861,7 +1864,7 @@ class TwinMujoco:
 		ex, cell = self.expert, self.cell
 		spacing_deg = 10.0 if self.evidence == "dense-10" else 20.0
 		spacing_rad = math.radians(spacing_deg)
-		delay_frames = max(0, round(self.detector_latency_s * FPS))
+		delay_frames = max(1, round(self.detector_latency_s * FPS))
 
 		full_path: list[np.ndarray] = []
 		pending: list[np.ndarray] = []
@@ -1906,47 +1909,40 @@ class TwinMujoco:
 			due[:] = remaining
 			return self._decide([*previous, *views])[0] == "defective"
 
-		def _run_gen(gen) -> str | None:
+		def dense_scan(path):
 			nonlocal next_arc, defer, prev_tcp, stop_early, step_i
-			ex._gen = gen
-			ex.done = False
-			try:
-				while self.total_frames < MAX_TOTAL_FRAMES:
-					if self.on_frame is not None:
-						self.on_frame(self)
-					obs = self._observe()
-					target, phase = ex.act(obs)
-					if ex.done:
-						return None
-					if err := self._apply_target(obs, target, phase):
-						return err
+			for target, phase in sweep(
+				ex, path, self.scan_peak_speed, ex.rp.scan_move_s, pause_s=0.0, on_progress=on_prog
+			):
+				yield target, phase
+				step_i += 1
+				cur_tcp = cell.tcp_pos()
+				tcp_speed = float(np.linalg.norm(cur_tcp - prev_tcp) * FPS)
+				prev_tcp = cur_tcp
+				cur_arc = progress[0] * total_arc
+				if cur_arc >= next_arc or defer > 0:
+					if tcp_speed <= 0.08 or defer >= 5:
+						if self._views_left() - len(due) > 0:
+							v = self._capture("wrist_cam", in_motion=True, decided_after_frames=delay_frames)
+							due.append((step_i + delay_frames, v))
+						next_arc = max(next_arc + spacing_rad, cur_arc + spacing_rad)
+						defer = 0
+					else:
+						defer += 1
+				if _flush_due(step_i):
+					stop_early = True
+					return
+			if self._decide([*previous, *views])[0] != "defective":
+				for target, phase in ex._hold_servo(path[-1], ex.rp.scan_hold_s, "approach"):
+					yield target, phase
 					step_i += 1
-					cur_tcp = cell.tcp_pos()
-					tcp_speed = float(np.linalg.norm(cur_tcp - prev_tcp) * FPS)
-					prev_tcp = cur_tcp
-					cur_arc = progress[0] * total_arc
-					if cur_arc >= next_arc or defer > 0:
-						if tcp_speed <= 0.08 or defer >= 5:
-							if self._views_left() - len(due) > 0:
-								v = self._capture("wrist_cam", in_motion=True, decided_after_frames=delay_frames)
-								due.append((step_i + delay_frames, v))
-							next_arc = max(next_arc + spacing_rad, cur_arc + spacing_rad)
-							defer = 0
-						else:
-							defer += 1
 					if _flush_due(step_i):
 						stop_early = True
-						return None
-				return "ACTION_BUDGET_EXHAUSTED"
-			finally:
-				gen.close()
+						return
 
-		sweep_gen = sweep(ex, full_path, self.scan_peak_speed, ex.rp.scan_move_s, pause_s=0.0, on_progress=on_prog)
-		if err := _run_gen(sweep_gen):
+		if err := self._execute(dense_scan(full_path)):
 			return err
 		if not stop_early and self._decide([*previous, *views])[0] != "defective":
-			if err := self._execute(ex._hold_servo(full_path[-1], ex.rp.scan_hold_s, "approach")):
-				return err
 			_flush_due(step_i + delay_frames + 1)
 			if self._views_left() > 0 and self._decide([*previous, *views])[0] != "defective":
 				views.append(self._capture("wrist_cam", in_motion=False, decided_after_frames=0))

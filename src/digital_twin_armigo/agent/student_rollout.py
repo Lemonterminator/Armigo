@@ -259,6 +259,23 @@ class _SegmentMixin:
 				{"mode": "review", "target_q": _rounded(pose), "roll_deg": roll_deg(pose[4])},
 				variant=v,
 			)
+		if name == "dense_scan":
+			path = local["path"]
+			faces = sorted({f for cand, _ in self._scan_steps for f in range(5) if cand.faces_px[f] >= WRIST_MIN_PX})
+			return "simple", Segment(
+				"scan_view",
+				{
+					"mode": getattr(self, "_scan_mode", "orbit"),
+					"evidence": getattr(self, "evidence", "dense"),
+					"view": 1,
+					"views": 1,
+					"faces": faces,
+					"target_q": _rounded(path[-1]),
+					"via_poses": len(path) - 1,
+					"roll_deg": roll_deg(path[-1][4]),
+				},
+				variant=v,
+			)
 		if name == "look" and "path" in local:  # TwinMujoco._wrist: sweep through ``path`` and hold its last pose
 			path = local["path"]
 			k = next((i for i, (c, _) in enumerate(self._scan_steps) if c.q is path[-1]), None)
@@ -456,7 +473,12 @@ class ExpertTracer(_SegmentMixin, TwinMujoco):
 			wrapped = generator
 		else:
 			wrapped = self._split(generator, *value)
-		error = super()._execute(wrapped)
+		try:
+			error = super()._execute(wrapped)
+		except BaseException:
+			if self._open_segment is not None:
+				self._segment_end("error")
+			raise
 		if self._open_segment is not None:
 			lost = self._open_segment["segment"].held and self.expert.lost
 			self._segment_end(error or ("brick_lost" if lost else "done"))
