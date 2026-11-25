@@ -9,13 +9,28 @@ from typing import Literal, TypedDict
 from .llm import ChatLLM, LLMError
 
 TASK = "Inspect the brick for a cross. Sort defective bricks into the pink bowl and normal bricks into the green bowl."
-NODES = ("prepare", "localize", "choose_view", "scan_wrist", "present_bottom", "recover", "place", "evaluate")
+RECALIBRATE = "RECALIBRATE"
+RECALIBRATION_FAILED = "RECALIBRATION_FAILED"
+NODES = (
+	"prepare",
+	"localize",
+	"recalibrate",
+	"choose_view",
+	"scan_wrist",
+	"present_bottom",
+	"recover",
+	"place",
+	"evaluate",
+)
 EDGES = (
 	("prepare", "recover"),
 	("prepare", "localize"),
 	("prepare", "choose_view"),
 	("localize", "choose_view"),
 	("localize", "recover"),
+	("localize", "recalibrate"),
+	("recalibrate", "localize"),
+	("recalibrate", "recover"),
 	("choose_view", "scan_wrist"),
 	("choose_view", "present_bottom"),
 	("choose_view", "place"),
@@ -48,6 +63,7 @@ class Policy:
 
 class InspectionState(TypedDict, total=False):
 	views: list[dict]
+	recalibration_attempted: bool
 	failures: list[dict]
 	action: str
 	error: str | None
@@ -76,6 +92,14 @@ def build_graph(backend, policy: Policy, checkpointer=None):
 	def localize(state: InspectionState):
 		# Brick localisation before any skill (backend.localise_brick): vote, wrist confirmation, ring, pin.
 		return {"error": backend.localise_brick()}
+
+	def after_localize(state: InspectionState):
+		if state["error"] == RECALIBRATE and not state.get("recalibration_attempted"):
+			return "recalibrate"
+		return "recover" if state["error"] else "choose_view"
+
+	def recalibrate(state: InspectionState):
+		return {"error": backend.recalibrate(), "recalibration_attempted": True}
 
 	def choose_view(state: InspectionState):
 		views = state["views"]
@@ -112,7 +136,7 @@ def build_graph(backend, policy: Policy, checkpointer=None):
 	def recover(state: InspectionState):
 		failure = backend.failure(state["error"], state["views"])
 		failures = [*state["failures"], failure]
-		restored = backend.rewind(policy, failures)
+		restored = None if state["error"] in (RECALIBRATE, RECALIBRATION_FAILED) else backend.rewind(policy, failures)
 		if restored is None:
 			return {"action": "evaluate", "label": state.get("label", "unknown"), "failures": failures}
 		return {"action": "choose_view", "views": restored, "error": None, "label": "unknown", "failures": failures}
@@ -127,6 +151,7 @@ def build_graph(backend, policy: Policy, checkpointer=None):
 	for name, operation in (
 		("prepare", prepare),
 		("localize", localize),
+		("recalibrate", recalibrate),
 		("choose_view", choose_view),
 		("scan_wrist", observe("scan_wrist")),
 		("present_bottom", observe("present_bottom")),
@@ -150,10 +175,9 @@ def build_graph(backend, policy: Policy, checkpointer=None):
 		),
 		["recover", "localize", "choose_view"],
 	)
+	graph.add_conditional_edges("localize", after_localize, ["recover", "choose_view", "recalibrate"])
 	graph.add_conditional_edges(
-		"localize",
-		lambda state: "recover" if state["error"] else "choose_view",
-		["recover", "choose_view"],
+		"recalibrate", lambda state: "recover" if state["error"] else "localize", ["recover", "localize"]
 	)
 	graph.add_conditional_edges(
 		"choose_view", lambda s: s["action"], ["scan_wrist", "present_bottom", "review", "place"]

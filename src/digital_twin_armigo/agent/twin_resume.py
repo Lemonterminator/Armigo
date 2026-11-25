@@ -51,7 +51,11 @@ class ResumePlan:
 		return self.checkpoints[-1]
 
 	def graph_state(self):
-		return {"views": self.latest.views, "failures": self.failures, "error": None, "label": "unknown"}
+		state = {"views": self.latest.views, "failures": self.failures, "error": None, "label": "unknown"}
+		agent = self.latest.agent or {}
+		if "recalibration_attempted" in agent:
+			state["recalibration_attempted"] = agent["recalibration_attempted"]
+		return state
 
 
 def live_checkpoint_ids(events_path):

@@ -32,7 +32,7 @@ def _scripted(args: tuple) -> dict:
 	os.environ["CUDA_VISIBLE_DEVICES"] = ""
 	from digital_twin_armigo.agent.act_grasp import grasp_trial
 
-	seed, case_args, out, overrides, ring, localise, vlm_url = args
+	seed, case_args, out, overrides, ring, localise, vlm_url, drift_alarm = args
 	llm = None
 	if vlm_url:
 		from digital_twin_armigo.agent.llm import OpenAICompatLLM
@@ -46,6 +46,7 @@ def _scripted(args: tuple) -> dict:
 			ring_localise=ring,
 			localise=localise,
 			perception_llm=llm,
+			drift_alarm=drift_alarm,
 		)
 	except Exception as e:  # noqa: BLE001 - a crashed trial is a reported failure
 		return {"case": make_case(seed, *case_args), "lifted": False, "error": f"crash:{type(e).__name__}:{e}"}
@@ -111,7 +112,12 @@ def main(argv: list[str] | None = None) -> int:
 		help="vote: the localize node (shape rule + VLM, wrist confirmation, ring, pin) after prepare (scripted arm)",
 	)
 	ap.add_argument("--vlm-url", default=None, help="OpenAI-compatible VLM for --localise vote (none: shape rule only)")
+	ap.add_argument(
+		"--drift-alarm", action="store_true", help="recalibrate once on drift during scripted vote localisation"
+	)
 	a = ap.parse_args(argv)
+	if a.drift_alarm and (a.localise != "vote" or a.skip_scripted):
+		ap.error("--drift-alarm requires the scripted arm with --localise vote")
 	case_args = (a.split, a.cameras)
 	ring_tag = ("-ring" if a.ring else "") + ("-vote" if a.localise == "vote" else "")
 	vlm_url = a.vlm_url if a.localise == "vote" else None
@@ -121,12 +127,20 @@ def main(argv: list[str] | None = None) -> int:
 	arms: list[tuple[str, list[dict]]] = []
 	if not a.skip_scripted:
 		overrides = {"descend_close_ratio": a.descend_close_ratio} if a.descend_close_ratio else None
-		name = "scripted" + (f"-close{a.descend_close_ratio:g}" if overrides else "") + ring_tag
+		name = (
+			"scripted"
+			+ (f"-close{a.descend_close_ratio:g}" if overrides else "")
+			+ ring_tag
+			+ ("-alarm" if a.drift_alarm else "")
+		)
 		out = a.out / name
 		out.mkdir(parents=True, exist_ok=True)
 		with ProcessPoolExecutor(a.workers) as pool:
 			rows = list(
-				pool.map(_scripted, [(s, case_args, out, overrides, a.ring, a.localise, vlm_url) for s in seeds])
+				pool.map(
+					_scripted,
+					[(s, case_args, out, overrides, a.ring, a.localise, vlm_url, a.drift_alarm) for s in seeds],
+				)
 			)
 		arms.append((name, rows))
 	if a.ckpt is not None:

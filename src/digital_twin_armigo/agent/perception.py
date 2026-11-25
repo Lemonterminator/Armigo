@@ -44,6 +44,11 @@ GRID_M = 0.001
 MIN_TOP_POINTS = 40
 TABLE_BAND_M = 0.03  # first guess of table points around z = 0
 TABLE_INLIER_M = 0.003
+RESTING_BRICK_CLEARANCE_M = 0.0005
+# The initial pairs set the correction threshold. In seeds 3001261–3001320 the
+# calibrated table residual reached 2.79 mm, so allow up to 3 mm.
+DRIFT_CORRECTION_MM = 6.5
+DRIFT_TABLE_OFFSET_MM = 3.0
 MIN_DEFICIT_M = 0.003  # a fitted side this much shorter than the brick is checked for occlusion
 OCCLUDER_GAP_M = 0.01  # a pixel is covered when its depth is this much nearer than the hidden top face
 # Bowl colours as OpenCV HSV bounds (H 0-180): hue low, hue high, minimum saturation, minimum value.
@@ -97,6 +102,11 @@ def depth_points(depth: np.ndarray, k: np.ndarray, world_from_cam: np.ndarray) -
 	u, v = np.meshgrid(np.arange(w, dtype=np.float64), np.arange(h, dtype=np.float64))
 	cam = np.stack([(u - k[0, 2]) / k[0, 0] * depth, (v - k[1, 2]) / k[1, 1] * depth, depth], axis=-1)
 	return cam @ world_from_cam[:3, :3].T + world_from_cam[:3, 3]
+
+
+def top_camera_drift(correction_mm: float, ring_accepted: bool, table_z_mm: float) -> bool:
+	"""Test the wrist correction and the fitted table against the robot's known z=0 table datum."""
+	return (ring_accepted and correction_mm > DRIFT_CORRECTION_MM) or abs(table_z_mm) > DRIFT_TABLE_OFFSET_MM
 
 
 def yaw_error_deg(est: float, truth: float, size: tuple[float, float, float]) -> float:
@@ -274,7 +284,9 @@ def locate_brick(
 		centre = centre + sign * deficit / 2 * axis
 		extended.append(round(deficit * 1000, 2))
 	table_z = float(centre @ plane[:2] + plane[2])
-	pos = np.array([centre[0], centre[1], table_z + size[2] / 2 + 0.0005])  # resting upright on the table
+	pos = np.array(
+		[centre[0], centre[1], table_z + size[2] / 2 + RESTING_BRICK_CLEARANCE_M]
+	)  # resting upright on the table
 	n_long = 12 if size[0] > 0.048 else 8
 	a = np.linspace(-0.45 * size[0], 0.45 * size[0], n_long)
 	b = np.linspace(-0.45 * size[1], 0.45 * size[1], 8)
