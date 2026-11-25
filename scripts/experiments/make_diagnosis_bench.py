@@ -50,14 +50,10 @@ def build_benchmark(audit_path: Path, inventory_dir: Path) -> list[dict]:
 	if not audit_path.is_file():
 		raise FileNotFoundError(f"audit database not found: {audit_path}")
 
-	with audit.connect(audit_path) as con:
-		traj_ids = [
-			r[0] for r in con.execute("select traj_id from reviews group by traj_id order by traj_id").fetchall()
-		]
+	latest_by_tid = audit.latest_all(audit_path)
 
 	entries: list[dict] = []
-	for tid in traj_ids:
-		rev = audit.latest(audit_path, tid)
+	for tid, rev in sorted(latest_by_tid.items()):
 		if rev is None or rev.get("state") != "confirmed" or not rev.get("root_cause"):
 			continue
 		ep_path = query.agent_episode_path(inventory_dir, tid)

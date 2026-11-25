@@ -138,10 +138,29 @@ def _expected_frames(eps: list[Path]) -> int:
 	return frames
 
 
-def _export_shard(shard: Path, eps: list[Path], lerobot_python: Path, student_cameras_only: bool = True) -> None:
-	"""Export ``eps`` (trimmed to their supervised part) into ``shard``, read it back, then delete their ``*.mkv``."""
+def _export_shard(
+	shard: Path,
+	eps: list[Path],
+	lerobot_python: Path,
+	student_cameras_only: bool = True,
+	*,
+	delete_mkv: bool = False,
+	staging_root: Path | None = None,
+	cleanup_log: Path | None = None,
+) -> None:
+	"""Export ``eps`` (trimmed to their supervised part) into ``shard``, read it back, and optionally clean staging ``*.mkv``."""
+	from datetime import UTC, datetime
+
+	if delete_mkv:
+		if staging_root is None:
+			raise ValueError("staging_root is required when delete_mkv=True")
+		sroot = Path(staging_root).resolve()
+		for e in eps:
+			if not Path(e).resolve().is_relative_to(sroot):
+				raise ValueError(f"refusing to delete mkv outside staging_root {sroot}: {e}")
 	if shard.exists():
 		shutil.rmtree(shard)  # an unfinished export (no episodes.json)
+	shard.parent.mkdir(parents=True, exist_ok=True)
 	log = shard.with_suffix(".log")
 	cmd = [str(lerobot_python), "-m", "digital_twin_armigo.agent.twin_record", "--out", str(shard)]
 	cmd += ["--repo-id", REPO_ID, "--trim-unsupervised-prefix"]
@@ -163,10 +182,34 @@ def _export_shard(shard: Path, eps: list[Path], lerobot_python: Path, student_ca
 	if (n_eps, n_frames) != want:
 		raise RuntimeError(f"{shard}: read back {n_eps} episodes / {n_frames} frames, expected {want}")
 	(shard / "episodes.json").write_text(json.dumps([str(e) for e in eps], indent=1), encoding="utf-8")
-	mkvs = [m for e in eps for m in e.rglob("*.mkv")]
-	for m in mkvs:
-		m.unlink()
-	print(f"[export] {shard.name}: {n_eps} episodes / {n_frames} frames verified; deleted {len(mkvs)} mkv", flush=True)
+	if delete_mkv:
+		sroot = Path(staging_root).resolve()
+		mkvs = [m for e in eps for m in e.rglob("*.mkv")]
+		for m in mkvs:
+			if not m.resolve().is_relative_to(sroot):
+				raise ValueError(f"refusing to delete mkv outside staging_root {sroot}: {m}")
+		for m in mkvs:
+			m.unlink()
+		ev_path = cleanup_log or (sroot / "cleanup_events.jsonl")
+		ev = {
+			"ts": datetime.now(UTC).isoformat(timespec="seconds"),
+			"policy": "staging_post_readback",
+			"shard": str(shard),
+			"episodes": [str(e) for e in eps],
+			"deleted_mkvs": [str(m) for m in mkvs],
+		}
+		ev_path.parent.mkdir(parents=True, exist_ok=True)
+		with ev_path.open("a", encoding="utf-8") as fh:
+			fh.write(json.dumps(ev, ensure_ascii=False) + "\n")
+		print(
+			f"[export] {shard.name}: {n_eps} episodes / {n_frames} frames verified; deleted {len(mkvs)} staging mkv",
+			flush=True,
+		)
+	else:
+		print(
+			f"[export] {shard.name}: {n_eps} episodes / {n_frames} frames verified; source mkv preserved",
+			flush=True,
+		)
 
 
 def load_manifest_episodes(manifest_path: Path) -> list[Path]:
@@ -201,9 +244,15 @@ def export_pending(
 	jobs: int = 1,
 	student_cameras_only: bool = True,
 	eps_override: list[Path] | None = None,
+	*,
+	delete_mkv: bool | None = None,
 ) -> list[Path]:
 	"""Export accepted episodes not yet in a shard into new shards (``jobs`` exporters at once, pairs kept together)."""
 	from concurrent.futures import ThreadPoolExecutor
+
+	if eps_override is not None and delete_mkv is True:
+		raise ValueError("cannot delete source mkv when exporting from a manifest")
+	effective_delete = (eps_override is None) if delete_mkv is None else bool(delete_mkv)
 
 	done = {e for d in _shards(out) for e in json.loads((d / "episodes.json").read_text(encoding="utf-8"))}
 	source_eps = list(eps_override) if eps_override is not None else accepted_episodes(out)
@@ -218,7 +267,15 @@ def export_pending(
 	shards[0].parent.mkdir(parents=True, exist_ok=True)
 	with ThreadPoolExecutor(len(parts)) as pool:
 		futs = [
-			pool.submit(_export_shard, s, [e for pair in part for e in pair], lerobot_python, student_cameras_only)
+			pool.submit(
+				_export_shard,
+				s,
+				[e for pair in part for e in pair],
+				lerobot_python,
+				student_cameras_only,
+				delete_mkv=effective_delete,
+				staging_root=out if effective_delete else None,
+			)
 			for s, part in zip(shards, parts, strict=True)
 		]
 		for f in futs:

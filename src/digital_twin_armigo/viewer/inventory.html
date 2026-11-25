@@ -333,6 +333,7 @@ function renderAudit(row, reviews, conflict) {
   const reviewer = h('input', { type: 'text', name: 'reviewer', value: localStorage.getItem('armigo.reviewer') || '', placeholder: '审核人' });
   const stateSel = select('state', ENUMS.states, last ? last.state : 'confirmed');
   const cause = select('root_cause', ENUMS.root_causes, last && last.root_cause, '（无）');
+  const mech = select('mechanism', ENUMS.mechanism || [], last && last.mechanism, '（无）');
   const outcome = select('physical_outcome', ENUMS.physical_outcomes, last && last.physical_outcome, '（无）');
   const note = h('textarea', { name: 'note', rows: '3' });
   const refs = h('input', { type: 'text', name: 'refs', placeholder: '0:312:wrist 1:40', value: refText(last && last.refs) });
@@ -346,7 +347,7 @@ function renderAudit(row, reviews, conflict) {
     try {
       const r = await fetch('/api/audit/reviews', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Viewer-Token': await token() },
         body: JSON.stringify({ traj_id: row.traj_id, expected_latest_id: last ? last.id : null, reviewer: reviewer.value, state: stateSel.value,
-          root_cause: cause.value || null, physical_outcome: outcome.value || null, note: note.value || null, refs: parsed }) });
+          root_cause: cause.value || null, mechanism: mech.value || null, physical_outcome: outcome.value || null, note: note.value || null, refs: parsed }) });
       const out = await r.json().catch(() => ({}));
       if (r.status === 409) {
         const cur = out.current;
@@ -354,16 +355,16 @@ function renderAudit(row, reviews, conflict) {
         return;
       }
       if (!r.ok) throw new Error(typeof out.detail === 'string' ? out.detail : r.statusText);
-      row.audit_state = out.state; row.root_cause = out.root_cause;
+      row.audit_state = out.state; row.root_cause = out.root_cause; row.mechanism = out.mechanism;
       renderAudit(row, [out, ...reviews]); loadRows();
     } catch (e) { err.textContent = '提交失败：' + e.message; submit.disabled = false; }
   } },
-    h('label', {}, '审核人'), reviewer, h('label', {}, '状态'), stateSel, h('label', {}, '根因'), cause, h('label', {}, '物理结果'), outcome,
+    h('label', {}, '审核人'), reviewer, h('label', {}, '状态'), stateSel, h('label', {}, '根因'), cause, h('label', {}, '机制'), mech, h('label', {}, '物理结果'), outcome,
     h('label', {}, '帧引用'), refs, h('label', {}, '备注'), note, h('div', { class: 'wide' }, submit));
   body.append(form, err);
   if (!reviews.length) body.append(h('div', { class: 'muted' }, '尚无人工结论（unreviewed）'));
   reviews.forEach((r, i) => body.append(h('div', { class: 'review' + (i === 0 ? ' latest' : '') },
-    h('div', {}, h('b', {}, `#${r.id} ${r.state}`), r.root_cause ? ` · ${r.root_cause}` : '', r.physical_outcome ? ` · ${r.physical_outcome}` : '',
+    h('div', {}, h('b', {}, `#${r.id} ${r.state}`), r.root_cause ? ` · ${r.root_cause}` : '', r.mechanism ? ` · ${r.mechanism}` : '', r.physical_outcome ? ` · ${r.physical_outcome}` : '',
       h('span', { class: 'muted' }, ` · ${r.reviewer} · ${r.created_at}${r.code_version ? ' · ' + r.code_version : ''}${i === 0 ? ' · 当前' : ''}`)),
     r.refs && r.refs.length ? h('div', { class: 'muted' }, '帧：' + refText(r.refs)) : null,
     r.note ? h('div', { class: 'note' }, r.note) : null)));

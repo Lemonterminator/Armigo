@@ -34,6 +34,20 @@ create table if not exists reviews (
 );
 create index if not exists reviews_traj on reviews (traj_id, id);
 """
+_CANONICAL_COLUMNS: tuple[str, ...] = (
+	"id",
+	"traj_id",
+	"created_at",
+	"reviewer",
+	"state",
+	"root_cause",
+	"mechanism",
+	"physical_outcome",
+	"note",
+	"refs",
+	"code_version",
+	"replaces",
+)
 MAX_NOTE = 8000
 MAX_REFS = 50
 
@@ -136,18 +150,62 @@ def validate(body: dict) -> dict:
 	}
 
 
+@contextlib.contextmanager
+def connect_readonly(path: Path):
+	"""Read-only SQLite connection that never mutates the file, switches journal mode, or alters schema."""
+	resolved = Path(path).resolve()
+	con = sqlite3.connect(f"file:{resolved.as_posix()}?mode=ro", uri=True, timeout=15)
+	con.row_factory = sqlite3.Row
+	try:
+		yield con
+	finally:
+		con.close()
+
+
+def _select_columns(con: sqlite3.Connection) -> str | None:
+	cols = {r[1] for r in con.execute("pragma table_info(reviews)").fetchall()}
+	if not cols:
+		return None
+	return ", ".join(c if c in cols else f"null as {c}" for c in _CANONICAL_COLUMNS)
+
+
 def history(path: Path, traj_id: str) -> list[dict]:
 	"""All reviews of ``traj_id``, newest first. A missing database reads as no reviews."""
 	if not Path(path).is_file():
 		return []
-	with connect(path) as con:
-		found = con.execute("select * from reviews where traj_id = ? order by id desc", (traj_id,)).fetchall()
+	with connect_readonly(path) as con:
+		sel = _select_columns(con)
+		if sel is None:
+			return []
+		found = con.execute(f"select {sel} from reviews where traj_id = ? order by id desc", (traj_id,)).fetchall()
 	return [_row(r) for r in found]
 
 
 def latest(path: Path, traj_id: str) -> dict | None:
-	found = history(path, traj_id)
-	return found[0] if found else None
+	if not Path(path).is_file():
+		return None
+	with connect_readonly(path) as con:
+		sel = _select_columns(con)
+		if sel is None:
+			return None
+		found = con.execute(
+			f"select {sel} from reviews where traj_id = ? order by id desc limit 1", (traj_id,)
+		).fetchone()
+	return _row(found)
+
+
+def latest_all(path: Path) -> dict[str, dict]:
+	"""Latest review per ``traj_id`` read in one read-only pass (handles legacy schemas without ``mechanism``)."""
+	if not Path(path).is_file():
+		return {}
+	with connect_readonly(path) as con:
+		sel = _select_columns(con)
+		if sel is None:
+			return {}
+		rows = con.execute(
+			f"select {sel} from reviews where id in (select max(id) from reviews group by traj_id) order by traj_id"
+		).fetchall()
+	return {r["traj_id"]: _row(r) for r in rows}
 
 
 def append(path: Path, traj_id: str, body: dict, *, expected_latest_id: int | None, code_version: str | None) -> dict:
@@ -196,7 +254,9 @@ def summary(path: Path) -> dict:
 	out = {"reviewed": 0, "states": {s: 0 for s in AUDIT_STATES}, "root_causes": {}, "physical_outcomes": {}}
 	if not Path(path).is_file():
 		return out
-	with connect(path) as con:
+	with connect_readonly(path) as con:
+		if _select_columns(con) is None:
+			return out
 		latest_rows = con.execute(
 			"select state, root_cause, physical_outcome from reviews "
 			"where id in (select max(id) from reviews group by traj_id)"

@@ -267,16 +267,18 @@ def create_diag_mcp(
 	mcp = FastMCP("Armigo Failure Diagnosis", host=host, port=port)
 	fallback_dir = Path(default_round_dir) if default_round_dir is not None else None
 
-	def _log_dir(round_dir: str | None, default: Path) -> Path:
+	def _log_dir(round_dir: str | None) -> Path:
 		if round_dir:
 			return Path(round_dir)
-		return fallback_dir if fallback_dir is not None else default
+		if fallback_dir is not None:
+			return fallback_dir
+		raise ValueError("round_dir is required; pass round_dir or configure --round-dir")
 
 	@mcp.tool(name="episode_summary")
 	def tool_episode_summary(path: str, session: str, round_dir: str | None = None) -> dict[str, Any]:
 		"""Summarize an episode's first_error attribution, physical outcome, and compressed event timeline."""
 		ep_path = Path(path)
-		log_dir = _log_dir(round_dir, ep_path.parent)
+		log_dir = _log_dir(round_dir)
 		return logged(
 			log_dir,
 			session,
@@ -295,7 +297,7 @@ def create_diag_mcp(
 	) -> dict[str, Any]:
 		"""Compare two episode runs positionally for discrete equivalence, score deltas, and verdict equality."""
 		path_a, path_b = Path(a), Path(b)
-		log_dir = _log_dir(round_dir, path_a.parent)
+		log_dir = _log_dir(round_dir)
 		return logged(
 			log_dir,
 			session,

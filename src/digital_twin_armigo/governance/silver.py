@@ -139,7 +139,13 @@ CHECKS: dict[str, Callable[[dict, Path, dict], tuple[bool, str | None]]] = {
 }
 
 
-def _build_id(bronze_rows: list[tuple], integrity_rows: list[tuple], commit: str | None, freeze: dict | None) -> str:
+def _build_id(
+	bronze_rows: list[tuple],
+	integrity_rows: list[tuple],
+	commit: str | None,
+	freeze: dict | None,
+	audit_snapshot: list[tuple] | None = None,
+) -> str:
 	h = hashlib.sha256()
 	for r in bronze_rows:
 		h.update(json.dumps(list(r), separators=(",", ":")).encode("utf-8"))
@@ -148,6 +154,9 @@ def _build_id(bronze_rows: list[tuple], integrity_rows: list[tuple], commit: str
 	h.update((commit or "").encode("utf-8"))
 	if freeze is not None:
 		h.update(json.dumps(freeze, sort_keys=True, separators=(",", ":")).encode("utf-8"))
+	if audit_snapshot:
+		for a in audit_snapshot:
+			h.update(json.dumps(list(a), separators=(",", ":")).encode("utf-8"))
 	return h.hexdigest()[:12]
 
 
@@ -181,11 +190,12 @@ def build_silver(
 		"select path, field, old_sha, new_sha, seen_at from integrity_event order by id"
 	).fetchall()
 	commit = _commit()
-	bid = _build_id(bronze_rows, integrity_rows, commit, freeze)
 	integrity_paths = {r[0] for r in integrity_rows}
 
 	prepared = []
 	best_attempt: dict[tuple, tuple] = {}
+	audit_cache: dict[Path, dict[str, dict]] = {}
+	audit_snapshot: list[tuple] = []
 	for b in bronze_rows:
 		p_str, source = b[0], b[1]
 		sha_episode = b[2]
@@ -209,6 +219,27 @@ def build_silver(
 		rank = (int(row.get("attempt") or 0), ep_dir.name, p_str)
 		if attempt_key not in best_attempt or rank > best_attempt[attempt_key]:
 			best_attempt[attempt_key] = rank
+
+		ap = audit_path or _auto_audit_path(ep_dir)
+		latest_audit = None
+		if ap is not None and ap.is_file():
+			ap_res = Path(ap).resolve()
+			if ap_res not in audit_cache:
+				audit_cache[ap_res] = inv_audit.latest_all(ap_res)
+			tid = _infer_traj_id(ep_dir, source)
+			if tid:
+				latest_audit = audit_cache[ap_res].get(tid)
+		if latest_audit is not None:
+			audit_snapshot.append(
+				(
+					p_str,
+					latest_audit.get("id"),
+					latest_audit.get("state"),
+					latest_audit.get("root_cause"),
+					latest_audit.get("mechanism"),
+				)
+			)
+
 		prepared.append(
 			{
 				"p_str": p_str,
@@ -226,9 +257,11 @@ def build_silver(
 				"oracle_events": oracle_events,
 				"is_oracle": is_oracle,
 				"provenance_commit": exp.get("code_commit") or (prov.get("git") or {}).get("commit"),
+				"latest_audit": latest_audit,
 			}
 		)
 
+	bid = _build_id(bronze_rows, integrity_rows, commit, freeze, audit_snapshot)
 	con.execute("delete from silver_episode where build_id = ?", (bid,))
 	con.execute("delete from silver_pair where build_id = ?", (bid,))
 
@@ -256,13 +289,7 @@ def build_silver(
 			if not passed and name in QUARANTINE_CHECKS:
 				quarantine_reasons.append(name)
 		quarantined = bool(quarantine_reasons)
-
-		ap = audit_path or _auto_audit_path(ep_dir)
-		latest_audit = None
-		if ap is not None and ap.is_file():
-			tid = _infer_traj_id(ep_dir, item["source"])
-			if tid:
-				latest_audit = inv_audit.latest(ap, tid)
+		latest_audit = item["latest_audit"]
 
 		row_flags = flags({**row, "oracle": item["is_oracle"]})
 		row["quarantined"] = quarantined
