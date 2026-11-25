@@ -274,6 +274,10 @@ def rerender_student_videos(
 
 	case = _load_case(ep_dir, manifest)
 	layout = sample_case(*case)
+	# TwinMujoco removes the printed cell markers after calibration (episodes from 2026-11-25 on record
+	# ``scene.cell_markers = false``); older episodes have no ``scene`` and were recorded with them.
+	if not (manifest.get("scene") or {}).get("cell_markers", True):
+		layout.markers = []
 	spec = load_physics_spec()
 	base = next(c for c in SENSITIVITY_MATRIX if c.name == "baseline_2x2")
 	cfg = NonIdealityCfg(

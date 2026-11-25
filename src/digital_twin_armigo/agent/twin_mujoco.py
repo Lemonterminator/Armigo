@@ -710,6 +710,7 @@ class TwinMujoco:
 		detector_latency_s=0.15,
 		segmenter="lab",
 		segmenter_onnx=None,
+		cell_markers=False,
 	):
 		if sensing not in SENSING:
 			raise ValueError(f"sensing must be one of {SENSING}")
@@ -731,6 +732,19 @@ class TwinMujoco:
 		self.segmenter_onnx = None if segmenter_onnx is None else Path(segmenter_onnx)
 		self._brick_net = None
 		self.fuse_cfg = FuseCfg()
+		# The printed cell markers on the table (ArUco 10, 11, 16, 17) have no use once the top camera is calibrated
+		# (the hand-eye rig reads only the card markers 20-23); in the episode's top and wrist images they are only
+		# confusers. The calibration rig is built from the layout as given, markers included (a real cell is
+		# calibrated before they are taken away); the episode cell, its saved layout and the belief cells have none.
+		# ``cell_markers=True`` keeps them (reproducing episodes recorded before 2026-11-25).
+		self.cell_markers = bool(cell_markers)
+		self._calib_layout = layout
+		self.cell_markers_removed = 0 if self.cell_markers else len(getattr(layout, "markers", None) or [])
+		if self.cell_markers_removed:
+			layout = copy.copy(layout)
+			layout.markers = []
+		if isinstance(getattr(record, "scene", None), dict):
+			record.scene["cell_markers"] = self.cell_markers
 		raw_oracle = oracle if oracle else getattr(layout, "oracle", ())
 		if isinstance(raw_oracle, str):
 			raw_oracle = [p.strip() for p in raw_oracle.split(",") if p.strip()]
@@ -848,12 +862,13 @@ class TwinMujoco:
 		self.scene_error = None
 		if self.perception is not None:
 			seed = int(getattr(layout, "defect_seed", 0))
-			calib_layout = layout
+			calib_layout = self._calib_layout
 			if getattr(layout, "calib_top", None) is not None:  # drift: calibrated on the nominal rig, then moved
-				calib_layout = copy.copy(layout)
+				calib_layout = copy.copy(self._calib_layout)
 				calib_layout.top = layout.calib_top
 			self._cam_k, self._cam_est, info = calibrate_layout(calib_layout, seed, self.perception.calibration)
-			info["calibrated_on"] = "nominal" if calib_layout is not layout else "actual"
+			info["calibrated_on"] = "nominal" if calib_layout is not self._calib_layout else "actual"
+			info["cell_markers_removed"] = self.cell_markers_removed
 			# Error of the estimate against the camera as it is mounted now (differs from cam_*_err under drift).
 			top = layout.top
 			right, up = top.axes()
@@ -1370,6 +1385,7 @@ class TwinMujoco:
 			"evidence": self.evidence,
 			"segmenter": self.segmenter,
 			"segmenter_onnx": None if self.segmenter_onnx is None else str(self.segmenter_onnx),
+			"cell_markers": self.cell_markers,
 			"segments": self._checkpoint_extra(),
 		}
 		if self.perception is not None:

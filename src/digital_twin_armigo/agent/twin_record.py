@@ -68,6 +68,9 @@ class EpisodeTrace:
 		self.events = []
 		self.branch = 0
 		self.branches = [{"id": 0, "start_frame": 0}]
+		# Scene facts the simulator fills in that the case alone does not give (e.g. ``cell_markers``); written to
+		# ``episode.json`` so re-renders rebuild the same scene.
+		self.scene: dict = {}
 		self.streams = {}
 		self.rows = []
 		# Additive per-frame columns (agent/student_rollout.py): the motion segment of each command, set by whoever
@@ -405,6 +408,8 @@ class EpisodeTrace:
 			"provenance": provenance,
 			"result": result,
 		}
+		if self.scene:
+			manifest["scene"] = dict(self.scene)
 		write_json(self.path / "episode.json", manifest)
 		self.event_log.close()
 		self._end_live()
@@ -1286,6 +1291,8 @@ def stitch_perturbation_episode(
 		"provenance": provenance,
 		"result": result,
 	}
+	if scene := (branch_manifest.get("scene") or parent_manifest.get("scene")):
+		manifest["scene"] = scene
 	write_json(out_dir / "episode.json", manifest)
 	segment_labels(out_dir)
 	return manifest
