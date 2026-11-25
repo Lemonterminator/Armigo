@@ -112,7 +112,9 @@ class EpisodeTrace:
 				print(f"armigo: live Rerun stream not finalised ({exc})", file=sys.stderr)
 
 	def start(self, cell):
-		write_json(self.path / "graph.json", {"nodes": NODES, "edges": EDGES})
+		self.graph_nodes = NODES if self.scene.get("drift_alarm") else tuple(n for n in NODES if n != "recalibrate")
+		graph_edges = [edge for edge in EDGES if all(node in self.graph_nodes for node in edge)]
+		write_json(self.path / "graph.json", {"nodes": self.graph_nodes, "edges": graph_edges})
 		# Scoring only (S6 grader): per-frame contact peaks over the frame's physics substeps, stored next to the
 		# actions of every branch, so collisions can be counted over all attempts. The evaluator's own measure
 		# excludes the jaws; ``contact_jaw_env_n`` is the jaws against the table, bowls and clutter.
@@ -306,10 +308,11 @@ class EpisodeTrace:
 		}.items():
 			canvas[y : y + h, x : x + w] = cv2.resize(self.images[name], (w, h), interpolation=cv2.INTER_AREA)
 			cv2.putText(canvas, title, (x, y - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (207, 219, 225), 1, cv2.LINE_AA)
-		for i, name in enumerate(NODES):
-			x, y = 12 + i * 144, 653
+		step = 1000 // len(self.graph_nodes) if self.scene.get("drift_alarm") else 144
+		for i, name in enumerate(self.graph_nodes):
+			x, y = 12 + i * step, 653
 			active = name == node
-			cv2.rectangle(canvas, (x, y), (x + 136, y + 44), (44, 164, 112) if active else (39, 53, 64), -1)
+			cv2.rectangle(canvas, (x, y), (x + step - 8, y + 44), (44, 164, 112) if active else (39, 53, 64), -1)
 			cv2.putText(canvas, name, (x + 8, y + 27), cv2.FONT_HERSHEY_SIMPLEX, 0.53, (239, 248, 252), 1, cv2.LINE_AA)
 		branch = self.branches[-1]["id"]
 		if frame is None:

@@ -142,9 +142,11 @@ def grasp_trial(
 	ring_localise: bool = False,
 	localise: str = "top",
 	perception_llm=None,
+	drift_alarm: bool = False,
 ) -> dict[str, Any]:
 	"""``prepare`` then the first grasp and lift of ``case``; the scripted expert when ``policy`` is None, else the
 	hybrid (student grasp). Returns the outcome on truth: ``lifted`` (brick up and between both jaws)."""
+	from .twin_graph import RECALIBRATE
 	from .twin_mujoco import sample_case
 	from .twin_record import EpisodeTrace
 
@@ -159,6 +161,7 @@ def grasp_trial(
 			ring_localise=ring_localise,
 			localise=localise,
 			perception_llm=perception_llm,
+			drift_alarm=drift_alarm,
 		)
 	else:
 		twin = HybridTwin(
@@ -172,6 +175,7 @@ def grasp_trial(
 			ring_localise=ring_localise,
 			localise=localise,
 			perception_llm=perception_llm,
+			drift_alarm=drift_alarm,
 		)
 	if expert_overrides:  # e.g. {"descend_close_ratio": 1.3}: a planner variant for the scripted (and hybrid) arm
 		from dataclasses import replace
@@ -182,6 +186,12 @@ def grasp_trial(
 	if not error and twin.can_localise():  # the graph's localize node (vote, wrist confirmation, ring, pin)
 		twin.enter("localize")
 		error = twin.localise_brick()
+		if error == RECALIBRATE:
+			twin.enter("recalibrate")
+			error = twin.recalibrate()
+			if not error:
+				twin.enter("localize")
+				error = twin.localise_brick()
 	frames0 = twin.ep.n_frames
 	if not error:
 		error = twin._grasp()

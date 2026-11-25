@@ -43,6 +43,9 @@ from ..physics import NonIdealityCfg, load_physics_spec
 from .bowl_clearance import PerceivedBowlClearance, with_perceived_bowl_clearance
 from .grasp_loop import VARIANTS, GraspLoop
 from .perception import (
+	DRIFT_CORRECTION_MM,
+	DRIFT_TABLE_OFFSET_MM,
+	RESTING_BRICK_CLEARANCE_M,
 	BowlEstimate,
 	BrickEstimate,
 	PerceptionCfg,
@@ -51,11 +54,12 @@ from .perception import (
 	bowl_filled,
 	locate_bowls,
 	locate_brick,
+	top_camera_drift,
 	yaw_error_deg,
 )
 from .review import MAX_CANDIDATES, MIN_POSE_SEPARATION_RAD, _alarm, llm_choice, review_decision, rule_choice
 from .sensing import GripperContact
-from .twin_graph import Policy, decision, select_skill
+from .twin_graph import RECALIBRATE, RECALIBRATION_FAILED, Policy, decision, select_skill
 from .wrist_localize import FuseCfg, _blob, believed_wrist_from_cam, fuse, localize_from_wrist, wrist_k
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -68,6 +72,7 @@ REVIEW_FACE_PX_CAP = 6000.0  # re-view ranking: pixels of one face beyond this a
 WRIST_MIN_PX = 800
 MIN_BRICK_PX = 150
 MAX_TOTAL_FRAMES = 6300
+RECALIBRATION_S = 60
 # ``truth``: skills read the simulator (brick, bowls, contact forces), optionally with the brick perceived (see
 # .perception). ``realistic``: skills see only what a real cell senses, see TwinMujoco.
 SENSING = ("truth", "realistic")
@@ -715,6 +720,7 @@ class TwinMujoco:
 		ring_localise=False,
 		localise="top",
 		perception_llm=None,
+		drift_alarm: bool = False,
 	):
 		if sensing not in SENSING:
 			raise ValueError(f"sensing must be one of {SENSING}")
@@ -745,6 +751,10 @@ class TwinMujoco:
 		# "vote": the graph's localize node picks the brick (shape rule + VLM, wrist confirmation on disagreement),
 		# refines it with the wrist ring and pins it (see localise_brick). "top": the top view alone (default).
 		self.localise = localise
+		if drift_alarm and localise != "vote":
+			raise ValueError("drift_alarm requires localise='vote'")
+		self.drift_alarm = bool(drift_alarm)
+		self._recalibration_attempted = False
 		self.perception_llm = perception_llm
 		self._brick_hint = None
 		self._brick_net = None
@@ -762,6 +772,8 @@ class TwinMujoco:
 			layout.markers = []
 		if isinstance(getattr(record, "scene", None), dict):
 			record.scene["cell_markers"] = self.cell_markers
+			if self.drift_alarm:
+				record.scene["drift_alarm"] = True
 		raw_oracle = oracle if oracle else getattr(layout, "oracle", ())
 		if isinstance(raw_oracle, str):
 			raw_oracle = [p.strip() for p in raw_oracle.split(",") if p.strip()]
@@ -770,6 +782,8 @@ class TwinMujoco:
 		if bad_oracle:
 			raise ValueError(f"oracle parts must be in {ORACLE_PARTS}, got {bad_oracle!r}")
 		self.oracle = frozenset(raw_oracle) if self.realistic else frozenset()
+		if self.drift_alarm and self.oracle.intersection(("brick", "camera")):
+			raise ValueError("drift_alarm requires measured brick and camera poses")
 		self._oracle_logged = False
 		if strategy not in STRATEGIES:
 			raise ValueError(f"strategy must be one of {STRATEGIES}")
@@ -1428,6 +1442,8 @@ class TwinMujoco:
 			else {k: [float(x) for x in v] for k, v in self._brick_hint.items()},
 			"segments": self._checkpoint_extra(),
 		}
+		if self.drift_alarm:
+			agent["recalibration_attempted"] = self._recalibration_attempted
 		if self.perception is not None:
 			agent["depth_rng"] = self._depth_rng.bit_generator.state
 			agent["camera"] = {"k": np.asarray(self._cam_k).tolist(), "world_from_cam": self._cam_est.tolist()}
@@ -1649,7 +1665,7 @@ class TwinMujoco:
 				view = views.pop(event.get("observation", {}).get("id"), None)
 				if view is not None:
 					history.append(view)
-			elif kind == "node" and node in {"prepare", "scan_wrist", "present_bottom", "place"}:
+			elif kind == "node" and node in {"prepare", "recalibrate", "scan_wrist", "present_bottom", "place"}:
 				history.append({"kind": "skill_started", "skill": node})
 			elif kind == "decision" and node in {"choose_view", "recover"}:
 				entry = {"kind": kind, "node": node, "choice": event["choice"]}
@@ -2109,8 +2125,10 @@ class TwinMujoco:
 		ex._active_open_g = float(ex.p.open_g)
 		if error := self._perceive():
 			return error
-		if self.ring_localise and (error := self._ring_localise()):
-			return error
+		if self.ring_localise:
+			error, _ = self._ring_localise()
+			if error:
+				return error
 
 		def grasp_and_lift():
 			self._belief_obs = True  # the grasp is planned on the perceived pose
@@ -2166,13 +2184,13 @@ class TwinMujoco:
 		)
 		return fix, reason, None
 
-	def _ring_localise(self):
+	def _ring_localise(self) -> tuple[str | None, bool]:
 		"""Re-localise the perceived brick (x, y) from a ring of wrist views (:mod:`.wrist_ring`), then go back to
 		ready. The jaws hang straight down over the believed brick, the tips ``RING_TIP_M`` above its top face, and the
 		wrist roll turns the camera around it; each view is fitted with the silhouette segmenter and the median of the
 		fixes replaces the top-view position (kept when fewer than ``RING_MIN_FIXES`` views fit or the median is more
-		than ``RING_GATE_M`` from it). Yaw, height and size class stay as the top view read them. None, or a failure
-		code of a move."""
+		than ``RING_GATE_M`` from it). Yaw, height and size class stay as the top view read them. Returns a move
+		failure code (or None) and whether the ring correction was accepted."""
 		from .wrist_ring import RING_GATE_M, RING_MIN_FIXES, fuse_ring, ring_poses
 
 		ex, cell, est = self.expert, self.cell, self.brick_est
@@ -2184,7 +2202,7 @@ class TwinMujoco:
 		for k, q in enumerate(poses):
 			fix, reason, error = self._wrist_view(est, q, k == 0, k + 1, len(poses))
 			if error:
-				return error
+				return error, False
 			if fix is None:
 				rejects[reason] = rejects.get(reason, 0) + 1
 			else:
@@ -2208,7 +2226,7 @@ class TwinMujoco:
 			error_xy_mm_before=round(before, 3),
 			error_xy_mm=round(float(np.linalg.norm(self.brick_est.pos[:2] - cell.brick_pos()[:2]) * 1000), 3),
 		)
-		return self._execute(ex._go_ready())
+		return self._execute(ex._go_ready()), info["accepted"]
 
 	def can_localise(self) -> bool:
 		"""The graph runs the ``localize`` node (``localise="vote"``) while the brick is on the table."""
@@ -2295,18 +2313,72 @@ class TwinMujoco:
 		if error := self._perceive(est=est, source="vote"):
 			return error
 		top_xy = self.brick_est.pos[:2].copy()
-		if error := self._ring_localise():
+		error, ring_accepted = self._ring_localise()
+		if error:
 			return error
 		delta = self.brick_est.pos[:2] - top_xy
-		self._brick_hint = {"top_xy": top_xy, "delta": delta}
+		correction_mm = round(float(np.linalg.norm(delta)) * 1000, 3)
 		self.event(
 			"brick_localised",
 			found=True,
 			**info,
-			correction_mm=round(float(np.linalg.norm(delta)) * 1000, 3),
+			correction_mm=correction_mm,
 			# Truth diagnostic only (registered in TRUTH_DIAGNOSTIC_KEYS); never read by the agent.
 			error_xy_mm=round(float(np.linalg.norm(self.brick_est.pos[:2] - self.cell.brick_pos()[:2]) * 1000), 3),
 		)
+		if self.drift_alarm:
+			table_z_mm = float(est.pos[2] - (est.size[2] / 2 + RESTING_BRICK_CLEARANCE_M)) * 1000
+			if top_camera_drift(correction_mm, ring_accepted, table_z_mm):
+				self.event(
+					"recalibration_needed",
+					correction_mm=correction_mm,
+					ring_accepted=ring_accepted,
+					brick_height_mm=round(float(est.pos[2]) * 1000, 3),
+					table_z_mm=round(table_z_mm, 3),
+					correction_threshold_mm=DRIFT_CORRECTION_MM,
+					table_offset_threshold_mm=DRIFT_TABLE_OFFSET_MM,
+					already_attempted=self._recalibration_attempted,
+				)
+				return RECALIBRATE
+		self._brick_hint = {"top_xy": top_xy, "delta": delta}
+		return None
+
+	def recalibrate(self) -> str | None:
+		"""Run a fresh hand-eye session on the currently mounted camera, once per episode."""
+		if not self.drift_alarm or self._recalibration_attempted:
+			return RECALIBRATE
+		self._recalibration_attempted = True
+		# The calibration rig renders the current mount from the original layout, including the calibration markers.
+		# The solver estimates the pose from images and joint readings. The rig runs apart from episode physics.
+		seed = int(getattr(self.layout, "defect_seed", 0))
+		try:
+			k, estimate, info = calibrate_layout(self._calib_layout, seed, self.perception.calibration)
+		except (OSError, RuntimeError, ValueError, np.linalg.LinAlgError) as exc:
+			self.event("recalibration_failed", recalibration_s=RECALIBRATION_S, reason=str(exc))
+			return RECALIBRATION_FAILED
+		self._cam_k, self._cam_est = k, estimate
+		self._brick_hint = self.brick_est = None
+		self._perceived_size = None
+		for cell in self._belief_cells.values():
+			cell.close()
+		self._belief_cells.clear()
+		self.scene_error = None
+		previous_depth = self._baseline_depth
+		self._sense_bowls()
+		# Both depth captures come from the same physical camera. Keep unoccluded reference pixels from prepare.
+		self._baseline_depth = np.maximum(previous_depth, self._baseline_depth)
+		self.event(
+			"camera_recalibrated",
+			recalibration_s=RECALIBRATION_S,
+			poses=info["poses"],
+			tries=info["tries"],
+			rms_px=info["rms_px"],
+			cam_pos_err_mm=info["cam_pos_err_mm"],
+			cam_rot_err_deg=info["cam_rot_err_deg"],
+		)
+		if self.scene_error:
+			return self.scene_error
+		self._save([])
 		return None
 
 	def _hinted_brick(self, depth, bowls):
@@ -2695,6 +2767,8 @@ class TwinMujoco:
 				)
 				for name, raw in agent["bowl_estimates"].items()
 			}
+		if self.drift_alarm:
+			self._recalibration_attempted = bool(agent.get("recalibration_attempted", False))
 		if agent.get("camera") is not None and self.perception is not None:
 			self._cam_k = np.array(agent["camera"]["k"], dtype=np.float64)
 			self._cam_est = np.array(agent["camera"]["world_from_cam"], dtype=np.float64)
