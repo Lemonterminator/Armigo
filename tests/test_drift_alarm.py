@@ -146,3 +146,17 @@ def test_drift_alarm_end_to_end_and_default_equivalence(tmp_path, monkeypatch):
 	]
 	false_events = [json.loads(line) for line in (false_dir / "events.jsonl").read_text(encoding="utf-8").splitlines()]
 	assert _without_wall_time(default_events) == _without_wall_time(false_events)
+
+	seed = 3001370  # The top camera has no valid shape pick before recalibration.
+	missing_case = [seed, False, seed % 6, case[3]]
+	missing_dir = tmp_path / "missing"
+	missing = grasp_trial(missing_case, missing_dir, localise="vote", drift_alarm=True, **kwargs)
+	missing_events = [
+		json.loads(line) for line in (missing_dir / "events.jsonl").read_text(encoding="utf-8").splitlines()
+	]
+	assert [event["reason"] for event in missing_events if event["kind"] == "recalibration_requested"] == [
+		"BRICK_NOT_FOUND"
+	]
+	assert sum(event["kind"] == "camera_recalibrated" for event in missing_events) == 1
+	assert all(event["kind"] != "recalibration_needed" for event in missing_events)
+	assert missing["lifted"] and missing["error"] is None

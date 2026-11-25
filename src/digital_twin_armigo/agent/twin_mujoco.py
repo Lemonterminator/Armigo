@@ -2309,6 +2309,10 @@ class TwinMujoco:
 		)
 		if est is None:
 			self.event("brick_localised", found=False, **info)
+			if self.drift_alarm and not self._recalibration_attempted:
+				# With no brick estimate there is no correction or height to check.
+				self.event("recalibration_requested", reason="BRICK_NOT_FOUND")
+				return RECALIBRATE
 			return "BRICK_NOT_FOUND"
 		if error := self._perceive(est=est, source="vote"):
 			return error
