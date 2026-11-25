@@ -12,6 +12,7 @@ Output shards ``shard_XXXX.npz`` contain:
 from __future__ import annotations
 
 import argparse
+import colorsys
 import hashlib
 import json
 import math
@@ -94,6 +95,84 @@ def _wrist_k(fovy_deg: float, shape: tuple[int, int]) -> np.ndarray:
 	return np.array([[f, 0.0, w / 2.0 - 0.5], [0.0, f, h / 2.0 - 0.5], [0.0, 0.0, 1.0]], dtype=np.float64)
 
 
+def table_saturation_from_rgb(table_rgb: tuple[float, float, float]) -> float:
+	"""HSV saturation in [0, 1] for ``layout.table_rgb``."""
+	r, g, b = (float(np.clip(c, 0.0, 1.0)) for c in table_rgb)
+	return float(colorsys.rgb_to_hsv(r, g, b)[1])
+
+
+def table_sat_bin(sat: float) -> str:
+	"""Discretise table saturation into preregistered low (<0.15), mid ([0.15, 0.35]), high (>0.35) bins."""
+	s = float(sat)
+	if s < 0.15:
+		return "low"
+	if s <= 0.35:
+		return "mid"
+	return "high"
+
+
+def distractor_rgb(x: float, y: float) -> tuple[float, float, float]:
+	"""Rendered RGB of a distractor box at ``(x, y)`` matching ``mujoco_cell.scene.scene_xml``."""
+	return (
+		float(0.2 + 0.6 * ((float(x) * 37.0) % 1.0)),
+		float(0.2 + 0.6 * ((float(y) * 53.0) % 1.0)),
+		0.5,
+	)
+
+
+def is_same_color(
+	rgb_a: tuple[float, float, float],
+	rgb_b: tuple[float, float, float],
+	hue_thr_deg: float = 35.0,
+) -> bool:
+	"""Return True if two RGB colours match by RGB class or share a chromatic hue within ``hue_thr_deg``."""
+	a = tuple(float(np.clip(c, 0.0, 1.0)) for c in rgb_a)
+	b = tuple(float(np.clip(c, 0.0, 1.0)) for c in rgb_b)
+	rgb_dist = math.sqrt(sum((ca - cb) ** 2 for ca, cb in zip(a, b, strict=True)))
+	if rgb_dist <= 0.08:
+		return True
+	ha, sa, _va = colorsys.rgb_to_hsv(*a)
+	hb, sb, _vb = colorsys.rgb_to_hsv(*b)
+	if sa < 0.15 or sb < 0.15:
+		return False
+	diff = abs(ha * 360.0 - hb * 360.0) % 360.0
+	return min(diff, 360.0 - diff) <= float(hue_thr_deg)
+
+
+def has_same_color_clutter(layout, hue_thr_deg: float = 35.0) -> bool:
+	"""Return True if any clutter brick or distractor box shares a colour/hue within ``hue_thr_deg`` of the brick."""
+	brick_rgb = tuple(float(c) for c in layout.brick_rgb)
+	for entry in getattr(layout, "clutter", ()):
+		_x, _y, _yaw, r, g, b = entry
+		if is_same_color(brick_rgb, (r, g, b), hue_thr_deg=hue_thr_deg):
+			return True
+	for entry in getattr(layout, "distractors", ()):
+		x, y = entry[0], entry[1]
+		if is_same_color(brick_rgb, distractor_rgb(x, y), hue_thr_deg=hue_thr_deg):
+			return True
+	return False
+
+
+def gripper_transforms(cell: Cell, brick_pos: np.ndarray, brick_rot: np.ndarray) -> dict:
+	"""Return JSON-serialisable gripper/world SE(3) matrices and brick pose in gripper coordinates."""
+	w2g = np.eye(4, dtype=np.float64)
+	w2g[:3, :3] = cell.data.site_xmat[cell.site].reshape(3, 3)
+	w2g[:3, 3] = cell.data.site_xpos[cell.site]
+	g2w = np.eye(4, dtype=np.float64)
+	g2w[:3, :3] = w2g[:3, :3].T
+	g2w[:3, 3] = -(w2g[:3, :3].T @ w2g[:3, 3])
+	w2b = np.eye(4, dtype=np.float64)
+	w2b[:3, :3] = np.asarray(brick_rot, dtype=np.float64)
+	w2b[:3, 3] = np.asarray(brick_pos, dtype=np.float64)
+	g2b = g2w @ w2b
+	return {
+		"world_from_gripper": [[round(float(x), 6) for x in row] for row in w2g],
+		"gripper_from_world": [[round(float(x), 6) for x in row] for row in g2w],
+		"brick_in_gripper_pos": [round(float(v), 6) for v in g2b[:3, 3]],
+		"brick_in_gripper_rot": [[round(float(x), 6) for x in row] for row in g2b[:3, :3]],
+	}
+
+
 def _render_sample(
 	cell: Cell,
 	camera: str,
@@ -124,6 +203,10 @@ def _render_sample(
 	cls_u8 = (cls_raw.astype(np.int16) + 1).astype(np.uint8)
 	cls_res = cv2.resize(cls_u8, (OUT_HW[1], OUT_HW[0]), interpolation=cv2.INTER_NEAREST)
 
+	table_sat = table_saturation_from_rgb(cell.layout.table_rgb)
+	same_clutter = has_same_color_clutter(cell.layout)
+	gtf = gripper_transforms(cell, brick_pos, brick_rot)
+
 	meta = json.dumps(
 		{
 			"seed": int(seed),
@@ -135,6 +218,11 @@ def _render_sample(
 			"k": [[round(float(x), 4) for x in row] for row in k],
 			"world_from_cam": [[round(float(x), 6) for x in row] for row in w2c],
 			"brick_size": [round(float(v), 6) for v in size],
+			"table_saturation": round(table_sat, 6),
+			"table_sat_bin": table_sat_bin(table_sat),
+			"same_color_clutter": bool(same_clutter),
+			"held": bool(view_kind == "top_present"),
+			**gtf,
 		},
 		separators=(",", ":"),
 	)
