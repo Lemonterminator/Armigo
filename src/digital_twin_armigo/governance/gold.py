@@ -36,6 +36,9 @@ def _base(r: dict) -> bool:
 
 def _void_streak_of(r: dict, ctx: dict) -> int:
 	streaks = ctx["void_streak"]
+	vs_key = r.get("void_streak_key")
+	if vs_key is not None and vs_key in streaks:
+		return int(streaks[vs_key])
 	pk_str = r.get("pair_key_str")
 	if pk_str is not None and pk_str in streaks:
 		return int(streaks[pk_str])
@@ -181,23 +184,25 @@ def _prepare_rows_and_ctx(con: sqlite3.Connection, silver_build: str, freeze: di
 		for r in con.execute("select row_json from silver_episode where build_id = ? order by path", (silver_build,))
 	]
 	pairs = con.execute(
-		"select pair_key, camera_condition, truth_path, realistic_path, outcome from silver_pair where build_id = ?",
+		"select batch, pair_key, camera_condition, truth_path, realistic_path, outcome, match_scope "
+		"from silver_pair where build_id = ?",
 		(silver_build,),
 	).fetchall()
 
-	by_real_path: dict[str, str] = {}
-	by_truth_pk: dict[str, list[str]] = {}
+	by_real_path: dict[str, tuple[str, str]] = {}
+	by_truth_path: dict[str, list[str]] = {}
 	batch_valid: Counter = Counter()
 	batch_real_only: Counter = Counter()
 	ep_by_path = {e["path"]: e for e in raw_eps}
 
-	for pk_json, _cam, _t_path, r_path, outcome in pairs:
+	for batch_col, _pk_json, _cam, t_path, r_path, outcome, scope in pairs:
 		if r_path:
-			by_real_path[r_path] = outcome
-		by_truth_pk.setdefault(pk_json, []).append(outcome)
+			by_real_path[r_path] = (outcome, scope)
+		if t_path:
+			by_truth_path.setdefault(t_path, []).append(outcome)
 		if outcome not in ("void", "unpaired"):
-			ref = ep_by_path.get(r_path) or ep_by_path.get(_t_path) or {}
-			b = ref.get("batch")
+			ref = ep_by_path.get(r_path) or ep_by_path.get(t_path) or {}
+			b = batch_col if batch_col is not None else ref.get("batch")
 			batch_valid[b] += 1
 			if outcome == "realistic_only":
 				batch_real_only[b] += 1
@@ -207,22 +212,36 @@ def _prepare_rows_and_ctx(con: sqlite3.Connection, silver_build: str, freeze: di
 		denom = batch_valid.get(b, 0)
 		realistic_only_rate[b] = (batch_real_only.get(b, 0) / denom) if denom > 0 else 1.0
 
-	attempts_by_pk: dict[str, list[dict]] = {}
+	attempts_by_key: dict[tuple, list[dict]] = {}
 	for e in raw_eps:
 		pk = e.get("pair_key")
 		pk_json = json.dumps(pk) if pk is not None else None
 		e["pair_key_str"] = pk_json
-		if e.get("sensing") == "realistic":
-			e["pair_outcome"] = by_real_path.get(e["path"], "unpaired")
-		elif e.get("sensing") == "truth" and pk_json is not None:
-			e["pair_outcome"] = _truth_outcome_priority(by_truth_pk.get(pk_json, []))
+		sensing = e.get("sensing")
+		eligible = not e.get("superseded") and pk_json is not None and sensing in ("truth", "realistic")
+		if sensing == "realistic" and eligible:
+			if e["path"] not in by_real_path:
+				raise GovernanceError(
+					f"missing silver_pair row for latest realistic episode {e['path']!r}; rebuild silver_pair before gold"
+				)
+			e["pair_outcome"], e["match_scope"] = by_real_path[e["path"]]
+		elif sensing == "truth" and eligible:
+			if e["path"] not in by_truth_path:
+				raise GovernanceError(
+					f"missing silver_pair row for latest truth episode {e['path']!r}; rebuild silver_pair before gold"
+				)
+			e["pair_outcome"] = _truth_outcome_priority(by_truth_path[e["path"]])
+			e["match_scope"] = "paired" if any(o != "unpaired" for o in by_truth_path[e["path"]]) else "unpaired"
 		else:
 			e["pair_outcome"] = "unpaired"
+			e["match_scope"] = "excluded"
 		if pk_json is not None:
-			attempts_by_pk.setdefault(pk_json, []).append(e)
+			vkey = (e.get("batch"), pk_json, e.get("camera_condition") or "fixed")
+			e["void_streak_key"] = vkey
+			attempts_by_key.setdefault(vkey, []).append(e)
 
-	void_streak: dict[str, int] = {}
-	for pk_json, group in attempts_by_pk.items():
+	void_streak: dict[tuple, int] = {}
+	for vkey, group in attempts_by_key.items():
 		group.sort(key=lambda r: (int(r.get("attempt") or 0), r["path"]))
 		streak = 0
 		for r in reversed(group):
@@ -230,7 +249,7 @@ def _prepare_rows_and_ctx(con: sqlite3.Connection, silver_build: str, freeze: di
 				streak += 1
 			else:
 				break
-		void_streak[pk_json] = streak
+		void_streak[vkey] = streak
 
 	ctx = {"realistic_only_rate": realistic_only_rate, "void_streak": void_streak, "freeze": freeze}
 	return raw_eps, ctx

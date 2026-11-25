@@ -11,10 +11,10 @@ from pathlib import Path
 from ..experiments.scoring import score_episode
 from ..inventory import audit as inv_audit
 from .bronze import FILES, _commit
-from .pairs import OUTCOMES, flags, pair_key, pair_outcome, sensing_of
+from .pairs import OUTCOMES, flags, pair_key, pair_outcome, sensing_of, truth_compatible
 from .segments import case_split, is_sealed, seed_of_path_or_case
 
-__all__ = ["CHECKS", "QUARANTINE_CHECKS", "build_pairs", "build_silver", "pair_report"]
+__all__ = ["CHECKS", "QUARANTINE_CHECKS", "build_pairs", "build_silver", "pair_report", "reconcile_silver"]
 
 QUARANTINE_CHECKS = ("complete", "bronze_intact", "sensor_guard", "no_truth_fallback")
 
@@ -265,6 +265,7 @@ def build_silver(
 				"events": events,
 				"sensing": sensing,
 				"seed": seed,
+				"case_tuple": list(case_list) if isinstance(case_list, list) else None,
 				"case_options": case_opts,
 				"split": split,
 				"pair_key": pk,
@@ -274,6 +275,9 @@ def build_silver(
 				"oracle_events": oracle_events,
 				"is_oracle": is_oracle,
 				"provenance_commit": exp.get("code_commit") or (prov.get("git") or {}).get("commit"),
+				"suite": exp.get("suite"),
+				"suite_sha256": exp.get("suite_sha256"),
+				"segmenter": exp.get("segmenter") or "lab",
 				"latest_audit": latest_audit,
 			}
 		)
@@ -316,10 +320,14 @@ def build_silver(
 			"sensing": item["sensing"],
 			"pair_key": list(item["pair_key"]) if item["pair_key"] is not None else None,
 			"seed": item["seed"],
+			"case_tuple": item["case_tuple"],
 			"case_options": item["case_options"],
 			"split": item["split"],
 			"sha_episode": item["sha_episode"],
 			"provenance_commit": item["provenance_commit"],
+			"suite": item["suite"],
+			"suite_sha256": item["suite_sha256"],
+			"segmenter": item["segmenter"],
 			"declared_oracle": item["declared_oracle"],
 			"oracle_events_count": len(item["oracle_events"]),
 			"teacher_frozen": check_results["teacher_frozen"]["passed"],
@@ -351,74 +359,229 @@ def build_silver(
 	return bid
 
 
-def build_pairs(con: sqlite3.Connection, build_id: str) -> int:
-	"""Populate ``silver_pair`` for ``build_id`` from latest (non-superseded) episodes; returns pair count."""
+def build_pairs(
+	con: sqlite3.Connection,
+	build_id: str,
+	*,
+	allow_cross_batch: bool = True,
+	allow_suite_subset: bool = False,
+) -> int:
+	"""Populate ``silver_pair`` for ``build_id`` with one row per latest realistic episode (preserving provenance across batches)
+	plus one row per unmatched latest truth episode; returns pair-row count."""
 	con.execute("delete from silver_pair where build_id = ?", (build_id,))
 	rows = [
 		json.loads(r[0])
 		for r in con.execute("select row_json from silver_episode where build_id = ? order by path", (build_id,))
 	]
-	truth_by_pk: dict[str, dict] = {}
-	real_by_pk_cam: dict[tuple[str, str], dict] = {}
+
+	truth_by_pk: dict[str, list[dict]] = {}
+	all_truth: list[dict] = []
+	all_real: list[dict] = []
 	for r in rows:
 		if r.get("superseded") or not r.get("pair_key"):
 			continue
 		pk_json = json.dumps(r["pair_key"])
 		if r.get("sensing") == "truth":
-			prev = truth_by_pk.get(pk_json)
-			if prev is None or (int(r.get("attempt") or 0), r["path"]) > (int(prev.get("attempt") or 0), prev["path"]):
-				truth_by_pk[pk_json] = r
+			truth_by_pk.setdefault(pk_json, []).append(r)
+			all_truth.append(r)
 		elif r.get("sensing") == "realistic":
-			cam = str(r.get("camera_condition") or "fixed")
-			key = (pk_json, cam)
-			prev = real_by_pk_cam.get(key)
-			if prev is None or (int(r.get("attempt") or 0), r["path"]) > (int(prev.get("attempt") or 0), prev["path"]):
-				real_by_pk_cam[key] = r
+			all_real.append(r)
 
-	paired_truth_pks: set[str] = set()
+	def _rank(ep: dict) -> tuple[int, str]:
+		return (int(ep.get("attempt") or 0), str(ep["path"]))
+
+	paired_truth_paths: set[str] = set()
 	inserts: list[tuple] = []
-	for (pk_json, cam), r_row in sorted(real_by_pk_cam.items()):
-		t_row = truth_by_pk.get(pk_json)
-		if t_row is not None:
-			paired_truth_pks.add(pk_json)
-		outcome = pair_outcome(t_row, r_row)
-		inserts.append((build_id, pk_json, cam, t_row["path"] if t_row else None, r_row["path"], outcome))
+	for r_row in sorted(all_real, key=lambda x: str(x["path"])):
+		pk_json = json.dumps(r_row["pair_key"])
+		cam = str(r_row.get("camera_condition") or "fixed")
+		cands = truth_by_pk.get(pk_json, [])
 
-	for pk_json, t_row in sorted(truth_by_pk.items()):
-		if pk_json not in paired_truth_pks:
-			inserts.append((build_id, pk_json, "fixed", t_row["path"], None, pair_outcome(t_row, None)))
+		same_cands: list[tuple[dict, str]] = []
+		cross_cands: list[tuple[dict, str]] = []
+		reject_reasons: set[str] = set()
+		for t_row in cands:
+			ok, reason = truth_compatible(
+				t_row,
+				r_row,
+				allow_cross_batch=allow_cross_batch,
+				allow_suite_subset=allow_suite_subset,
+			)
+			if ok:
+				if reason == "same_batch":
+					same_cands.append((t_row, reason))
+				else:
+					cross_cands.append((t_row, reason))
+			else:
+				reject_reasons.add(reason)
+
+		chosen: tuple[dict, str] | None = None
+		if same_cands:
+			chosen = max(same_cands, key=lambda item: _rank(item[0]))
+		elif cross_cands:
+			chosen = max(cross_cands, key=lambda item: _rank(item[0]))
+
+		if chosen is not None:
+			t_row, scope = chosen
+			paired_truth_paths.add(str(t_row["path"]))
+			outcome = pair_outcome(t_row, r_row)
+			inserts.append(
+				(
+					build_id,
+					str(r_row["path"]),
+					r_row.get("batch"),
+					pk_json,
+					cam,
+					str(t_row["path"]),
+					t_row.get("batch"),
+					str(r_row["path"]),
+					outcome,
+					scope,
+					None,
+				)
+			)
+		else:
+			detail = ",".join(sorted(reject_reasons)) if reject_reasons else "no_truth"
+			inserts.append(
+				(
+					build_id,
+					str(r_row["path"]),
+					r_row.get("batch"),
+					pk_json,
+					cam,
+					None,
+					None,
+					str(r_row["path"]),
+					"unpaired",
+					"unpaired",
+					detail,
+				)
+			)
+
+	for t_row in sorted(all_truth, key=lambda x: str(x["path"])):
+		if str(t_row["path"]) not in paired_truth_paths:
+			pk_json = json.dumps(t_row["pair_key"])
+			inserts.append(
+				(
+					build_id,
+					str(t_row["path"]),
+					t_row.get("batch"),
+					pk_json,
+					"fixed",
+					str(t_row["path"]),
+					t_row.get("batch"),
+					None,
+					"unpaired",
+					"unpaired",
+					"no_realistic",
+				)
+			)
 
 	con.executemany(
-		"insert into silver_pair (build_id, pair_key, camera_condition, truth_path, realistic_path, outcome) "
-		"values (?, ?, ?, ?, ?, ?)",
+		"insert into silver_pair "
+		"(build_id, subject_path, batch, pair_key, camera_condition, truth_path, truth_batch, realistic_path, outcome, match_scope, detail) "
+		"values (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
 		inserts,
 	)
 	con.commit()
 	return len(inserts)
 
 
+def reconcile_silver(con: sqlite3.Connection, build_id: str) -> dict:
+	"""Account for every row in ``silver_episode`` against ``silver_pair`` and compute per-batch pairing denominators."""
+	rows = [
+		json.loads(r[0])
+		for r in con.execute("select row_json from silver_episode where build_id = ? order by path", (build_id,))
+	]
+	pairs = con.execute(
+		"select subject_path, batch, truth_path, truth_batch, realistic_path, outcome, match_scope, detail "
+		"from silver_pair where build_id = ?",
+		(build_id,),
+	).fetchall()
+
+	referenced: set[str] = set()
+	by_scope: dict[str, int] = {}
+	by_outcome: dict[str, int] = {}
+	unpaired_reasons: dict[str, int] = {}
+	batch_stats: dict[str, dict[str, int | float]] = {}
+
+	for _subj, batch, t_path, _t_batch, r_path, outcome, scope, detail in pairs:
+		if t_path:
+			referenced.add(t_path)
+		if r_path:
+			referenced.add(r_path)
+		by_scope[scope] = by_scope.get(scope, 0) + 1
+		by_outcome[outcome] = by_outcome.get(outcome, 0) + 1
+		if outcome == "unpaired" and detail:
+			unpaired_reasons[detail] = unpaired_reasons.get(detail, 0) + 1
+		bkey = str(batch or "-")
+		bs = batch_stats.setdefault(
+			bkey, {"valid_paired": 0, "realistic_only": 0, "void": 0, "unpaired": 0, "realistic_only_rate": 1.0}
+		)
+		if outcome == "void":
+			bs["void"] += 1
+		elif outcome == "unpaired":
+			bs["unpaired"] += 1
+		else:
+			bs["valid_paired"] += 1
+			if outcome == "realistic_only":
+				bs["realistic_only"] += 1
+
+	for bs in batch_stats.values():
+		denom = int(bs["valid_paired"])
+		bs["realistic_only_rate"] = round(int(bs["realistic_only"]) / denom, 6) if denom > 0 else 1.0
+
+	superseded = sum(1 for r in rows if r.get("superseded"))
+	missing_pk = sum(
+		1
+		for r in rows
+		if not r.get("superseded") and (not r.get("pair_key") or r.get("sensing") not in ("truth", "realistic"))
+	)
+	eligible = [
+		r for r in rows if not r.get("superseded") and r.get("pair_key") and r.get("sensing") in ("truth", "realistic")
+	]
+	unrepresented = [r["path"] for r in eligible if r["path"] not in referenced]
+
+	return {
+		"build_id": build_id,
+		"total_silver_episodes": len(rows),
+		"superseded": superseded,
+		"excluded_no_pair_key_or_sensing": missing_pk,
+		"eligible_latest": len(eligible),
+		"represented_in_pairs": len(eligible) - len(unrepresented),
+		"unrepresented_latest": len(unrepresented),
+		"pairs_total": len(pairs),
+		"pairs_by_scope": by_scope,
+		"pairs_by_outcome": by_outcome,
+		"unpaired_reasons": unpaired_reasons,
+		"batch_rates": batch_stats,
+	}
+
+
 def pair_report(con: sqlite3.Connection, build_id: str) -> str:
-	"""Render Markdown report of silver pair outcomes by batch x camera, realistic_only, truth_only cross-tab and quarantine."""
+	"""Render Markdown report of silver pair outcomes by batch x camera, match scopes, reconciliation, realistic_only, truth_only cross-tab and quarantine."""
 	ep_rows = {
 		r[0]: json.loads(r[1])
 		for r in con.execute("select path, row_json from silver_episode where build_id = ?", (build_id,))
 	}
 	pairs = con.execute(
-		"select pair_key, camera_condition, truth_path, realistic_path, outcome "
-		"from silver_pair where build_id = ? order by camera_condition, pair_key",
+		"select batch, pair_key, camera_condition, truth_path, realistic_path, outcome, match_scope "
+		"from silver_pair where build_id = ? order by batch, camera_condition, subject_path",
 		(build_id,),
 	).fetchall()
 
 	by_batch_cam: dict[tuple[str, str], dict[str, int]] = {}
+	scope_counts: dict[str, int] = {}
 	realistic_only_items: list[dict] = []
 	truth_only_cross: dict[tuple[str, str], int] = {}
-	for _pk, cam, t_path, r_path, outcome in pairs:
+	for batch_col, _pk, cam, t_path, r_path, outcome, scope in pairs:
 		r_ep = ep_rows.get(r_path) if r_path else None
 		t_ep = ep_rows.get(t_path) if t_path else None
 		ref = r_ep or t_ep or {}
-		batch = str(ref.get("batch") or "-")
+		batch = str(batch_col or ref.get("batch") or "-")
 		bucket = by_batch_cam.setdefault((batch, cam), {o: 0 for o in OUTCOMES})
 		bucket[outcome] = bucket.get(outcome, 0) + 1
+		scope_counts[scope] = scope_counts.get(scope, 0) + 1
 		if outcome == "realistic_only":
 			realistic_only_items.append(
 				{
@@ -435,12 +598,25 @@ def pair_report(con: sqlite3.Connection, build_id: str) -> str:
 			mech = str(r_ep.get("mechanism") or "(none)")
 			truth_only_cross[(rc, mech)] = truth_only_cross.get((rc, mech), 0) + 1
 
+	rec = reconcile_silver(con, build_id)
 	quarantine_counts: dict[str, int] = {}
 	for ep in ep_rows.values():
 		for reason in ep.get("quarantine_reasons") or []:
 			quarantine_counts[reason] = quarantine_counts.get(reason, 0) + 1
 
-	lines = [f"# Silver Pair Report (`{build_id}`)", "", "## Batch x Camera Outcomes", ""]
+	lines = [
+		f"# Silver Pair Report (`{build_id}`)",
+		"",
+		"## Reconciliation",
+		"",
+		f"- total_silver_episodes: {rec['total_silver_episodes']}",
+		f"- eligible_latest: {rec['eligible_latest']} (represented={rec['represented_in_pairs']}, unrepresented={rec['unrepresented_latest']})",
+		f"- superseded: {rec['superseded']}, excluded_no_pair_key_or_sensing: {rec['excluded_no_pair_key_or_sensing']}",
+		f"- pairs_by_scope: {json.dumps(scope_counts, sort_keys=True)}",
+		"",
+		"## Batch x Camera Outcomes",
+		"",
+	]
 	lines.append("| batch | camera_condition | " + " | ".join(OUTCOMES) + " |")
 	lines.append("|---|---|" + "---:|" * len(OUTCOMES))
 	for (batch, cam), counts in sorted(by_batch_cam.items()):

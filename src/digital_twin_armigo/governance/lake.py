@@ -38,12 +38,17 @@ create table if not exists silver_episode (
 );
 create table if not exists silver_pair (
 	build_id text not null,
+	subject_path text not null,
+	batch text,
 	pair_key text not null,
 	camera_condition text not null,
 	truth_path text,
+	truth_batch text,
 	realistic_path text,
 	outcome text not null,
-	primary key (build_id, pair_key, camera_condition)
+	match_scope text not null default 'unpaired',
+	detail text,
+	primary key (build_id, subject_path)
 );
 create table if not exists gold_build (
 	product text not null,
@@ -63,4 +68,8 @@ def connect(path: Path | str) -> sqlite3.Connection:
 	db_path.parent.mkdir(parents=True, exist_ok=True)
 	con = sqlite3.connect(db_path)
 	con.executescript(SCHEMA)
+	sp_cols = {r[1] for r in con.execute("pragma table_info(silver_pair)").fetchall()}
+	if sp_cols and not {"subject_path", "batch", "truth_batch", "match_scope", "detail"}.issubset(sp_cols):
+		con.execute("drop table silver_pair")
+		con.executescript(SCHEMA)
 	return con
