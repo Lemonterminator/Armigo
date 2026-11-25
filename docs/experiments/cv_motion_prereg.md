@@ -32,11 +32,13 @@
 | 阶段 | 批次名 | 套件 / 种子段 | 条件与矩阵 |
 |---|---|---|---|
 | Stage 1：标定容差曲线 | `cvm-s1-tol` | `p2_dev12` | `{open, w2s}` × `calib_offset_mm` ∈ `{0, 2, 5, 10, 20}` × `camera=fixed`, `evidence=hold`, `strategy=B`, `detector=v7bot` |
-| Stage 2：抓取变体初筛 | `cvm-s2` | `p2_dev12` | 7 种 `motion` × `{fixed, drift}` × `evidence=hold`, `strategy=B`, `detector=v7bot` |
+| Stage 2：抓取变体初筛 | `cvm-s2` | `p2_dev12` | 7 种 `motion` × `{fixed, recal, drift}` × `evidence=hold`, `strategy=B`, `detector=v7bot` |
 | Stage 3：取证变体 | `cvm-s3` | `p2_dev12` | Stage 2 前 2 名 × `{hold, img, dense-10, dense-20}` × `{fixed, recal, drift}`, `strategy=B`, `detector=v7bot` |
-| Stage 4：留出确认 | `cvm-s4-confirm` | 闭环未用新种子段 `loop-01`（`3_600_001` 起取 `96` 案例；与 v3 `3000001/3100001/3500001/3900001` 段不重叠） | Stage 3 最终胜者 vs `open`（`hold`） × `{fixed, recal, drift}`, `strategy=B`, `detector=v7bot` |
+| Stage 4：留出确认 | `cvm-s4-confirm` | 已登记套件 `loop_01_96`（闭环未用新种子段 `loop-01` 的 `3_600_001`–`3_600_048`，`96` 案例；与 v3 `3000001/3100001/3500001/3900001` 段不重叠） | Stage 3 最终胜者 vs `open`（`hold`） × `{fixed, recal, drift}`, `strategy=B`, `detector=v7bot` |
 
 注：离线 H2 机制归因基准参照 `D:/Armigo_data_v2` 套件；阶段 3b（若接入 U4 分割网络）将在 `docs/experiments/brickseg_prereg.md` 中单独登记。
+
+2026-11-25 修订（任何 cv-motion 运行之前）：Stage 2 增加 recal，使第 3 节硬约束 1 在初筛时可判；Stage 4 套件登记为 `loop_01_96`。
 
 ## 3. 选优与验收判据（逐字锁定）
 

@@ -11,6 +11,7 @@ face index, as dev_suite_700001 does):
 - ``p1_sealed``: 24 new layouts (seeds 710001-710024), four defective bricks per face.
 - ``p2_dev12``: 12 layouts of dev_suite_700001, two per face (phase-2 development).
 - ``p2_sealed``: 24 new layouts (seeds 720001-720024), four per face; disjoint from p1_sealed.
+- ``loop_01_96``: 48 loop-01 layouts (seeds 3600001-3600048), eight per face (Stage 4 confirmation).
 
 Seeds of the sealed suites are checked against every suite under config/ so a sealed layout never appeared before.
 """
@@ -22,6 +23,8 @@ import hashlib
 import json
 import os
 from pathlib import Path
+
+from digital_twin_armigo.governance.segments import split_of
 
 ROOT = Path(__file__).resolve().parents[2]
 OUT = ROOT / "config/agent_bench/v2"
@@ -66,14 +69,23 @@ def build() -> dict[str, list]:
 		"p1_sealed": _paired(list(range(710001, 710025))),
 		"p2_dev12": dev12,
 		"p2_sealed": _paired(list(range(720001, 720025))),
+		"loop_01_96": _paired(list(range(3_600_001, 3_600_049))),
 	}
+	loop_seeds = {c[0] for c in suites["loop_01_96"]}
+	assert len(loop_seeds) == 48
+	assert all(split_of(seed) == "loop-01" for seed in loop_seeds), "loop_01_96 seeds must be in split loop-01"
+	for name, cases in suites.items():
+		if name == "loop_01_96":
+			continue
+		clash = loop_seeds & {c[0] for c in cases}
+		assert not clash, f"loop_01_96 overlaps {name}: {sorted(clash)[:5]}"
 	used = _existing_seeds()
 	for name in ("p1_sealed", "p2_sealed"):
 		clash = {c[0] for c in suites[name]} & used
 		if clash:
 			raise SystemExit(f"{name}: seeds already used elsewhere: {sorted(clash)[:5]}")
 	assert not {c[0] for c in suites["p1_sealed"]} & {c[0] for c in suites["p2_sealed"]}
-	for name in ("p1_sealed", "p2_sealed", "p2_dev12", "dev_suite_700001"):
+	for name in ("p1_sealed", "p2_sealed", "p2_dev12", "dev_suite_700001", "loop_01_96"):
 		faces = [c[2] for c in suites[name] if c[1]]
 		assert len({faces.count(f) for f in range(6)}) == 1, f"{name} is not face-balanced"
 	return suites

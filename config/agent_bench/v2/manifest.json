@@ -40,6 +40,12 @@
       "cases": 48,
       "layouts": 24,
       "sealed": true
+    },
+    "loop_01_96": {
+      "sha256": "972680c0c65269e6ebb35bef10a28500d239292438240cb1c4f2439ea49b766f",
+      "cases": 96,
+      "layouts": 48,
+      "sealed": false
     }
   }
 }
