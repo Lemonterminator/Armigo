@@ -11,10 +11,10 @@ from pathlib import Path
 from ..experiments.scoring import score_episode
 from ..inventory import audit as inv_audit
 from .bronze import FILES, _commit
-from .pairs import flags, pair_key, sensing_of
+from .pairs import OUTCOMES, flags, pair_key, pair_outcome, sensing_of
 from .segments import split_of
 
-__all__ = ["CHECKS", "QUARANTINE_CHECKS", "build_silver"]
+__all__ = ["CHECKS", "QUARANTINE_CHECKS", "build_pairs", "build_silver", "pair_report"]
 
 QUARANTINE_CHECKS = ("complete", "bronze_intact", "sensor_guard", "no_truth_fallback")
 
@@ -300,3 +300,130 @@ def build_silver(
 		)
 	con.commit()
 	return bid
+
+
+def build_pairs(con: sqlite3.Connection, build_id: str) -> int:
+	"""Populate ``silver_pair`` for ``build_id`` from latest (non-superseded) episodes; returns pair count."""
+	con.execute("delete from silver_pair where build_id = ?", (build_id,))
+	rows = [
+		json.loads(r[0])
+		for r in con.execute("select row_json from silver_episode where build_id = ? order by path", (build_id,))
+	]
+	truth_by_pk: dict[str, dict] = {}
+	real_by_pk_cam: dict[tuple[str, str], dict] = {}
+	for r in rows:
+		if r.get("superseded") or not r.get("pair_key"):
+			continue
+		pk_json = json.dumps(r["pair_key"])
+		if r.get("sensing") == "truth":
+			prev = truth_by_pk.get(pk_json)
+			if prev is None or (int(r.get("attempt") or 0), r["path"]) > (int(prev.get("attempt") or 0), prev["path"]):
+				truth_by_pk[pk_json] = r
+		elif r.get("sensing") == "realistic":
+			cam = str(r.get("camera_condition") or "fixed")
+			key = (pk_json, cam)
+			prev = real_by_pk_cam.get(key)
+			if prev is None or (int(r.get("attempt") or 0), r["path"]) > (int(prev.get("attempt") or 0), prev["path"]):
+				real_by_pk_cam[key] = r
+
+	paired_truth_pks: set[str] = set()
+	inserts: list[tuple] = []
+	for (pk_json, cam), r_row in sorted(real_by_pk_cam.items()):
+		t_row = truth_by_pk.get(pk_json)
+		if t_row is not None:
+			paired_truth_pks.add(pk_json)
+		outcome = pair_outcome(t_row, r_row)
+		inserts.append((build_id, pk_json, cam, t_row["path"] if t_row else None, r_row["path"], outcome))
+
+	for pk_json, t_row in sorted(truth_by_pk.items()):
+		if pk_json not in paired_truth_pks:
+			inserts.append((build_id, pk_json, "fixed", t_row["path"], None, pair_outcome(t_row, None)))
+
+	con.executemany(
+		"insert into silver_pair (build_id, pair_key, camera_condition, truth_path, realistic_path, outcome) "
+		"values (?, ?, ?, ?, ?, ?)",
+		inserts,
+	)
+	con.commit()
+	return len(inserts)
+
+
+def pair_report(con: sqlite3.Connection, build_id: str) -> str:
+	"""Render Markdown report of silver pair outcomes by batch x camera, realistic_only, truth_only cross-tab and quarantine."""
+	ep_rows = {
+		r[0]: json.loads(r[1])
+		for r in con.execute("select path, row_json from silver_episode where build_id = ?", (build_id,))
+	}
+	pairs = con.execute(
+		"select pair_key, camera_condition, truth_path, realistic_path, outcome "
+		"from silver_pair where build_id = ? order by camera_condition, pair_key",
+		(build_id,),
+	).fetchall()
+
+	by_batch_cam: dict[tuple[str, str], dict[str, int]] = {}
+	realistic_only_items: list[dict] = []
+	truth_only_cross: dict[tuple[str, str], int] = {}
+	for _pk, cam, t_path, r_path, outcome in pairs:
+		r_ep = ep_rows.get(r_path) if r_path else None
+		t_ep = ep_rows.get(t_path) if t_path else None
+		ref = r_ep or t_ep or {}
+		batch = str(ref.get("batch") or "-")
+		bucket = by_batch_cam.setdefault((batch, cam), {o: 0 for o in OUTCOMES})
+		bucket[outcome] = bucket.get(outcome, 0) + 1
+		if outcome == "realistic_only":
+			realistic_only_items.append(
+				{
+					"batch": batch,
+					"camera": cam,
+					"case_id": ref.get("case_id"),
+					"truth_path": t_path,
+					"realistic_path": r_path,
+					"truth_cause": (t_ep or {}).get("root_cause"),
+				}
+			)
+		elif outcome == "truth_only" and r_ep is not None:
+			rc = str(r_ep.get("root_cause") or "other")
+			mech = str(r_ep.get("mechanism") or "(none)")
+			truth_only_cross[(rc, mech)] = truth_only_cross.get((rc, mech), 0) + 1
+
+	quarantine_counts: dict[str, int] = {}
+	for ep in ep_rows.values():
+		for reason in ep.get("quarantine_reasons") or []:
+			quarantine_counts[reason] = quarantine_counts.get(reason, 0) + 1
+
+	lines = [f"# Silver Pair Report (`{build_id}`)", "", "## Batch x Camera Outcomes", ""]
+	lines.append("| batch | camera_condition | " + " | ".join(OUTCOMES) + " |")
+	lines.append("|---|---|" + "---:|" * len(OUTCOMES))
+	for (batch, cam), counts in sorted(by_batch_cam.items()):
+		lines.append(f"| {batch} | {cam} | " + " | ".join(str(counts.get(o, 0)) for o in OUTCOMES) + " |")
+
+	lines += ["", "## realistic_only Episodes", ""]
+	if not realistic_only_items:
+		lines.append("(none)")
+	else:
+		for item in realistic_only_items:
+			lines.append(
+				f"- `{item['batch']}` `{item['camera']}` `{item['case_id']}` "
+				f"(truth `{item['truth_cause']}`: `{item['truth_path']}`, realistic: `{item['realistic_path']}`)"
+			)
+
+	lines += ["", "## truth_only (root_cause x mechanism)", ""]
+	if not truth_only_cross:
+		lines.append("(none)")
+	else:
+		mechs = sorted({m for _, m in truth_only_cross})
+		rcs = sorted({rc for rc, _ in truth_only_cross})
+		lines.append("| root_cause | " + " | ".join(mechs) + " |")
+		lines.append("|---|" + "---:|" * len(mechs))
+		for rc in rcs:
+			lines.append(f"| {rc} | " + " | ".join(str(truth_only_cross.get((rc, m), 0)) for m in mechs) + " |")
+
+	lines += ["", "## Quarantine Reasons", ""]
+	if not quarantine_counts:
+		lines.append("(none)")
+	else:
+		lines += ["| reason | count |", "|---|---:|"]
+		for reason, n in sorted(quarantine_counts.items()):
+			lines.append(f"| {reason} | {n} |")
+
+	return "\n".join(lines) + "\n"

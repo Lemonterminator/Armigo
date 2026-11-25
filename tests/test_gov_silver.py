@@ -14,20 +14,27 @@ def test_split_segments():
 	assert split_of(9_999_999) == "unknown"
 
 
-def _episode(root, group, name, *, events, state="done"):
+def _episode(root, group, name, *, events, state="done", seed=3000101, verdict="SUCCESS", positive=False, face=0):
 	d = root / "runs" / "b1" / "mujoco" / group / name
 	d.mkdir(parents=True)
 	(d / "run_status.json").write_text(json.dumps({"state": state}), encoding="utf-8")
-	(d / "task.json").write_text(json.dumps({"case": [3000101, False, 0]}), encoding="utf-8")
+	(d / "task.json").write_text(json.dumps({"case": [seed, positive, face]}), encoding="utf-8")
+	cam = "fixed" if group.startswith("truth") else group.split("-")[1]
+	label = (
+		"normal"
+		if verdict == "SUCCESS" and not positive
+		else ("defective" if positive and verdict == "SUCCESS" else "unknown")
+	)
 	(d / "episode.json").write_text(
 		json.dumps(
 			{
-				"result": {"label": "normal", "verdict": "SUCCESS"},
+				"result": {"label": label, "verdict": verdict},
 				"provenance": {
 					"experiment": {
 						"batch": "b1",
 						"group": group,
 						"engine": "mujoco",
+						"camera_condition": cam,
 						"detector": "v7bot",
 						"strategy": "B",
 						"case_id": name,
@@ -64,3 +71,19 @@ def test_clean_episode_passes_and_changed_bronze_is_quarantined(tmp_path):
 	b2 = silver.build_silver(con, freeze=None)
 	assert b2 != b1
 	assert con.execute("select quarantined from silver_episode where build_id = ?", (b2,)).fetchone()[0] == 1
+
+
+def test_build_pairs_and_pair_report(tmp_path):
+	_episode(tmp_path, "truth-B-v7bot", "L3000101-N", events=[], verdict="SUCCESS")
+	_episode(tmp_path, "realistic-fixed-B-v7bot", "L3000101-N", events=[], verdict="SUCCESS")
+	_episode(tmp_path, "realistic-drift-B-v7bot", "L3000101-N", events=[], verdict="FAILED")
+	con = lake.connect(tmp_path / "lake.sqlite")
+	bronze.register(con, tmp_path, source="t")
+	bid = silver.build_silver(con, freeze=None)
+	n = silver.build_pairs(con, bid)
+	assert n == 2
+	rows = dict(con.execute("select camera_condition, outcome from silver_pair where build_id = ?", (bid,)).fetchall())
+	assert rows == {"fixed": "both_pass", "drift": "truth_only"}
+	md = silver.pair_report(con, bid)
+	assert "| drift | 0 | 1 |" in md
+	assert "truth_only" in md
