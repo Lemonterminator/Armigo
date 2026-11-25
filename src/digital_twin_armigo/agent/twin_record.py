@@ -306,11 +306,17 @@ class EpisodeTrace:
 		}.items():
 			canvas[y : y + h, x : x + w] = cv2.resize(self.images[name], (w, h), interpolation=cv2.INTER_AREA)
 			cv2.putText(canvas, title, (x, y - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (207, 219, 225), 1, cv2.LINE_AA)
+		margin, gap, padding = 12, 8, 8
+		step = (canvas.shape[1] - 2 * margin + gap) // len(NODES)
+		box_width = step - gap
+		font, max_scale = cv2.FONT_HERSHEY_SIMPLEX, 0.53
 		for i, name in enumerate(NODES):
-			x, y = 12 + i * 144, 653
+			x, y = margin + i * step, 653
 			active = name == node
-			cv2.rectangle(canvas, (x, y), (x + 136, y + 44), (44, 164, 112) if active else (39, 53, 64), -1)
-			cv2.putText(canvas, name, (x + 8, y + 27), cv2.FONT_HERSHEY_SIMPLEX, 0.53, (239, 248, 252), 1, cv2.LINE_AA)
+			cv2.rectangle(canvas, (x, y), (x + box_width - 1, y + 44), (44, 164, 112) if active else (39, 53, 64), -1)
+			label_width = cv2.getTextSize(name, font, max_scale, 1)[0][0]
+			scale = min(max_scale, max_scale * (box_width - 2 * padding) / label_width)
+			cv2.putText(canvas, name, (x + padding, y + 27), font, scale, (239, 248, 252), 1, cv2.LINE_AA)
 		branch = self.branches[-1]["id"]
 		if frame is None:
 			frame = self.branches[-1]["start_frame"] + len(self.rows)

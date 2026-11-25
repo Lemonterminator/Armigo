@@ -180,6 +180,29 @@ def test_live_preview_retries_after_a_windows_file_lock(tmp_path, monkeypatch):
 		trace.close()
 
 
+def test_replay_node_strip_fits_the_frame(tmp_path):
+	pytest.importorskip("av")
+	pytest.importorskip("cv2")
+	from digital_twin_armigo.agent.twin_graph import NODES
+	from digital_twin_armigo.agent.twin_record import EpisodeTrace
+
+	trace = EpisodeTrace(tmp_path / "episode", video=False)
+	trace.images = dict.fromkeys(("front", "wrist", "top_rgb"), np.zeros((20, 20, 3), dtype=np.uint8))
+	try:
+		frame = trace._composite("evaluate", frame=0)
+	finally:
+		trace.close()
+
+	background = frame[0, 0]
+	strip = frame[690]
+	painted = np.flatnonzero(np.any(strip != background, axis=1))
+	boxes = np.split(painted, np.flatnonzero(np.diff(painted) > 1) + 1)
+	assert len(boxes) == len(NODES)
+	assert painted[0] >= 12 and painted[-1] < frame.shape[1] - 12
+	assert np.all(strip[boxes[-1]] == (44, 164, 112))
+	assert np.all(frame[653:698, np.all(strip == background, axis=1)] == background)
+
+
 def test_continuous_carry_preserves_the_path_duration_and_gripper_transition():
 	pytest.importorskip("mujoco")
 	from digital_twin_armigo.agent.twin_mujoco import ContinuousCarryExpert
