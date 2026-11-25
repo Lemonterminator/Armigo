@@ -40,14 +40,18 @@ def _scripted(args: tuple) -> dict:
 
 
 def _student(args: tuple) -> dict:
-	from digital_twin_armigo.agent.act_grasp import grasp_trial
+	from digital_twin_armigo.agent.act_grasp import CloseBeforeDoneGuard, grasp_trial
 	from digital_twin_armigo.vla.client_policy import ChunkClientPolicy, RemoteChunkPredictor
 
-	seed, split, out, url, policy_kw = args
+	seed, split, out, url, policy_kw, guard = args
 	with RemoteChunkPredictor(url, timeout_s=30.0) as predictor:
 		policy = ChunkClientPolicy(predictor, **policy_kw)
+		if guard:
+			policy = CloseBeforeDoneGuard(policy)
 		try:
-			return grasp_trial(make_case(seed, split), out / f"case-{seed}", policy=policy)
+			r = grasp_trial(make_case(seed, split), out / f"case-{seed}", policy=policy)
+			r["done_overrides"] = getattr(policy, "overrides", 0)
+			return r
 		except Exception as e:  # noqa: BLE001
 			return {"case": make_case(seed, split), "lifted": False, "error": f"crash:{type(e).__name__}:{e}"}
 		finally:
@@ -73,6 +77,7 @@ def main(argv: list[str] | None = None) -> int:
 	ap.add_argument("--skip-scripted", action="store_true")
 	ap.add_argument("--replan-interval", type=int, default=None)
 	ap.add_argument("--temporal-ensemble", type=float, default=None)
+	ap.add_argument("--guard", action="store_true", help="ignore a grasp end-step before the gripper closes")
 	a = ap.parse_args(argv)
 	seeds = list(range(a.seed0, a.seed0 + a.n))
 	summary_path = a.out / "summary.json"
@@ -88,11 +93,11 @@ def main(argv: list[str] | None = None) -> int:
 		sys.path.insert(0, str(ROOT / "scripts" / "vla"))
 		from eval_closed_loop import managed_policy_server
 
-		out = a.out / f"act-{a.ckpt.parent.name}-{a.ckpt.name}"
+		out = a.out / f"act-{a.ckpt.parent.name}-{a.ckpt.name}{'-guard' if a.guard else ''}"
 		out.mkdir(parents=True, exist_ok=True)
 		policy_kw = {"replan_interval": a.replan_interval, "temporal_ensemble": a.temporal_ensemble}
 		with managed_policy_server(ckpt=a.ckpt) as url, ProcessPoolExecutor(min(a.workers, 4)) as pool:
-			rows = list(pool.map(_student, [(s, a.split, out, url, policy_kw) for s in seeds]))
+			rows = list(pool.map(_student, [(s, a.split, out, url, policy_kw, a.guard) for s in seeds]))
 		arms.append((out.name, rows))
 	for name, rows in arms:
 		with (a.out / name / "results.jsonl").open("w", encoding="utf-8") as fh:

@@ -42,6 +42,44 @@ def canonical_pick(cands: list[dict], wrist_roll: float, min_clear: float) -> tu
 	return (nearest(clear), True) if clear else (None, True)
 
 
+CLOSED_CMD_RAD = 0.3  # a gripper command below this has started closing (open 0.85, hold 0.06)
+MAX_OVERRIDE_FRAMES = 120  # cap on frames a grasp segment may run past an ignored end-step
+
+
+class CloseBeforeDoneGuard:
+	"""Wrap a :class:`~..vla.client_policy.ChunkClientPolicy`: in a ``grasp`` segment, an end-step that comes before
+	the policy has commanded the gripper closed is ignored and the policy keeps acting (the grasp segment's end in
+	the demonstrations is after the clamp, so an early end-step leaves the jaws open around nothing). Other segments
+	pass through unchanged."""
+
+	def __init__(self, inner) -> None:
+		self.inner = inner
+		self.overrides = 0  # end-steps ignored, all segments
+		self._kind = None
+		self._closed = False
+		self._extra = 0
+
+	def start(self, task: dict[str, Any], segment_id: int) -> None:
+		self._kind, self._closed, self._extra = task.get("kind"), False, 0
+		self.inner.start(task, segment_id)
+
+	def act(self, obs):
+		step = self.inner.act(obs)
+		if self._kind == "grasp" and step.done and not self._closed and self._extra < MAX_OVERRIDE_FRAMES:
+			self.overrides += 1
+			with self.inner._lock:  # drop the planned stop (ChunkClientPolicy keeps it in _planned_stop_step)
+				self.inner._planned_stop_step = None
+			step = self.inner.act(obs)
+		if self._kind == "grasp" and not step.done and step.target is not None:
+			self._closed |= float(step.target[5]) < CLOSED_CMD_RAD
+			if self.overrides:
+				self._extra += 1
+		return step
+
+	def close(self) -> None:
+		self.inner.close()
+
+
 class HybridTwin(StudentTwin, ExpertTracer):
 	"""Expert everywhere, the student policy for ``grasp_and_lift`` (grasp + lift segments) only.
 
@@ -67,16 +105,27 @@ class HybridTwin(StudentTwin, ExpertTracer):
 		elif self.brick_est is not None:
 			obs["brick_pos"], obs["brick_quat"] = self.brick_est.pos.copy(), self.brick_est.quat_xyzw()
 		saved = (ex.obs, ex.kin.data.qpos.copy())
+		roll_now = float(ex.last[4])
+		c, fell_back, open_g = None, False, float(ex._active_open_g)
 		try:
 			ex.obs = obs
-			cands = ex.grasp_candidates(open_g=ex._active_open_g)
+			# As ClosedLoopExpert._grasp_plan: the full opening first, then the narrower rungs of open_ladder.
+			for g in (open_g, *(g for g in ex.p.open_ladder if g < open_g - 1e-6)):
+				c, fell_back = canonical_pick(ex.grasp_candidates(open_g=g), roll_now, ex.p.min_grasp_clearance_m)
+				if c is not None:
+					break
 		finally:
 			ex.obs, qpos = saved
 			ex.kin.data.qpos[:] = qpos
-		c, fell_back = canonical_pick(cands, float(ex.last[4]), ex.p.min_grasp_clearance_m)
-		if c is None:  # nothing reachable: fall back to the planner (the student will likely fail; it is recorded)
+		if c is None:  # nothing reachable at any opening: the planner's choice (recorded as such)
+			self.event("canonical_grasp", roll_deg=None, fell_back=True, planner=True)
 			return super()._planned_grasp()
-		self.event("canonical_grasp", roll_deg=round(math.degrees(c["roll"]), 1), fell_back=fell_back)
+		self.event(
+			"canonical_grasp",
+			roll_deg=round(math.degrees(c["roll"]), 1),
+			fell_back=fell_back,
+			open_g=round(float(c["open_g"]), 3),
+		)
 		return np.asarray(c["target"], dtype=np.float64).copy(), float(c["roll"]), float(c["open_g"])
 
 
