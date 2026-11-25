@@ -35,48 +35,6 @@ def make_case(seed: int) -> list:
 	return [seed, bool(seed % 2), seed % 6, {"scene": "v3", "split": "train", "cameras": "drift", "oracle": "bowls"}]
 
 
-def _axis_hit(cell, kin_data, top_z: float) -> np.ndarray:
-	"""Where the believed wrist optical axis meets the plane z = ``top_z`` (x, y)."""
-	from digital_twin_armigo.agent.wrist_localize import believed_wrist_from_cam
-
-	w2c = believed_wrist_from_cam(cell, kin_data)
-	o, a = w2c[:3, 3], w2c[:3, 2]
-	t = (top_z - o[2]) / a[2] if abs(a[2]) > 1e-6 else 0.0
-	return (o + t * a)[:2]
-
-
-def ring_poses(ex, cell, centre_xy, top_z: float, tip: float, n: int, aim: bool) -> list[np.ndarray]:
-	"""Jaws-down joint poses over ``centre_xy`` at ``n`` wrist rolls spread over the roll range (one full turn at
-	most)."""
-	lo, hi = (float(v) for v in cell.jnt_range[4])
-	span = min(hi - lo, 2 * math.pi * (n - 1) / n)
-	mid = 0.5 * (lo + hi)
-	rolls = np.linspace(mid - span / 2, mid + span / 2, n)
-	q_seed = cell.joints()
-	out = []
-	for roll in rolls:
-		xy = np.asarray(centre_xy, dtype=np.float64).copy()
-		q = None
-		for _ in range(4 if aim else 1):
-			q = ex._ik(np.array([*xy, top_z + tip]), q_seed if q is None else q, float(roll))
-			if not aim:
-				break
-			ex.kin.data.qpos[ex.kin.qadr] = q
-			xy = xy - (_axis_hit(cell, ex.kin.data, top_z) - centre_xy)
-		ex.kin.data.qpos[ex.kin.qadr] = q
-		from digital_twin_armigo.mujoco_cell._mj import mujoco
-
-		mujoco.mj_kinematics(ex.kin.model, ex.kin.data)
-		site = ex.kin.data.site_xpos[ex.kin.site]
-		down = float(-ex.kin.data.site_xmat[ex.kin.site].reshape(3, 3)[2, 0])
-		if down < math.cos(math.radians(8)) or abs(site[2] - (top_z + tip)) > 0.006:
-			continue
-		if abs(float(q[4]) - roll) > 0.05:  # roll clipped by IK: not the view asked for
-			continue
-		out.append(q)
-	return out
-
-
 def run_case(args: tuple) -> dict:
 	os.environ["CUDA_VISIBLE_DEVICES"] = ""
 	seed, out, n_views = args
@@ -85,6 +43,7 @@ def run_case(args: tuple) -> dict:
 	from digital_twin_armigo.agent.twin_mujoco import sample_case
 	from digital_twin_armigo.agent.twin_record import EpisodeTrace
 	from digital_twin_armigo.agent.wrist_localize import believed_wrist_from_cam, localize_from_wrist, wrist_k
+	from digital_twin_armigo.agent.wrist_ring import ring_poses
 	from digital_twin_armigo.mujoco_cell._mj import mujoco
 
 	case = make_case(seed)

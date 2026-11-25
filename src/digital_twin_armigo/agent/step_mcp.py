@@ -55,6 +55,7 @@ TRUTH_DIAGNOSTIC_KEYS = frozenset(
 		"true_brick_quat_xyzw",
 		"belief_error_mm",
 		"error_xy_mm",
+		"error_xy_mm_before",
 		"error_yaw_deg",
 		"cam_pos_err_mm",
 		"cam_rot_err_deg",

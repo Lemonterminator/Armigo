@@ -139,6 +139,7 @@ def grasp_trial(
 	clamp_wait_empty_rad: float | None = 0.03,
 	video: bool = False,
 	expert_overrides: dict[str, Any] | None = None,
+	ring_localise: bool = False,
 ) -> dict[str, Any]:
 	"""``prepare`` then the first grasp and lift of ``case``; the scripted expert when ``policy`` is None, else the
 	hybrid (student grasp). Returns the outcome on truth: ``lifted`` (brick up and between both jaws)."""
@@ -148,7 +149,7 @@ def grasp_trial(
 	trace = EpisodeTrace(out, video=video)
 	layout = sample_case(*case)
 	if policy is None:
-		twin = ExpertTracer(layout, None, trace, sensing=sensing)
+		twin = ExpertTracer(layout, None, trace, sensing=sensing, ring_localise=ring_localise)
 	else:
 		twin = HybridTwin(
 			layout,
@@ -158,6 +159,7 @@ def grasp_trial(
 			sensing=sensing,
 			clamp_wait=clamp_wait,
 			clamp_wait_empty_rad=clamp_wait_empty_rad,
+			ring_localise=ring_localise,
 		)
 	if expert_overrides:  # e.g. {"descend_close_ratio": 1.3}: a planner variant for the scripted (and hybrid) arm
 		from dataclasses import replace
@@ -168,6 +170,7 @@ def grasp_trial(
 	frames0 = twin.ep.n_frames
 	if not error:
 		error = twin._grasp()
+	ring = next((e for e in reversed(trace.events) if e.get("kind") == "ring_localised"), None)
 	tel = twin.ep.telemetry()
 	f = tel["pinch_normal"][-1] if len(tel["pinch_normal"]) else np.zeros(2)
 	dz = float(twin.cell.brick_pos()[2] - z0)
@@ -181,6 +184,9 @@ def grasp_trial(
 		"grasp_retries": int(twin.expert.grasp_retries),
 		"grasp_frames": int(twin.ep.n_frames - frames0),
 		"brick_dz_m": dz,
+		"ring": None
+		if ring is None
+		else {k: ring[k] for k in ("poses", "fixes", "accepted", "error_xy_mm_before", "error_xy_mm")},
 		"verdict": "SUCCESS" if lifted else "FAILED",
 		"student_eligible": False,
 		"rewinds": 0,

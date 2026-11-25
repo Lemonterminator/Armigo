@@ -252,6 +252,20 @@ class _SegmentMixin:
 				},
 				variant=v,
 			)
+		if name == "ring_locate":  # TwinMujoco._ring_localise: one wrist view of the localisation ring
+			path = local["path"]
+			return "simple", Segment(
+				"scan_view",
+				{
+					"mode": "locate",
+					"view": local["view"],
+					"views": local["views"],
+					"target_q": _rounded(path[-1]),
+					"via_poses": len(path) - 1,
+					"roll_deg": roll_deg(path[-1][4]),
+				},
+				variant=v,
+			)
 		if name == "review_bottom":
 			pose = local["pose"]
 			return "simple", Segment(

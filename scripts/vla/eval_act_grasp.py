@@ -32,9 +32,9 @@ def _scripted(args: tuple) -> dict:
 	os.environ["CUDA_VISIBLE_DEVICES"] = ""
 	from digital_twin_armigo.agent.act_grasp import grasp_trial
 
-	seed, split, out, overrides = args
+	seed, split, out, overrides, ring = args
 	try:
-		return grasp_trial(make_case(seed, split), out / f"case-{seed}", expert_overrides=overrides)
+		return grasp_trial(make_case(seed, split), out / f"case-{seed}", expert_overrides=overrides, ring_localise=ring)
 	except Exception as e:  # noqa: BLE001 - a crashed trial is a reported failure
 		return {"case": make_case(seed, split), "lifted": False, "error": f"crash:{type(e).__name__}:{e}"}
 
@@ -43,13 +43,13 @@ def _student(args: tuple) -> dict:
 	from digital_twin_armigo.agent.act_grasp import CloseBeforeDoneGuard, grasp_trial
 	from digital_twin_armigo.vla.client_policy import ChunkClientPolicy, RemoteChunkPredictor
 
-	seed, split, out, url, policy_kw, guard = args
+	seed, split, out, url, policy_kw, guard, ring = args
 	with RemoteChunkPredictor(url, timeout_s=30.0) as predictor:
 		policy = ChunkClientPolicy(predictor, **policy_kw)
 		if guard:
 			policy = CloseBeforeDoneGuard(policy)
 		try:
-			r = grasp_trial(make_case(seed, split), out / f"case-{seed}", policy=policy)
+			r = grasp_trial(make_case(seed, split), out / f"case-{seed}", policy=policy, ring_localise=ring)
 			r["done_overrides"] = getattr(policy, "overrides", 0)
 			return r
 		except Exception as e:  # noqa: BLE001
@@ -84,28 +84,32 @@ def main(argv: list[str] | None = None) -> int:
 		default=None,
 		help="scripted arm: close the jaws while descending to this x the believed brick width (ExpertParams)",
 	)
+	ap.add_argument(
+		"--ring", action="store_true", help="re-localise the brick from a ring of wrist views before the grasp"
+	)
 	a = ap.parse_args(argv)
+	ring_tag = "-ring" if a.ring else ""
 	seeds = list(range(a.seed0, a.seed0 + a.n))
 	summary_path = a.out / "summary.json"
 	summary = json.loads(summary_path.read_text(encoding="utf-8")) if summary_path.exists() else {}
 	arms: list[tuple[str, list[dict]]] = []
 	if not a.skip_scripted:
 		overrides = {"descend_close_ratio": a.descend_close_ratio} if a.descend_close_ratio else None
-		name = "scripted" + (f"-close{a.descend_close_ratio:g}" if overrides else "")
+		name = "scripted" + (f"-close{a.descend_close_ratio:g}" if overrides else "") + ring_tag
 		out = a.out / name
 		out.mkdir(parents=True, exist_ok=True)
 		with ProcessPoolExecutor(a.workers) as pool:
-			rows = list(pool.map(_scripted, [(s, a.split, out, overrides) for s in seeds]))
+			rows = list(pool.map(_scripted, [(s, a.split, out, overrides, a.ring) for s in seeds]))
 		arms.append((name, rows))
 	if a.ckpt is not None:
 		sys.path.insert(0, str(ROOT / "scripts" / "vla"))
 		from eval_closed_loop import managed_policy_server
 
-		out = a.out / f"act-{a.ckpt.parent.name}-{a.ckpt.name}{'-guard' if a.guard else ''}"
+		out = a.out / f"act-{a.ckpt.parent.name}-{a.ckpt.name}{'-guard' if a.guard else ''}{ring_tag}"
 		out.mkdir(parents=True, exist_ok=True)
 		policy_kw = {"replan_interval": a.replan_interval, "temporal_ensemble": a.temporal_ensemble}
 		with managed_policy_server(ckpt=a.ckpt) as url, ProcessPoolExecutor(min(a.workers, 4)) as pool:
-			rows = list(pool.map(_student, [(s, a.split, out, url, policy_kw, a.guard) for s in seeds]))
+			rows = list(pool.map(_student, [(s, a.split, out, url, policy_kw, a.guard, a.ring) for s in seeds]))
 		arms.append((out.name, rows))
 	for name, rows in arms:
 		with (a.out / name / "results.jsonl").open("w", encoding="utf-8") as fh:

@@ -711,6 +711,7 @@ class TwinMujoco:
 		segmenter="lab",
 		segmenter_onnx=None,
 		cell_markers=False,
+		ring_localise=False,
 	):
 		if sensing not in SENSING:
 			raise ValueError(f"sensing must be one of {SENSING}")
@@ -730,6 +731,10 @@ class TwinMujoco:
 		self.detector_latency_s = float(detector_latency_s)
 		self.segmenter = segmenter
 		self.segmenter_onnx = None if segmenter_onnx is None else Path(segmenter_onnx)
+		if ring_localise and sensing != "realistic":
+			raise ValueError("ring_localise is for realistic sensing; truth sees the brick directly")
+		# Before each grasp, re-localise the brick from a ring of wrist views (see _ring_localise); off by default.
+		self.ring_localise = bool(ring_localise)
 		self._brick_net = None
 		self.fuse_cfg = FuseCfg()
 		# The printed cell markers on the table (ArUco 10, 11, 16, 17) have no use once the top camera is calibrated
@@ -1386,6 +1391,7 @@ class TwinMujoco:
 			"segmenter": self.segmenter,
 			"segmenter_onnx": None if self.segmenter_onnx is None else str(self.segmenter_onnx),
 			"cell_markers": self.cell_markers,
+			"ring_localise": self.ring_localise,
 			"segments": self._checkpoint_extra(),
 		}
 		if self.perception is not None:
@@ -2069,6 +2075,8 @@ class TwinMujoco:
 		ex._active_open_g = float(ex.p.open_g)
 		if error := self._perceive():
 			return error
+		if self.ring_localise and (error := self._ring_localise()):
+			return error
 
 		def grasp_and_lift():
 			self._belief_obs = True  # the grasp is planned on the perceived pose
@@ -2085,6 +2093,76 @@ class TwinMujoco:
 
 		error = self._execute(grasp_and_lift())
 		return error or ("BRICK_LOST" if ex.lost else ex.aborted)
+
+	def _ring_localise(self):
+		"""Re-localise the perceived brick (x, y) from a ring of wrist views (:mod:`.wrist_ring`), then go back to
+		ready. The jaws hang straight down over the believed brick, the tips ``RING_TIP_M`` above its top face, and the
+		wrist roll turns the camera around it; each view is fitted with the silhouette segmenter and the median of the
+		fixes replaces the top-view position (kept when fewer than ``RING_MIN_FIXES`` views fit or the median is more
+		than ``RING_GATE_M`` from it). Yaw, height and size class stay as the top view read them. None, or a failure
+		code of a move."""
+		from .wrist_ring import RING_ENTRY_DZ_M, RING_GATE_M, RING_MIN_FIXES, fuse_ring, ring_poses
+
+		ex, cell, est = self.expert, self.cell, self.brick_est
+		size = self._believed_brick_size()
+		top_z = float(est.pos[2] + size[2] / 2)
+		ex.kin.data.qpos[:] = cell.data.qpos
+		poses = ring_poses(ex, cell, est.pos[:2], top_z)
+		cid = mujoco.mj_name2id(cell.model, mujoco.mjtObj.mjOBJ_CAMERA, "wrist_cam")
+		fixes, rejects = [], {}
+		n_views = len(poses)
+		for k, q in enumerate(poses):
+			q = q.copy()
+			q[5] = ex.last[5]
+			path = [q]
+			if k == 0:  # enter the ring from straight above
+				ex.kin.data.qpos[ex.kin.qadr] = q
+				entry = ex._ik(np.array([*est.pos[:2], top_z + RING_ENTRY_DZ_M + 0.04]), q, float(q[4]))
+				entry[5] = q[5]
+				path = [entry, q]
+
+			def ring_locate(path=path, view=k + 1, views=n_views):
+				yield from sweep(ex, path, self.scan_peak_speed, ex.rp.scan_move_s, pause_s=None)
+				yield from ex._hold_servo(path[-1], ex.rp.scan_hold_s, "approach")
+
+			if error := self._execute(ring_locate()):
+				return error
+			rgb = cell.rgb("wrist_cam")
+			ex.kin.data.qpos[:] = cell.data.qpos
+			fix, reason = localize_from_wrist(
+				rgb,
+				wrist_k(float(cell.model.cam_fovy[cid]), rgb.shape),
+				believed_wrist_from_cam(cell, ex.kin.data),
+				est.pos[:2],
+				est.yaw,
+				size,
+				top_z,
+				segmenter="silhouette",
+			)
+			if fix is None:
+				rejects[reason] = rejects.get(reason, 0) + 1
+			else:
+				fixes.append(fix)
+		info: dict = {"poses": len(poses), "fixes": len(fixes), "rejects": rejects, "accepted": False}
+		before = float(np.linalg.norm(est.pos[:2] - cell.brick_pos()[:2]) * 1000)
+		if len(fixes) >= RING_MIN_FIXES:
+			xy = fuse_ring(fixes)
+			step = float(np.linalg.norm(xy - est.pos[:2]))
+			info["innovation_xy_mm"] = round(step * 1000, 3)
+			info["spread_mm"] = round(float(np.linalg.norm(np.array([f.pos_xy for f in fixes]).std(0)) * 1000), 3)
+			if step <= RING_GATE_M:
+				pos = est.pos.copy()
+				pos[:2] = xy
+				self.brick_est = replace(est, pos=pos)
+				info["accepted"] = True
+		self.event(
+			"ring_localised",
+			**info,
+			# Truth diagnostics only (registered in TRUTH_DIAGNOSTIC_KEYS); never read by the agent.
+			error_xy_mm_before=round(before, 3),
+			error_xy_mm=round(float(np.linalg.norm(self.brick_est.pos[:2] - cell.brick_pos()[:2]) * 1000), 3),
+		)
+		return self._execute(ex._go_ready())
 
 	def _bottom(self, views):
 		self.bottom_count += 1
