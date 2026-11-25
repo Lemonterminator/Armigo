@@ -184,12 +184,19 @@ def detector_path(name: str) -> Path:
 
 # ---- worker side ----
 
-_SERVICE = None
+_SERVICES: dict[tuple, object] = {}
 
 
 def _service(config: dict):
-	global _SERVICE
-	if _SERVICE is None:
+	key = (
+		config["sensing"],
+		config["detector"],
+		json.dumps(config["agent_options"], sort_keys=True),
+		config.get("review_llm_url"),
+		config.get("review_model"),
+	)
+	svc = _SERVICES.get(key)
+	if svc is None:
 		from ..agent.twin_mcp import TwinService
 
 		review = config.get("review_llm_url")
@@ -206,14 +213,15 @@ def _service(config: dict):
 			if review
 			else None
 		)
-		_SERVICE = TwinService(
+		svc = TwinService(
 			Path(config["scratch"]),
 			Path(config["detector"]),
 			sensing=config["sensing"],
 			agent_options=config["agent_options"],
 			review_llm_spec=review_spec,
 		)
-	return _SERVICE
+		_SERVICES[key] = svc
+	return svc
 
 
 def run_job(config: dict, job: dict) -> dict:
@@ -441,44 +449,67 @@ def plan_group(a) -> tuple[dict, list[dict], Path]:
 	return config, jobs, group_dir
 
 
-def cmd_run(a) -> int:
-	config, jobs, group_dir = plan_group(a)
-	if a.limit:
-		jobs = jobs[: a.limit]
-	root = Path(a.root)
-	print(f"{group_dir}: {len(jobs)} episode(s) to run", flush=True)
-	if not jobs:
+def pair_jobs_order(jobs: list[dict]) -> list[dict]:
+	"""Order ``jobs`` so truth and realistic runs for the same case stay adjacent (truth first)."""
+	order_index: dict[tuple, int] = {}
+
+	def _case_key(job: dict) -> tuple:
+		c = job.get("case") or []
+		return tuple(c[:3])
+
+	def _group_str(job: dict) -> str:
+		return str(job.get("group") or (job.get("experiment") or {}).get("group") or "")
+
+	for j in jobs:
+		ck = _case_key(j)
+		if ck not in order_index:
+			order_index[ck] = len(order_index)
+	return sorted(
+		jobs,
+		key=lambda j: (order_index[_case_key(j)], 0 if _group_str(j).startswith("truth") else 1),
+	)
+
+
+def _execute_jobs(
+	items: list[tuple[dict, dict]],
+	root: Path,
+	engine: str,
+	workers: int,
+	min_free_gib: float,
+	est_mib: float,
+) -> int:
+	if not items:
 		return 0
-	workers = 1 if a.engine == "isaac" else max(1, a.workers)
+	workers = 1 if engine == "isaac" else max(1, workers)
 
 	def room(inflight: int) -> bool:
 		free = shutil.disk_usage(root).free
-		return free > a.min_free_gib * GIB + (inflight + 1) * a.est_mib * MIB
+		return free > min_free_gib * GIB + (inflight + 1) * est_mib * MIB
 
 	done = 0
 	stopped = False
 	if workers == 1:
-		for job in jobs:
+		for config, job in items:
 			if not room(0):
 				stopped = True
 				break
 			row = run_job(config, job)
 			done += 1
-			print(f"  [{done}/{len(jobs)}] {row['case_id']}: {row['state']} {row.get('verdict') or ''}", flush=True)
+			print(f"  [{done}/{len(items)}] {row['case_id']}: {row['state']} {row.get('verdict') or ''}", flush=True)
 	else:
 		import multiprocessing
 
 		ctx = multiprocessing.get_context("spawn")
 		with ProcessPoolExecutor(max_workers=workers, mp_context=ctx, initializer=_init_worker) as pool:
 			pending = {}
-			queue = list(jobs)
+			queue = list(items)
 			while queue or pending:
 				while queue and len(pending) < workers:
 					if not room(len(pending)):
 						stopped = True
 						queue.clear()
 						break
-					job = queue.pop(0)
+					config, job = queue.pop(0)
 					pending[pool.submit(run_job, config, job)] = job
 				if not pending:
 					break
@@ -489,14 +520,59 @@ def cmd_run(a) -> int:
 					row = future.result()
 				except Exception as exc:  # noqa: BLE001 - worker died; the attempt dir keeps its running status
 					row = {"case_id": "?", "state": f"worker error {exc!r}"}
-				print(f"  [{done}/{len(jobs)}] {row['case_id']}: {row['state']} {row.get('verdict') or ''}", flush=True)
+				print(
+					f"  [{done}/{len(items)}] {row['case_id']}: {row['state']} {row.get('verdict') or ''}", flush=True
+				)
 	if stopped:
-		print(f"stopped at the disk boundary ({a.min_free_gib} GiB free kept); rerun to continue", flush=True)
+		print(f"stopped at the disk boundary ({min_free_gib} GiB free kept); rerun to continue", flush=True)
 		return 3
-	sizes = [_dir_mib(Path(j["path"])) for j in jobs if Path(j["path"]).exists()]
+	sizes = [_dir_mib(Path(j["path"])) for _, j in items if Path(j["path"]).exists()]
 	if sizes:
 		print(f"episode size: mean {sum(sizes) / len(sizes):.1f} MiB, max {max(sizes):.1f} MiB", flush=True)
 	return 0
+
+
+def cmd_run(a) -> int:
+	config, jobs, group_dir = plan_group(a)
+	if a.limit:
+		jobs = jobs[: a.limit]
+	print(f"{group_dir}: {len(jobs)} episode(s) to run", flush=True)
+	return _execute_jobs([(config, j) for j in jobs], Path(a.root), a.engine, a.workers, a.min_free_gib, a.est_mib)
+
+
+def cmd_run_pair(a) -> int:
+	cams = [c.strip() for c in str(a.real_cameras).split(",") if c.strip()]
+	bad = [c for c in cams if c not in CAMERA_CONDITIONS]
+	if bad or not cams:
+		raise SystemExit(f"unknown real cameras {bad}; expected comma list from {CAMERA_CONDITIONS}")
+	pairs_planned: list[dict] = []
+	truth_args = argparse.Namespace(
+		**{
+			**vars(a),
+			"sensing": "truth",
+			"camera": "fixed",
+			"oracle": "",
+			"motion": "open",
+			"evidence": "hold",
+			"calib_offset_mm": 0.0,
+			"segmenter": "lab",
+		}
+	)
+	t_cfg, t_jobs, t_dir = plan_group(truth_args)
+	print(f"{t_dir}: {len(t_jobs)} truth episode(s) planned", flush=True)
+	for j in t_jobs:
+		pairs_planned.append({**j, "group": j["experiment"]["group"], "_cfg": t_cfg})
+	for cam in cams:
+		real_args = argparse.Namespace(**{**vars(a), "sensing": "realistic", "camera": cam})
+		r_cfg, r_jobs, r_dir = plan_group(real_args)
+		print(f"{r_dir}: {len(r_jobs)} realistic ({cam}) episode(s) planned", flush=True)
+		for j in r_jobs:
+			pairs_planned.append({**j, "group": j["experiment"]["group"], "_cfg": r_cfg})
+	ordered = pair_jobs_order(pairs_planned)
+	if a.limit:
+		ordered = ordered[: a.limit]
+	items = [(j.pop("_cfg"), {k: v for k, v in j.items() if k != "group"}) for j in ordered]
+	return _execute_jobs(items, Path(a.root), a.engine, a.workers, a.min_free_gib, a.est_mib)
 
 
 def cmd_status(a) -> int:
@@ -539,9 +615,10 @@ def cmd_freeze(a) -> int:
 	return 0
 
 
-def _common(p):
+def _common(p, *, include_sensing: bool = True):
 	p.add_argument("--root", default=str(DEFAULT_ROOT))
-	p.add_argument("--sensing", choices=SENSING, default="truth")
+	if include_sensing:
+		p.add_argument("--sensing", choices=SENSING, default="truth")
 	p.add_argument("--camera", choices=CAMERA_CONDITIONS, default="fixed")
 	p.add_argument("--strategy", choices=STRATEGIES, default="A")
 	p.add_argument("--detector", choices=DETECTORS, default="v7bot")
@@ -555,21 +632,29 @@ def _common(p):
 	p.add_argument("--segmenter", choices=SEGMENTERS, default="lab")
 
 
+def _add_run_args(p):
+	p.add_argument("--batch", required=True)
+	p.add_argument("--engine", choices=ENGINES, default="mujoco")
+	p.add_argument("--suite", required=True, help="suite name in config/agent_bench/v2/manifest.json")
+	p.add_argument("--workers", type=int, default=4)
+	p.add_argument("--limit", type=int)
+	p.add_argument("--freeze", help="freeze.json required for sealed suites")
+	p.add_argument("--review-llm-url")
+	p.add_argument("--review-model", default="qwen3.8-vllm")
+	p.add_argument("--min-free-gib", type=float, default=8.0)
+	p.add_argument("--est-mib", type=float, default=25.0, help="expected episode size for the disk check")
+
+
 def main(argv=None) -> int:
 	p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
 	sub = p.add_subparsers(dest="command", required=True)
 	run = sub.add_parser("run")
-	_common(run)
-	run.add_argument("--batch", required=True)
-	run.add_argument("--engine", choices=ENGINES, default="mujoco")
-	run.add_argument("--suite", required=True, help="suite name in config/agent_bench/v2/manifest.json")
-	run.add_argument("--workers", type=int, default=4)
-	run.add_argument("--limit", type=int)
-	run.add_argument("--freeze", help="freeze.json required for sealed suites")
-	run.add_argument("--review-llm-url")
-	run.add_argument("--review-model", default="qwen3.8-vllm")
-	run.add_argument("--min-free-gib", type=float, default=8.0)
-	run.add_argument("--est-mib", type=float, default=25.0, help="expected episode size for the disk check")
+	_common(run, include_sensing=True)
+	_add_run_args(run)
+	run_pair = sub.add_parser("run-pair")
+	_common(run_pair, include_sensing=False)
+	_add_run_args(run_pair)
+	run_pair.add_argument("--real-cameras", default="fixed,recal,drift")
 	status = sub.add_parser("status")
 	status.add_argument("--root", default=str(DEFAULT_ROOT))
 	status.add_argument("--batch", required=True)
@@ -578,7 +663,7 @@ def main(argv=None) -> int:
 	freeze.add_argument("--out", required=True)
 	freeze.add_argument("--note", default="")
 	a = p.parse_args(argv)
-	return {"run": cmd_run, "status": cmd_status, "freeze": cmd_freeze}[a.command](a)
+	return {"run": cmd_run, "run-pair": cmd_run_pair, "status": cmd_status, "freeze": cmd_freeze}[a.command](a)
 
 
 if __name__ == "__main__":

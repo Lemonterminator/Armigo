@@ -34,6 +34,19 @@ def _base(r: dict) -> bool:
 	return not r.get("quarantined") and not (r.get("flags") or {}).get("oracle") and not r.get("superseded")
 
 
+def _void_streak_of(r: dict, ctx: dict) -> int:
+	streaks = ctx["void_streak"]
+	pk_str = r.get("pair_key_str")
+	if pk_str is not None and pk_str in streaks:
+		return int(streaks[pk_str])
+	pk = r.get("pair_key")
+	if isinstance(pk, list):
+		return int(streaks.get(json.dumps(pk), 0))
+	if pk is not None:
+		return int(streaks.get(pk, 0))
+	return 0
+
+
 PRODUCTS: dict[str, Product] = {
 	"student_train_v3": Product(
 		"student_train_v3",
@@ -66,9 +79,7 @@ PRODUCTS: dict[str, Product] = {
 		"harness_review",
 		None,
 		lambda r, ctx: (
-			bool(r.get("quarantined"))
-			or r.get("pair_outcome") == "realistic_only"
-			or ctx["void_streak"].get(r.get("pair_key_str"), ctx["void_streak"].get(r.get("pair_key"), 0)) >= 2
+			bool(r.get("quarantined")) or r.get("pair_outcome") == "realistic_only" or _void_streak_of(r, ctx) >= 2
 		),
 		trainable=False,
 	),

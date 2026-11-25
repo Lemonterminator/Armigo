@@ -15,6 +15,7 @@ Plan: docs/vla/BOWL_CHANNEL_PAIRED_PLAN_2026-11-23.md Tasks 4-5.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import shutil
 import subprocess
@@ -168,12 +169,45 @@ def _export_shard(shard: Path, eps: list[Path], lerobot_python: Path, student_ca
 	print(f"[export] {shard.name}: {n_eps} episodes / {n_frames} frames verified; deleted {len(mkvs)} mkv", flush=True)
 
 
-def export_pending(out: Path, lerobot_python: Path, jobs: int = 1, student_cameras_only: bool = True) -> list[Path]:
+def load_manifest_episodes(manifest_path: Path) -> list[Path]:
+	"""Load and SHA256-verify every episode listed in a gold ``manifest.jsonl`` before any export."""
+	eps: list[Path] = []
+	for line_no, raw_line in enumerate(Path(manifest_path).read_text(encoding="utf-8-sig").splitlines(), 1):
+		line = raw_line.strip()
+		if not line:
+			continue
+		item = json.loads(line)
+		ep_dir = Path(item["path"])
+		expected = item.get("episode_sha256")
+		ep_file = ep_dir / "episode.json"
+		if not ep_file.is_file():
+			raise ValueError(f"manifest line {line_no}: missing {ep_file}")
+		h = hashlib.sha256()
+		with ep_file.open("rb") as f:
+			for chunk in iter(lambda: f.read(1 << 20), b""):
+				h.update(chunk)
+		actual = h.hexdigest()
+		if not expected or actual != expected:
+			raise ValueError(
+				f"manifest line {line_no}: episode_sha256 mismatch for {ep_dir}: expected {expected!r}, got {actual!r}"
+			)
+		eps.append(ep_dir)
+	return eps
+
+
+def export_pending(
+	out: Path,
+	lerobot_python: Path,
+	jobs: int = 1,
+	student_cameras_only: bool = True,
+	eps_override: list[Path] | None = None,
+) -> list[Path]:
 	"""Export accepted episodes not yet in a shard into new shards (``jobs`` exporters at once, pairs kept together)."""
 	from concurrent.futures import ThreadPoolExecutor
 
 	done = {e for d in _shards(out) for e in json.loads((d / "episodes.json").read_text(encoding="utf-8"))}
-	eps = [e for e in accepted_episodes(out) if str(e) not in done]
+	source_eps = list(eps_override) if eps_override is not None else accepted_episodes(out)
+	eps = [e for e in source_eps if str(e) not in done]
 	if not eps:
 		return []
 	pairs = [eps[i : i + 2] for i in range(0, len(eps), 2)]
@@ -246,6 +280,12 @@ def main(argv=None) -> int:
 	p.add_argument("--workers", type=int, default=1)
 	p.add_argument("--export", action="store_true", help="Export and verify each batch, then delete its *.mkv")
 	p.add_argument("--export-only", action="store_true", help="Skip rollouts; export what is there")
+	p.add_argument(
+		"--manifest",
+		type=Path,
+		default=None,
+		help="Gold manifest.jsonl: export only listed episodes after verifying every episode_sha256",
+	)
 	p.add_argument("--batch", type=int, default=24, help="Cases per rollout batch when exporting")
 	p.add_argument("--export-jobs", type=int, default=6, help="Concurrent LeRobot exporters per export round")
 	p.add_argument("--merge-out", type=Path, default=None, help="Merge --merge-with datasets and all shards here")
@@ -258,6 +298,22 @@ def main(argv=None) -> int:
 		help="Export only canonical student cameras (omit front and top_full)",
 	)
 	args = p.parse_args(argv)
+
+	if args.manifest is not None:
+		manifest_eps = load_manifest_episodes(args.manifest)
+		if args.max_episodes is not None:
+			manifest_eps = manifest_eps[: args.max_episodes]
+		args.out.mkdir(parents=True, exist_ok=True)
+		export_pending(
+			args.out,
+			args.lerobot_python,
+			args.export_jobs,
+			args.student_cameras_only,
+			eps_override=manifest_eps,
+		)
+		if args.merge_out is not None:
+			merge(args.merge_out, [*args.merge_with, *_shards(args.out)], args.lerobot_python)
+		return 0
 
 	from digital_twin_armigo.vla.dagger import DEFAULT_FORBID_SUITES, assert_train_layouts_only
 

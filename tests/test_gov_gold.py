@@ -101,3 +101,31 @@ def test_build_product_is_byte_identical_across_rebuilds(tmp_path):
 	fb = build_product(con, "failure_bank", silver_build=bid, out_root=tmp_path / "gov", freeze=None)
 	fb_rows = [json.loads(line) for line in (fb / "manifest.jsonl").read_text(encoding="utf-8").splitlines() if line]
 	assert len(fb_rows) == 1 and fb_rows[0]["pair_outcome"] == "truth_only"
+
+
+def test_harness_review_handles_list_pair_key_and_void_streak(tmp_path):
+	list_pk = ["b1", "mujoco", "v7bot", "B", "open", "hold", "L3000101-N"]
+	p = PRODUCTS["harness_review"].predicate
+	assert not p(r(pair_key=list_pk), CTX)
+	assert p(r(pair_key=list_pk), CTX | {"void_streak": {json.dumps(list_pk): 2}})
+
+	src = tmp_path / "data"
+	_make_ep(src, "truth-B-v7bot", "L3000101-N", verdict="SUCCESS")
+	_make_ep(src, "realistic-fixed-B-v7bot", "L3000101-N", verdict="SUCCESS")
+	q_dir = _make_ep(src, "realistic-fixed-B-v7bot", "L3000102-N", verdict="SUCCESS")
+	(q_dir / "run_status.json").unlink()
+
+	con = lake.connect(tmp_path / "lake.sqlite")
+	bronze.register(con, src, source="t")
+	bid = silver.build_silver(con, freeze=None)
+	silver.build_pairs(con, bid)
+
+	hr1 = build_product(con, "harness_review", silver_build=bid, out_root=tmp_path / "gov", freeze=None)
+	hr2 = build_product(con, "harness_review", silver_build=bid, out_root=tmp_path / "gov", freeze=None)
+	assert hr1 == hr2
+	b1 = (hr1 / "manifest.jsonl").read_bytes()
+	b2 = (hr2 / "manifest.jsonl").read_bytes()
+	assert b1 == b2
+	rows = [json.loads(line) for line in b1.decode("utf-8").splitlines() if line]
+	assert len(rows) == 1
+	assert rows[0]["path"].endswith("L3000102-N")
