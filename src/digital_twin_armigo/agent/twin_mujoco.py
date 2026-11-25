@@ -785,12 +785,19 @@ class TwinMujoco:
 		)
 		self.engine = getattr(self.cell, "engine", "mujoco")
 		self.ep = PhysicsEpisode(self.cell, INITIAL_Q, layout.brick_xy, layout.brick_yaw_deg, cfg)
-		# Bowl centres the skills use; realistic replaces both with the perceived ones (_sense_bowls) before any motion.
-		self.bowls = {
-			"green": np.asarray(layout.green, dtype=np.float64),
-			"pink": np.asarray(layout.pink, dtype=np.float64),
-			**{f"extra:{i}": np.asarray((x, y), dtype=np.float64) for i, (_, x, y, _) in enumerate(layout.extra_bowls)},
-		}
+		# Bowl centres the skills use; realistic populates only perceived bowls in _sense_bowls (never layout truth).
+		self.bowls = (
+			{}
+			if self.realistic
+			else {
+				"green": np.asarray(layout.green, dtype=np.float64),
+				"pink": np.asarray(layout.pink, dtype=np.float64),
+				**{
+					f"extra:{i}": np.asarray((x, y), dtype=np.float64)
+					for i, (_, x, y, _) in enumerate(layout.extra_bowls)
+				},
+			}
+		)
 		self.expert_type = ContinuousCarryExpert if smooth_carry else RelocateExpert
 		if self.realistic:
 			# Clutter is not perceived, and the clearance proxy below knows only the bowls.
@@ -980,6 +987,7 @@ class TwinMujoco:
 		oracle_bowls = "bowls" in self.oracle
 		if oracle_bowls:
 			self._note_oracle()
+		self.bowls.clear()
 		for name, est in found.items():
 			truth = np.asarray(self._true_bowl_xy(name), dtype=np.float64)
 			if oracle_bowls:
@@ -2504,7 +2512,7 @@ class TwinMujoco:
 			return []
 		failure = failures[-1]
 		if self.realistic:
-			if failure.get("code") in ("BOWL_NOT_FOUND", "DETECTOR_UNAVAILABLE"):
+			if failure.get("code") in ("BOWL_NOT_FOUND", "BRICK_NOT_FOUND", "DETECTOR_UNAVAILABLE"):
 				return []
 			recommended = VARIANT_BY_CODE.get(failure.get("code"))
 			variants = [v for v in dict.fromkeys((recommended, "cautious")) if v]

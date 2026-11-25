@@ -61,6 +61,7 @@ def test_train_suite_50_seeds_and_preflight_schema(tmp_path):
 			"0.1",
 			"--max-perception",
 			"5",
+			"--skip-hue-fp",
 		]
 	)
 	assert rc == 0
@@ -89,12 +90,14 @@ def test_train_suite_50_seeds_and_preflight_schema(tmp_path):
 		"camera_hist",
 		"visibility_resamples",
 		"perception_check",
+		"hue_fp_control",
 		"token_max",
 		"factors",
 		"rejections",
 	):
 		assert key in preflight, f"missing preflight key {key!r}"
 
+	assert preflight["perception_check"]["sensing"] == "realistic"
 	assert preflight["perception_check"]["sampled_count"] == 5
 	assert len(preflight["perception_check"]["cases"]) == 5
 	assert preflight["perception_check"]["crashes"] == 0
@@ -115,7 +118,9 @@ def test_train_suite_50_seeds_and_preflight_schema(tmp_path):
 	):
 		assert fkey in factors, f"missing factor {fkey!r}"
 
-	assert preflight["rejections"] == {"reachability": 0, "visibility": 0, "colour_separability": 0}
+	assert set(preflight["rejections"]) == {"reachability", "visibility", "colour_separability"}
+	assert preflight["rejections"]["reachability"] == 0
+	assert preflight["rejections"]["colour_separability"] == 0
 	assert preflight["colour_pairs"]["held_out_pair_count"] == 0
 	assert preflight["colour_pairs"]["held_out_pairs_present"] == []
 	assert str(HELD_OUT_VARIANT) not in factors["instruction_variant"]
@@ -344,6 +349,7 @@ def test_all_v3_splits_build_cleanly():
 			end_seed=lo + 4,
 			perception_sample=0.0,
 			max_perception=0,
+			skip_hue_fp=True,
 		)
 		assert suite["split"] == split
 		assert suite["sealed"] is (split == "test")

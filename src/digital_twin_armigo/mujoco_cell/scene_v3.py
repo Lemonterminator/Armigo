@@ -25,7 +25,7 @@ _CAM_HALF_WIDTHS: dict[str, float] = {
 	"droll_deg": 3.0,
 	"dfocal_rel": 0.03,
 }
-_OOD_CAM_AXES: tuple[str, ...] = ("dx_m", "dyaw_deg", "dtilt_deg")
+_OOD_CAM_AXES: tuple[str, ...] = tuple(_CAM_HALF_WIDTHS.keys())
 _TABLE_TEXTURES: tuple[str, ...] = ("checker", "plain", "noise")
 
 
@@ -88,14 +88,25 @@ def _sample_bowls(rng: np.random.Generator, split: str) -> tuple[str, str, str |
 	raise RuntimeError("Failed to sample valid bowl colours after 100 attempts")
 
 
-def _sample_table_rgb(rng: np.random.Generator, split: str, names: list[str]) -> tuple[float, float, float]:
+def _sample_table_rgb(
+	rng: np.random.Generator,
+	split: str,
+	names: list[str],
+	bowl_rgb: dict[str, tuple[float, float, float]] | None = None,
+) -> tuple[float, float, float]:
 	is_ood_app = split == "ood-appearance"
 	sat_lo, sat_hi = (0.35 + 1e-6, 0.55 - 1e-6) if is_ood_app else (0.0, 0.35 - 1e-6)
 	has_black = "black" in names
 	has_white = "white" in names
 	val_lo = 0.40 + 1e-6 if has_black else 0.35 + 1e-6
 	val_hi = 0.68 - 1e-6 if has_white else 0.80 - 1e-6
-	bowl_hues = [PALETTE[n].hue_deg for n in names if PALETTE[n].hue_deg is not None]
+	bowl_hues: list[float] = []
+	for n in names:
+		if PALETTE[n].hue_deg is None:
+			continue
+		bowl_hues.append(float(PALETTE[n].hue_deg))
+		if bowl_rgb is not None and n in bowl_rgb:
+			bowl_hues.append(colorsys.rgb_to_hsv(*bowl_rgb[n])[0] * 360.0)
 
 	for _ in range(200):
 		h_deg = float(rng.uniform(0.0, 360.0))
@@ -152,7 +163,7 @@ def sample_scene_v3(seed: int, split: str) -> SceneV3:
 	normal, defect, extra = _sample_bowls(rng, split)
 	names = [normal, defect] + ([extra] if extra is not None else [])
 	rgb = {name: jitter_rgb(name, rng) for name in names}
-	table_rgb = _sample_table_rgb(rng, split, names)
+	table_rgb = _sample_table_rgb(rng, split, names, bowl_rgb=rgb)
 	table_texture = str(rng.choice(_TABLE_TEXTURES))
 	camera = draw_camera_v3(rng, split)
 	wrist = _sample_wrist(rng, split)
@@ -184,6 +195,8 @@ def apply_scene_v3(layout: Layout, scene: SceneV3) -> Layout:
 
 	if scene.extra is not None:
 		cx, cy, cw, ch = TOP_CROP
+		u_lo, u_hi = cx + 0.05 * cw, cx + 0.95 * cw
+		v_lo, v_hi = cy + 0.05 * ch, cy + 0.95 * ch
 		for attempt in range(1500):
 			if attempt < 200:
 				r = float(rng.uniform(0.21, 0.27))
@@ -195,9 +208,9 @@ def apply_scene_v3(layout: Layout, scene: SceneV3) -> Layout:
 				r = float(rng.uniform(0.21, 0.42))
 				a = float(rng.uniform(-1.45, 1.45))
 			x, y = r * math.cos(a), r * math.sin(a)
-			if 200 <= attempt < 1000 and layout.top is not None:
+			if layout.top is not None:
 				uv, front = project(layout.top, np.array([[x, y, 0.0]]), TOP_FULL)
-				in_view = bool(front[0] and cx + 25 <= uv[0, 0] <= cx + cw - 25 and cy + 25 <= uv[0, 1] <= cy + ch - 25)
+				in_view = bool(front[0] and u_lo <= uv[0, 0] <= u_hi and v_lo <= uv[0, 1] <= v_hi)
 			else:
 				in_view = True
 			if (

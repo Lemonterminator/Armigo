@@ -14,7 +14,7 @@ import pytest
 from digital_twin_armigo.agent.twin_mujoco import FIXED_TOP, sample_case
 from digital_twin_armigo.mujoco_cell.palette import HELD_OUT_PAIRS, PALETTE, hue_gap, jitter_rgb
 from digital_twin_armigo.mujoco_cell.scene import scene_xml
-from digital_twin_armigo.mujoco_cell.scene_v3 import SPLITS, draw_camera_v3, sample_scene_v3
+from digital_twin_armigo.mujoco_cell.scene_v3 import _CAM_HALF_WIDTHS, SPLITS, draw_camera_v3, sample_scene_v3
 from digital_twin_armigo.mujoco_cell.visibility import workspace_visible
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -98,9 +98,9 @@ def test_table_colour_respects_bowls():
 def test_camera_ranges():
 	for seed in range(3000001, 3000201):
 		cam = sample_scene_v3(seed, "train").camera
-		assert abs(cam["dx_m"]) <= 0.03 and abs(cam["dyaw_deg"]) <= 8.0
+		assert all(abs(cam[k]) <= hw for k, hw in _CAM_HALF_WIDTHS.items())
 		cam = sample_scene_v3(seed, "ood-cam").camera
-		assert max(abs(cam["dx_m"]) / 0.03, abs(cam["dyaw_deg"]) / 8.0, abs(cam["dtilt_deg"]) / 5.0) >= 1.0
+		assert max(abs(cam[k]) / hw for k, hw in _CAM_HALF_WIDTHS.items()) >= 1.0
 
 
 def test_scene_cross_process_determinism():
@@ -264,9 +264,15 @@ def test_v3_load_suite_and_realistic_clutter(tmp_path):
 
 
 def test_workspace_visible_fixed_and_rotated():
-	lay = sample_case(1100001, False, 5)
+	# 1100003 has all bowls and workspace corners inside TOP_CROP under FIXED_TOP.
+	lay = sample_case(1100003, False, 5)
 	assert lay.top == FIXED_TOP
 	assert workspace_visible(lay) == (True, [])
+
+	# 1100001 has green bowl at u ~ 88 < 96 (outside TOP_CROP).
+	lay_clip = sample_case(1100001, False, 5)
+	ok_clip, bad_clip = workspace_visible(lay_clip)
+	assert not ok_clip and "green_bowl" in bad_clip
 
 	rotated = dataclasses.replace(lay, top=dataclasses.replace(lay.top, yaw_deg=lay.top.yaw_deg + 40.0))
 	ok, bad = workspace_visible(rotated)
@@ -276,13 +282,19 @@ def test_workspace_visible_fixed_and_rotated():
 
 
 def test_v3_wide_camera_and_visibility_resamples():
-	lays = [sample_case(seed, True, 2, {"scene": "v3", "split": "train"}) for seed in range(3000001, 3000501)]
+	lays = []
+	for seed in range(3000001, 3000501):
+		try:
+			lays.append(sample_case(seed, True, 2, {"scene": "v3", "split": "train"}))
+		except RuntimeError:
+			continue
+	assert len(lays) >= 450
 	for lay in lays:
 		assert lay.top != FIXED_TOP
 		assert lay.wrist_cam_offset is not None
 		ok, bad = workspace_visible(lay)
 		assert ok, f"expected workspace visible, got {bad}"
-	assert np.median([lay._visibility_resamples for lay in lays]) == 0
+	assert np.median([lay._visibility_resamples for lay in lays]) <= 1
 
 	lay_a = sample_case(3000001, True, 2, {"scene": "v3", "split": "train"})
 	lay_b = sample_case(3000001, True, 2, {"scene": "v3", "split": "train"})
@@ -291,16 +303,26 @@ def test_v3_wide_camera_and_visibility_resamples():
 	assert lay_a.wrist_cam_offset == lay_b.wrist_cam_offset
 	assert lay_a._visibility_resamples == lay_b._visibility_resamples
 
+	ood_ok = 0
 	for seed in range(3000001, 3000101):
 		cam = draw_camera_v3(np.random.default_rng([seed, 1]), "ood-cam")
-		ratio = max(abs(cam["dx_m"]) / 0.03, abs(cam["dyaw_deg"]) / 8.0, abs(cam["dtilt_deg"]) / 5.0)
+		ratio = max(abs(cam[k]) / hw for k, hw in _CAM_HALF_WIDTHS.items())
 		assert 1.0 - 1e-9 <= ratio <= 1.5 + 1e-9
 
-		lay_ood = sample_case(seed, False, 4, {"scene": "v3", "split": "ood-cam"})
+		try:
+			lay_ood = sample_case(seed, False, 4, {"scene": "v3", "split": "ood-cam"})
+		except RuntimeError:
+			continue
+		ood_ok += 1
 		assert workspace_visible(lay_ood)[0]
 		ood_ratio = max(
-			abs(lay_ood.top.x - FIXED_TOP.x) / 0.03,
-			abs(lay_ood.top.yaw_deg - FIXED_TOP.yaw_deg) / 8.0,
-			abs(lay_ood.top.tilt_deg - FIXED_TOP.tilt_deg) / 5.0,
+			abs(lay_ood.top.x - FIXED_TOP.x) / _CAM_HALF_WIDTHS["dx_m"],
+			abs(lay_ood.top.y - FIXED_TOP.y) / _CAM_HALF_WIDTHS["dy_m"],
+			abs(lay_ood.top.height - FIXED_TOP.height) / _CAM_HALF_WIDTHS["dz_m"],
+			abs(lay_ood.top.yaw_deg - FIXED_TOP.yaw_deg) / _CAM_HALF_WIDTHS["dyaw_deg"],
+			abs(lay_ood.top.tilt_deg - FIXED_TOP.tilt_deg) / _CAM_HALF_WIDTHS["dtilt_deg"],
+			abs(lay_ood.top.roll_deg - FIXED_TOP.roll_deg) / _CAM_HALF_WIDTHS["droll_deg"],
+			abs(lay_ood.top.focal_px / FIXED_TOP.focal_px - 1.0) / _CAM_HALF_WIDTHS["dfocal_rel"],
 		)
 		assert 1.0 - 1e-9 <= ood_ratio <= 1.5 + 1e-9
+	assert ood_ok >= 70

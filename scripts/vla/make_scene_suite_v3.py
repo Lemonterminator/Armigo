@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import argparse
 import colorsys
+import dataclasses
 import importlib.util
 import itertools
 import json
@@ -36,10 +37,14 @@ from digital_twin_armigo.agent.twin_mujoco import INITIAL_Q, load_suite, sample_
 from digital_twin_armigo.constants import BOWL_R, BRICK_COLOURS, DUPLO_2X4, SO101_MJCF_DIR, TOP_FULL
 from digital_twin_armigo.mujoco_cell import handeye as he
 from digital_twin_armigo.mujoco_cell.cell import Cell
+from digital_twin_armigo.mujoco_cell.grasp_geometry import Kinematics
 from digital_twin_armigo.mujoco_cell.handeye_rig import calibrate_layout
+from digital_twin_armigo.mujoco_cell.inspection_views import detector_crop
 from digital_twin_armigo.mujoco_cell.layout import release_point
+from digital_twin_armigo.mujoco_cell.orbit_scan import OrbitParams, plan_orbit_scan
 from digital_twin_armigo.mujoco_cell.palette import HELD_OUT_PAIRS, PALETTE, hue_gap
 from digital_twin_armigo.mujoco_cell.scene_v3 import _CAM_HALF_WIDTHS, SPLITS
+from digital_twin_armigo.mujoco_cell.table_relocation import plan_table_scan
 from digital_twin_armigo.mujoco_cell.visibility import workspace_visible
 from digital_twin_armigo.vla.contract import (
 	HELD_OUT_VARIANT,
@@ -81,12 +86,25 @@ PERCEPTION_THRESHOLDS: dict[str, float | int] = {
 	"per_colour_median_mm_max": 10.0,
 	"bowl_localization_rate_min": 0.70,
 	"brick_median_mm_max": 10.0,
+	"case_brick_error_mm_max": 20.0,
 	"crashes_max": 0,
 }
 
-BALANCE_STRICT_MIN_EPISODES = 400
+BALANCE_STRICT_MIN_EPISODES = 160
 BALANCE_MAX_TARGET_DEV_FRAC = 0.15
 BALANCE_MAX_ABS_CORR = 0.05
+
+HUE_FP_BINS: tuple[tuple[str, float, float], ...] = (
+	("0_60", 0.0, 60.0),
+	("60_120", 60.0, 120.0),
+	("120_180", 120.0, 180.0),
+	("180_240", 180.0, 240.0),
+	("240_300", 240.0, 300.0),
+	("300_360", 300.0, 360.0),
+)
+HUE_FP_DEFAULT_PER_BIN = 10
+HUE_FP_MAX_DELTA = 0.05
+HUE_FP_GREY_RGB: tuple[float, float, float] = (0.60, 0.60, 0.60)
 
 
 def parse_seed_range(spec: str, *, split: str | None = None) -> tuple[int, int]:
@@ -186,10 +204,20 @@ def check_colour_separability(layout, split: str) -> tuple[bool, str | None]:
 		return False, f"black bowl present with dark table V={v_t:.3f} < 0.40"
 	if s_t > 0.15:
 		h_t_deg = h_t * 360.0
-		for name in names:
+		slots_rgb = [
+			(layout.bowl_names["green"], layout.bowl_rgb["green"]),
+			(layout.bowl_names["pink"], layout.bowl_rgb["pink"]),
+			*((name, ergb) for name, _, _, ergb in layout.extra_bowls),
+		]
+		for name, brgb in slots_rgb:
 			bh = PALETTE[name].hue_deg
-			if bh is not None and _circular_hue_deg(h_t_deg, bh) < 35.0:
+			if bh is None:
+				continue
+			if _circular_hue_deg(h_t_deg, bh) < 35.0:
 				return False, f"saturated table hue within 35 deg of {name}"
+			jh = colorsys.rgb_to_hsv(*brgb)[0] * 360.0
+			if _circular_hue_deg(h_t_deg, jh) < 35.0:
+				return False, f"saturated table hue within 35 deg of jittered {name}"
 	return True, None
 
 
@@ -337,18 +365,28 @@ def run_perception_check(
 	*,
 	perception_sample: float = 0.1,
 	max_perception: int | None = None,
-	sensing: str = "truth",
+	sensing: str = "realistic",
+	sampled_indices: list[int] | None = None,
 ) -> dict[str, Any]:
 	"""Render sampled cases offscreen in MuJoCo and run ``locate_bowls`` + ``locate_brick`` without truth cheat."""
 	if sensing not in ("truth", "realistic"):
 		raise ValueError(f"sensing must be 'truth' or 'realistic', got {sensing!r}")
 
-	if perception_sample <= 0.0 or not cases:
+	if sampled_indices is not None:
+		chosen_indices = sorted(int(i) for i in sampled_indices)
+		sample_n = len(chosen_indices)
+	elif perception_sample <= 0.0 or not cases:
+		chosen_indices = []
 		sample_n = 0
 	else:
 		sample_n = min(len(cases), math.ceil(float(perception_sample) * len(cases)))
 		if max_perception is not None:
 			sample_n = min(sample_n, max(0, int(max_perception)))
+		if sample_n > 0:
+			rng = np.random.default_rng([int(cases[0][0]), len(cases), 0x9E2C])
+			chosen_indices = sorted(int(i) for i in rng.choice(len(cases), size=sample_n, replace=False))
+		else:
+			chosen_indices = []
 
 	if sample_n == 0:
 		return {
@@ -370,12 +408,13 @@ def run_perception_check(
 			"brick_localization_rate": 1.0,
 			"brick_median_error_mm": None,
 			"brick_all_cases_median_error_mm": None,
+			"brick_max_error_mm": None,
+			"cases_with_missed_bowls": 0,
+			"failed_case_indices": [],
+			"failed_seeds": [],
 			"cases": [],
 			"pass": True,
 		}
-
-	rng = np.random.default_rng([int(cases[0][0]), len(cases), 0x9E2C])
-	sampled_indices = sorted(int(i) for i in rng.choice(len(cases), size=sample_n, replace=False))
 
 	cfg = pc.PerceptionCfg.realistic() if sensing == "realistic" else None
 	crashes = 0
@@ -389,8 +428,9 @@ def run_perception_check(
 	brick_errors_all_mm: list[float] = []
 	bricks_found = 0
 	per_case_records: list[dict[str, Any]] = []
+	case_brick_max_mm = float(PERCEPTION_THRESHOLDS["case_brick_error_mm_max"])
 
-	for idx in sampled_indices:
+	for idx in chosen_indices:
 		case = cases[idx]
 		lay = layouts[idx]
 		slot_to_colour = {
@@ -457,6 +497,14 @@ def run_perception_check(
 				if not missed_bowls:
 					brick_errors_clean_mm.append(brick_err_mm)
 
+			failure_reasons: list[str] = []
+			if missed_bowls:
+				failure_reasons.append("missed_bowls")
+			if brick_est is None:
+				failure_reasons.append("brick_not_found")
+			elif brick_err_mm is not None and brick_err_mm > case_brick_max_mm:
+				failure_reasons.append("brick_error_exceeds_max")
+
 			per_case_records.append(
 				{
 					"index": idx,
@@ -467,6 +515,8 @@ def run_perception_check(
 					"missed_bowls": missed_bowls,
 					"brick_found": brick_est is not None,
 					"brick_error_mm": brick_err_mm,
+					"passed": len(failure_reasons) == 0,
+					"failure_reasons": failure_reasons,
 					"error": None,
 				}
 			)
@@ -482,6 +532,8 @@ def run_perception_check(
 					"missed_bowls": list(slot_to_colour),
 					"brick_found": False,
 					"brick_error_mm": None,
+					"passed": False,
+					"failure_reasons": ["crash"],
 					"error": f"{type(exc).__name__}: {exc}",
 				}
 			)
@@ -490,30 +542,39 @@ def run_perception_check(
 				cell.close()
 
 	bowl_loc_rate = round(bowls_found / bowls_total, 4) if bowls_total else 1.0
-	brick_loc_rate = round(bricks_found / len(sampled_indices), 4) if sampled_indices else 1.0
+	brick_loc_rate = round(bricks_found / len(chosen_indices), 4) if chosen_indices else 1.0
 	bowl_med = round(float(statistics.median(all_bowl_errors_mm)), 3) if all_bowl_errors_mm else None
-	brick_med_clean = (
-		round(float(statistics.median(brick_errors_clean_mm)), 3)
-		if brick_errors_clean_mm
-		else (round(float(statistics.median(brick_errors_all_mm)), 3) if brick_errors_all_mm else None)
-	)
+	brick_med_clean = round(float(statistics.median(brick_errors_clean_mm)), 3) if brick_errors_clean_mm else None
 	brick_med_all = round(float(statistics.median(brick_errors_all_mm)), 3) if brick_errors_all_mm else None
+	brick_max_mm = round(float(max(brick_errors_all_mm)), 3) if brick_errors_all_mm else None
 
 	per_colour_stats: dict[str, dict[str, Any]] = {}
 	per_colour_medians_ok = True
 	for col in sorted(totals_by_colour):
+		total_c = int(totals_by_colour[col])
+		found_c = int(found_by_colour[col])
 		errs = errors_by_colour.get(col, [])
 		med = round(float(statistics.median(errs)), 3) if errs else None
 		mx = round(float(max(errs)), 3) if errs else None
-		if med is not None and med > float(PERCEPTION_THRESHOLDS["per_colour_median_mm_max"]):
+		if total_c == 0:
+			status = "untested"
+		elif found_c == 0 or med is None or med > float(PERCEPTION_THRESHOLDS["per_colour_median_mm_max"]):
+			status = "failed"
 			per_colour_medians_ok = False
+		else:
+			status = "passed"
 		per_colour_stats[col] = {
-			"total": int(totals_by_colour[col]),
-			"found": int(found_by_colour[col]),
-			"missed": int(totals_by_colour[col] - found_by_colour[col]),
+			"total": total_c,
+			"found": found_c,
+			"missed": total_c - found_c,
 			"median_error_mm": med,
 			"max_error_mm": mx,
+			"status": status,
 		}
+
+	failed_case_indices = [rec["index"] for rec in per_case_records if not rec["passed"]]
+	failed_seeds = [rec["seed"] for rec in per_case_records if not rec["passed"]]
+	cases_with_missed_bowls = sum(1 for rec in per_case_records if rec["missed_bowls"])
 
 	passed = (
 		crashes <= int(PERCEPTION_THRESHOLDS["crashes_max"])
@@ -523,13 +584,16 @@ def run_perception_check(
 		and per_colour_medians_ok
 		and brick_med_clean is not None
 		and brick_med_clean <= float(PERCEPTION_THRESHOLDS["brick_median_mm_max"])
+		and brick_med_all is not None
+		and brick_med_all <= float(PERCEPTION_THRESHOLDS["brick_median_mm_max"])
+		and len(failed_case_indices) == 0
 	)
 
 	return {
 		"sample_fraction": float(perception_sample),
 		"max_perception": max_perception,
-		"sampled_count": len(sampled_indices),
-		"sampled_indices": sampled_indices,
+		"sampled_count": len(chosen_indices),
+		"sampled_indices": chosen_indices,
 		"sensing": sensing,
 		"camera_calibrated": sensing == "realistic",
 		"thresholds": dict(PERCEPTION_THRESHOLDS),
@@ -539,17 +603,284 @@ def run_perception_check(
 		"bowl_localization_rate": bowl_loc_rate,
 		"bowl_median_error_mm": bowl_med,
 		"per_colour_stats": per_colour_stats,
-		"bricks_total": len(sampled_indices),
+		"bricks_total": len(chosen_indices),
 		"bricks_found": bricks_found,
 		"brick_localization_rate": brick_loc_rate,
 		"brick_median_error_mm": brick_med_clean,
 		"brick_all_cases_median_error_mm": brick_med_all,
+		"brick_max_error_mm": brick_max_mm,
+		"cases_with_missed_bowls": cases_with_missed_bowls,
+		"failed_case_indices": failed_case_indices,
+		"failed_seeds": failed_seeds,
 		"cases": per_case_records,
 		"pass": bool(passed),
 	}
 
 
-def _compute_balance_and_factors(cases: list[list], layouts: list, split: str) -> dict[str, Any]:
+def _score_and_threshold(scorer, camera: str, img: np.ndarray) -> tuple[float, float]:
+	"""Score a crop with either an ``AnomalyScorer`` object or a plain ``(camera, img) -> float`` callable."""
+	if hasattr(scorer, "score") and hasattr(scorer, "threshold"):
+		return float(scorer.score(camera, img)), float(scorer.threshold(camera))
+	if callable(scorer):
+		return float(scorer(camera, img)), 0.0
+	raise TypeError("scorer must implement score(camera, img) + threshold(camera) or be callable")
+
+
+def _plan_wrist_sweep_qs(cell: Cell, n_views: int) -> list[np.ndarray]:
+	"""Compute up to ``n_views`` kinematic teacher wrist-sweep poses viewing the brick on the table."""
+	kin = Kinematics(cell)
+	plan = plan_orbit_scan(
+		cell,
+		kin,
+		INITIAL_Q,
+		gripper=float(INITIAL_Q[5]),
+		params=OrbitParams(tip_heights_m=(0.025, 0.04), standoffs_m=(0.03,), azimuths=12, restarts=2),
+		max_views=max(1, int(n_views)),
+	)
+	qs = [v.q.copy() for v in plan.views[: max(1, int(n_views))]]
+	if not qs:
+		views, _ = plan_table_scan(
+			cell,
+			kin,
+			INITIAL_Q,
+			gripper=float(INITIAL_Q[5]),
+			heights=(0.075,),
+			rolls=8,
+			max_views=max(1, int(n_views)),
+			restarts=4,
+		)
+		qs = [v.q.copy() for v in views[: max(1, int(n_views))]]
+	return qs
+
+
+def _table_hue_for_bin(
+	layout, lo_deg: float, hi_deg: float, rng: np.random.Generator
+) -> tuple[float, float, float] | None:
+	"""Pick a valid saturated table RGB in ``[lo_deg, hi_deg)`` respecting all bowl hue/value constraints."""
+	names = [layout.bowl_names["green"], layout.bowl_names["pink"], *(b[0] for b in layout.extra_bowls)]
+	bowl_hues: list[float] = []
+	slots_rgb = [
+		(layout.bowl_names["green"], layout.bowl_rgb["green"]),
+		(layout.bowl_names["pink"], layout.bowl_rgb["pink"]),
+		*((b[0], b[3]) for b in layout.extra_bowls),
+	]
+	for name, brgb in slots_rgb:
+		if PALETTE[name].hue_deg is None:
+			continue
+		bowl_hues.append(float(PALETTE[name].hue_deg))
+		bowl_hues.append(colorsys.rgb_to_hsv(*brgb)[0] * 360.0)
+	v_lo = 0.42 if "black" in names else 0.40
+	v_hi = 0.66 if "white" in names else 0.72
+	for _ in range(80):
+		h_deg = float(rng.uniform(lo_deg + 1.0, hi_deg - 1.0))
+		if all(_circular_hue_deg(h_deg, bh) >= 35.0 for bh in bowl_hues):
+			sat = float(rng.uniform(0.22, 0.34))
+			val = float(rng.uniform(v_lo, v_hi))
+			r, g, b = colorsys.hsv_to_rgb(h_deg / 360.0, sat, val)
+			return (float(np.clip(r, 0.0, 1.0)), float(np.clip(g, 0.0, 1.0)), float(np.clip(b, 0.0, 1.0)))
+	return None
+
+
+def _empty_hue_bins() -> dict[str, dict[str, Any]]:
+	return {
+		name: {
+			"hue_range_deg": [lo, hi],
+			"cases": 0,
+			"false_positives": 0,
+			"fp_rate": None,
+			"delta_vs_grey": None,
+			"pass": False,
+		}
+		for name, lo, hi in HUE_FP_BINS
+	}
+
+
+def run_hue_fp_control(
+	cases: list[list],
+	layouts: list,
+	*,
+	scorer=None,
+	n_per_bin: int = HUE_FP_DEFAULT_PER_BIN,
+	grey_rgb: tuple[float, float, float] = HUE_FP_GREY_RGB,
+	max_delta: float = HUE_FP_MAX_DELTA,
+	crop_size: int = 256,
+	n_views: int = 2,
+	skip: bool = False,
+) -> dict[str, Any]:
+	"""Plan §5(2) wrist-sweep false-positive control across 6 table hue bins (60 good bricks) vs grey baseline."""
+	target_cases = int(n_per_bin) * len(HUE_FP_BINS)
+	if skip:
+		return {
+			"status": "skipped",
+			"pass": True,
+			"target_cases": target_cases,
+			"max_delta_fp_rate": float(max_delta),
+			"grey_baseline": None,
+			"bins": _empty_hue_bins(),
+			"failing_bins": [],
+			"reason": "explicitly skipped via skip_hue_fp=True / --skip-hue-fp",
+		}
+	if scorer is None:
+		return {
+			"status": "requires_detector",
+			"pass": False,
+			"target_cases": target_cases,
+			"max_delta_fp_rate": float(max_delta),
+			"grey_baseline": None,
+			"bins": _empty_hue_bins(),
+			"failing_bins": [],
+			"reason": "no detector scorer provided; pass --detector or scorer=... to run wrist-sweep hue FP control",
+		}
+
+	good_pool = [(c, lay) for c, lay in zip(cases, layouts, strict=True) if not c[1]]
+	if not good_pool:
+		split = cases[0][3].get("split", "train") if cases and len(cases[0]) >= 4 else "train"
+		lo_seed = V3_SPLIT_SEED_RANGES.get(split, V3_SPLIT_SEED_RANGES["train"])[0]
+		s_cur = lo_seed
+		while len(good_pool) < max(12, int(n_per_bin) * 2):
+			lay_cand, _ = evaluate_candidate_seed(s_cur, False, 0, split)
+			if lay_cand is not None:
+				good_pool.append(([s_cur, False, 0, {"scene": "v3", "split": split}], lay_cand))
+			s_cur += 1
+
+	rng = np.random.default_rng([int(good_pool[0][0][0]), len(good_pool), 0x4E50])
+	bin_layouts: dict[str, list[tuple[int, Any]]] = {name: [] for name, _, _ in HUE_FP_BINS}
+
+	# 1. Assign suite good-brick cases whose saturated table already lies in a bin.
+	for case, lay in good_pool:
+		h_t, s_t, _ = colorsys.rgb_to_hsv(*lay.table_rgb)
+		if s_t <= 0.15:
+			continue
+		bin_idx = int((h_t * 360.0) % 360.0 // 60.0)
+		bname = HUE_FP_BINS[bin_idx][0]
+		if len(bin_layouts[bname]) < int(n_per_bin):
+			bin_layouts[bname].append((int(case[0]), lay))
+
+	# 2. Fill any remaining slots per bin deterministically by re-tinting good-brick layouts into that hue bin.
+	for bname, lo_deg, hi_deg in HUE_FP_BINS:
+		pool_idx = 0
+		attempts = 0
+		while len(bin_layouts[bname]) < int(n_per_bin) and attempts < len(good_pool) * 4 + 40:
+			case, base_lay = good_pool[pool_idx % len(good_pool)]
+			pool_idx += 1
+			attempts += 1
+			new_rgb = _table_hue_for_bin(base_lay, lo_deg, hi_deg, rng)
+			if new_rgb is None:
+				continue
+			lay_mod = dataclasses.replace(base_lay, table_rgb=new_rgb)
+			if getattr(base_lay, "_scene_v3", None) is not None:
+				lay_mod._scene_v3 = dataclasses.replace(base_lay._scene_v3, table_rgb=new_rgb)
+			bin_layouts[bname].append((int(case[0]), lay_mod))
+
+	grey_total = 0
+	grey_fps = 0
+	bins_report: dict[str, dict[str, Any]] = {}
+	raw_bin_counts: dict[str, tuple[int, int]] = {}
+
+	for bname, lo_deg, hi_deg in HUE_FP_BINS:
+		b_total = 0
+		b_fps = 0
+		for _seed, lay in bin_layouts[bname]:
+			cell = Cell(lay, SO101_MJCF_DIR, face_probes=True)
+			try:
+				cell.set_joints(INITIAL_Q)
+				qs = _plan_wrist_sweep_qs(cell, int(n_views))
+				if not qs:
+					continue
+				col_alarm = False
+				for q in qs:
+					cell.set_joints(q)
+					crop, _ = detector_crop(cell, "wrist_cam", None, cell.data, int(crop_size))
+					if crop is None:
+						continue
+					score, thr = _score_and_threshold(scorer, "wrist_cam", crop)
+					if score >= thr:
+						col_alarm = True
+			finally:
+				cell.close()
+
+			grey_lay = dataclasses.replace(lay, table_rgb=grey_rgb)
+			if getattr(lay, "_scene_v3", None) is not None:
+				grey_lay._scene_v3 = dataclasses.replace(lay._scene_v3, table_rgb=grey_rgb)
+			grey_cell = Cell(grey_lay, SO101_MJCF_DIR, face_probes=True)
+			try:
+				grey_alarm = False
+				for q in qs:
+					grey_cell.set_joints(q)
+					crop, _ = detector_crop(grey_cell, "wrist_cam", None, grey_cell.data, int(crop_size))
+					if crop is None:
+						continue
+					score, thr = _score_and_threshold(scorer, "wrist_cam", crop)
+					if score >= thr:
+						grey_alarm = True
+			finally:
+				grey_cell.close()
+
+			b_total += 1
+			grey_total += 1
+			if col_alarm:
+				b_fps += 1
+			if grey_alarm:
+				grey_fps += 1
+		raw_bin_counts[bname] = (b_total, b_fps)
+
+	grey_fp_rate = round(grey_fps / grey_total, 4) if grey_total > 0 else None
+	failing_bins: list[str] = []
+	for bname, lo_deg, hi_deg in HUE_FP_BINS:
+		b_total, b_fps = raw_bin_counts[bname]
+		fp_rate = round(b_fps / b_total, 4) if b_total > 0 else None
+		delta = round(fp_rate - grey_fp_rate, 4) if (fp_rate is not None and grey_fp_rate is not None) else None
+		bin_ok = b_total > 0 and delta is not None and delta <= float(max_delta) + 1e-9
+		if not bin_ok:
+			failing_bins.append(bname)
+		bins_report[bname] = {
+			"hue_range_deg": [lo_deg, hi_deg],
+			"cases": b_total,
+			"false_positives": b_fps,
+			"fp_rate": fp_rate,
+			"delta_vs_grey": delta,
+			"pass": bool(bin_ok),
+		}
+
+	passed = grey_total > 0 and len(failing_bins) == 0
+	return {
+		"status": "passed" if passed else "failed",
+		"pass": bool(passed),
+		"target_cases": target_cases,
+		"evaluated_cases": grey_total,
+		"max_delta_fp_rate": float(max_delta),
+		"grey_baseline": {
+			"rgb": list(grey_rgb),
+			"cases": grey_total,
+			"false_positives": grey_fps,
+			"fp_rate": grey_fp_rate,
+		},
+		"bins": bins_report,
+		"failing_bins": failing_bins,
+	}
+
+
+def _target_strata_quotas(n: int) -> dict[tuple[str, bool], int]:
+	"""Balanced ``(target_colour, is_left)`` quotas for ``n`` episodes achieving ``max_dev <= 0.15`` and ``|corr| < 0.05``."""
+	colours = sorted(PALETTE)
+	base, rem = divmod(n, len(colours))
+	quotas: dict[tuple[str, bool], int] = {}
+	for idx, col in enumerate(colours):
+		cnt = base + (1 if idx < rem else 0)
+		left_cnt = (cnt + 1) // 2 if (idx % 2 == 0) else cnt // 2
+		quotas[(col, True)] = left_cnt
+		quotas[(col, False)] = cnt - left_cnt
+	return quotas
+
+
+def _layout_target_stratum(layout, positive: bool) -> tuple[str, bool]:
+	slot = "pink" if positive else "green"
+	return layout.bowl_names[slot], bool(float(getattr(layout, slot)[1]) > 0.0)
+
+
+def _compute_balance_and_factors(
+	cases: list[list], layouts: list, split: str, *, strict_balance: bool | None = None
+) -> dict[str, Any]:
 	"""Compute balance metrics, colour pairs, camera histograms, visibility resamples, and factor tables."""
 	n = len(cases)
 	class_counts_raw = Counter("normal" if not c[1] else f"defect_face_{c[2]}" for c in cases)
@@ -658,12 +989,12 @@ def _compute_balance_and_factors(cases: list[list], layouts: list, split: str) -
 		else:
 			corrs[col] = round(float(np.corrcoef(ind, is_left)[0, 1]), 4)
 	max_abs_corr = max((abs(v) for v in corrs.values() if v is not None), default=0.0)
-	strict_balance = n >= BALANCE_STRICT_MIN_EPISODES
+	enforce_strict = (n >= BALANCE_STRICT_MIN_EPISODES) if strict_balance is None else bool(strict_balance)
 	all_colours_present = all(cnt > 0 for cnt in target_count_map.values()) if n >= 32 else True
 	balance_pass = bool(
 		class_mix_ok
 		and all_colours_present
-		and (not strict_balance or (max_dev <= BALANCE_MAX_TARGET_DEV_FRAC and max_abs_corr < BALANCE_MAX_ABS_CORR))
+		and (not enforce_strict or (max_dev <= BALANCE_MAX_TARGET_DEV_FRAC and max_abs_corr < BALANCE_MAX_ABS_CORR))
 	)
 
 	colour_pairs_pass = (
@@ -733,7 +1064,7 @@ def _compute_balance_and_factors(cases: list[list], layouts: list, split: str) -
 			"max_target_deviation_frac": round(max_dev, 4),
 			"left_right_corr_by_colour": corrs,
 			"max_abs_left_right_corr": round(max_abs_corr, 4),
-			"strict_thresholds_enforced": strict_balance,
+			"strict_thresholds_enforced": enforce_strict,
 			"all_colours_present": all_colours_present,
 			"pass": balance_pass,
 		},
@@ -767,8 +1098,14 @@ def build_suite_and_preflight(
 	end_seed: int,
 	perception_sample: float = 0.1,
 	max_perception: int | None = None,
-	sensing: str = "truth",
+	sensing: str = "realistic",
 	command: str = "",
+	scorer=None,
+	skip_hue_fp: bool = False,
+	hue_fp_per_bin: int = HUE_FP_DEFAULT_PER_BIN,
+	hue_fp_views: int = 2,
+	strict_balance: bool | None = None,
+	filter_perception_failures: bool = True,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
 	"""Generate a validated v3 suite dict and its preflight report dict."""
 	if split not in V3_SPLIT_SEED_RANGES:
@@ -782,13 +1119,18 @@ def build_suite_and_preflight(
 	target_count = end_seed - start_seed + 1
 	cls = _MS.classes(DEFAULT_MIX)
 	schedule = [cls[idx] for idx in _MS.interleave(_MS.allocate(target_count, DEFAULT_MIX))]
+	use_stratified = (target_count >= BALANCE_STRICT_MIN_EPISODES) if strict_balance is None else bool(strict_balance)
+	strata_quotas = _target_strata_quotas(target_count) if use_stratified else None
+	strata_counts: Counter[tuple[str, bool]] = Counter()
+	balance_skipped = 0
 
 	rejections: dict[str, int] = {"reachability": 0, "visibility": 0, "colour_separability": 0}
 	cases: list[list] = []
 	layouts: list = []
 	candidate_seed = start_seed
 
-	for positive, face in schedule:
+	def _next_valid(positive: bool, face: int, required_stratum: tuple[str, bool] | None = None):
+		nonlocal candidate_seed, balance_skipped
 		while True:
 			if candidate_seed > split_hi:
 				raise RuntimeError(
@@ -796,34 +1138,84 @@ def build_suite_and_preflight(
 					f"(rejections={rejections})"
 				)
 			layout, reason = evaluate_candidate_seed(candidate_seed, positive, face, split)
-			if layout is not None:
-				cases.append([candidate_seed, positive, face, {"scene": "v3", "split": split}])
-				layouts.append(layout)
-				candidate_seed += 1
-				break
-			rejections[reason] += 1
+			seed_used = candidate_seed
 			candidate_seed += 1
+			if layout is None:
+				rejections[reason] += 1
+				continue
+			stratum = _layout_target_stratum(layout, positive)
+			if required_stratum is not None:
+				if stratum != required_stratum:
+					balance_skipped += 1
+					continue
+			elif strata_quotas is not None and strata_counts[stratum] >= strata_quotas[stratum]:
+				balance_skipped += 1
+				continue
+			return seed_used, layout, stratum
 
-	sealed = split == "test"
-	suite: dict[str, Any] = {
-		"name": f"v3-{split}",
-		"split": split,
-		"sealed": sealed,
-		**({"sealed_note": _MS.SEALED_NOTE} if sealed else {}),
-		"generator": "scripts/vla/make_scene_suite_v3.py",
-		"seed_range": [cases[0][0], cases[-1][0]],
-		"requested_seed_range": [start_seed, end_seed],
-		"class_mix": {"normal": DEFAULT_MIX[0], "defect_faces_0_to_5": list(DEFAULT_MIX[1:])},
-		"cases": cases,
-	}
+	for positive, face in schedule:
+		seed_used, layout, stratum = _next_valid(positive, face)
+		cases.append([seed_used, positive, face, {"scene": "v3", "split": split}])
+		layouts.append(layout)
+		strata_counts[stratum] += 1
 
-	metrics = _compute_balance_and_factors(cases, layouts, split)
 	perception = run_perception_check(
 		cases,
 		layouts,
 		perception_sample=perception_sample,
 		max_perception=max_perception,
 		sensing=sensing,
+	)
+	perception_rejected_seeds: list[int] = []
+	if filter_perception_failures and perception["failed_case_indices"]:
+		fixed_indices = list(perception["sampled_indices"])
+		for _round in range(5):
+			failed_idxs = list(perception["failed_case_indices"])
+			if not failed_idxs:
+				break
+			for idx in failed_idxs:
+				old_case = cases[idx]
+				old_lay = layouts[idx]
+				perception_rejected_seeds.append(int(old_case[0]))
+				req_stratum = _layout_target_stratum(old_lay, bool(old_case[1])) if use_stratified else None
+				seed_used, new_lay, _ = _next_valid(bool(old_case[1]), int(old_case[2]), required_stratum=req_stratum)
+				cases[idx] = [seed_used, bool(old_case[1]), int(old_case[2]), {"scene": "v3", "split": split}]
+				layouts[idx] = new_lay
+			perception = run_perception_check(
+				cases,
+				layouts,
+				perception_sample=perception_sample,
+				max_perception=max_perception,
+				sensing=sensing,
+				sampled_indices=fixed_indices,
+			)
+	perception["rejected_seeds"] = perception_rejected_seeds
+	perception["rejected_count"] = len(perception_rejected_seeds)
+
+	sealed = split == "test"
+	seed_lo_out = min(c[0] for c in cases)
+	seed_hi_out = max(c[0] for c in cases)
+	suite: dict[str, Any] = {
+		"name": f"v3-{split}",
+		"split": split,
+		"sealed": sealed,
+		**({"sealed_note": _MS.SEALED_NOTE} if sealed else {}),
+		"generator": "scripts/vla/make_scene_suite_v3.py",
+		"seed_range": [seed_lo_out, seed_hi_out],
+		"requested_seed_range": [start_seed, end_seed],
+		"class_mix": {"normal": DEFAULT_MIX[0], "defect_faces_0_to_5": list(DEFAULT_MIX[1:])},
+		"cases": cases,
+	}
+
+	metrics = _compute_balance_and_factors(cases, layouts, split, strict_balance=strict_balance)
+	metrics["balance"]["balance_skipped_seeds"] = balance_skipped
+	hue_fp = run_hue_fp_control(
+		cases,
+		layouts,
+		scorer=scorer,
+		n_per_bin=hue_fp_per_bin,
+		n_views=hue_fp_views,
+		skip=skip_hue_fp,
 	)
 
 	overall_pass = bool(
@@ -832,6 +1224,7 @@ def build_suite_and_preflight(
 		and metrics["visibility_resamples"]["pass"]
 		and metrics["token_check"]["pass"]
 		and perception["pass"]
+		and hue_fp["pass"]
 	)
 
 	preflight: dict[str, Any] = {
@@ -839,7 +1232,7 @@ def build_suite_and_preflight(
 		"command": command,
 		"split": split,
 		"episodes": len(cases),
-		"seed_range": [cases[0][0], cases[-1][0]],
+		"seed_range": [seed_lo_out, seed_hi_out],
 		"requested_seed_range": [start_seed, end_seed],
 		"rejections": rejections,
 		"balance": metrics["balance"],
@@ -847,6 +1240,7 @@ def build_suite_and_preflight(
 		"camera_hist": metrics["camera_hist"],
 		"visibility_resamples": metrics["visibility_resamples"],
 		"perception_check": perception,
+		"hue_fp_control": hue_fp,
 		"token_max": metrics["token_max"],
 		"token_check": metrics["token_check"],
 		"factors": metrics["factors"],
@@ -909,7 +1303,12 @@ def render_preflight_md(preflight: dict[str, Any]) -> str:
 			f"- Bricks: {pc_res['bricks_found']}/{pc_res['bricks_total']} ({pc_res['brick_localization_rate']:.3f}), "
 			f"median error={pc_res['brick_median_error_mm']} mm"
 		),
-		f"- Perception pass: `{pc_res['pass']}`",
+		f"- Perception pass: `{pc_res['pass']}` (rejected={pc_res.get('rejected_count', 0)})",
+		"",
+		"## Hue False-Positive Control",
+		"",
+		f"- Status: `{preflight['hue_fp_control']['status']}` (pass=`{preflight['hue_fp_control']['pass']}`)",
+		f"- Failing bins: `{preflight['hue_fp_control'].get('failing_bins', [])}`",
 		"",
 	]
 	return "\n".join(lines)
@@ -926,8 +1325,14 @@ def main(argv: list[str] | None = None) -> int:
 	)
 	p.add_argument("--max-perception", type=int, default=None, help="optional cap on rendered perception check cases")
 	p.add_argument(
-		"--sensing", choices=("truth", "realistic"), default="truth", help="camera pose/noise mode for check"
+		"--sensing", choices=("truth", "realistic"), default="realistic", help="camera pose/noise mode for check"
 	)
+	p.add_argument("--detector", type=Path, default=None, help="anomaly detector spec JSON for hue FP control")
+	p.add_argument(
+		"--skip-hue-fp", action="store_true", help="explicitly skip wrist-sweep hue FP control (static-only mode)"
+	)
+	p.add_argument("--hue-fp-per-bin", type=int, default=HUE_FP_DEFAULT_PER_BIN, help="good bricks per 60-deg hue bin")
+	p.add_argument("--hue-fp-views", type=int, default=2, help="wrist-sweep views per case for hue FP control")
 	args = p.parse_args(argv)
 
 	try:
@@ -942,15 +1347,28 @@ def main(argv: list[str] | None = None) -> int:
 		f"python scripts/vla/make_scene_suite_v3.py --split {args.split} --seeds {args.seeds} "
 		f"--out {args.out} --preflight-dir {args.preflight_dir}"
 	)
-	suite, preflight = build_suite_and_preflight(
-		split=args.split,
-		start_seed=start_seed,
-		end_seed=end_seed,
-		perception_sample=args.perception_sample,
-		max_perception=args.max_perception,
-		sensing=args.sensing,
-		command=cmd,
-	)
+	scorer = None
+	if args.detector is not None:
+		from digital_twin_armigo.inspection_scorer import default_sup_scorer
+
+		scorer = default_sup_scorer(args.detector)
+	try:
+		suite, preflight = build_suite_and_preflight(
+			split=args.split,
+			start_seed=start_seed,
+			end_seed=end_seed,
+			perception_sample=args.perception_sample,
+			max_perception=args.max_perception,
+			sensing=args.sensing,
+			command=cmd,
+			scorer=scorer,
+			skip_hue_fp=args.skip_hue_fp,
+			hue_fp_per_bin=args.hue_fp_per_bin,
+			hue_fp_views=args.hue_fp_views,
+		)
+	finally:
+		if scorer is not None and hasattr(scorer, "close"):
+			scorer.close()
 
 	args.out.parent.mkdir(parents=True, exist_ok=True)
 	args.out.write_text(_MS._suite_json(suite), encoding="utf-8")

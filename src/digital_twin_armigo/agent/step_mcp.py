@@ -110,6 +110,12 @@ class SimulatorLeak(AssertionError):
 def assert_sensor_only(payload: Any, path: str = "root") -> None:
 	"""Raise :class:`SimulatorLeak` if ``payload`` holds a simulator-only key, and check it for the defect."""
 	if isinstance(payload, dict):
+		bowls_m = payload.get("bowls_m")
+		rim_inliers = payload.get("rim_inliers")
+		if isinstance(bowls_m, dict) and isinstance(rim_inliers, dict):
+			for slot, coords in bowls_m.items():
+				if rim_inliers.get(slot) == 0 and coords is not None:
+					raise SimulatorLeak(f"unfound bowl {slot!r} returned non-null coordinates with rim_inliers=0")
 		for key, value in payload.items():
 			if str(key) in SIMULATOR_KEYS:
 				raise SimulatorLeak(f"simulator key {key!r} at {path}")
@@ -373,8 +379,9 @@ class StepSession:
 		carry_target_dist_m = None
 		if label in ("defective", "normal") and getattr(self.backend, "_last_carry_tcp", None) is not None:
 			target_bowl = self.backend.target_bowl(label)
-			bowl_xy = np.asarray(self.backend.bowls[target_bowl], dtype=np.float64)
-			carry_target_dist_m = round(float(np.linalg.norm(self.backend._last_carry_tcp[:2] - bowl_xy[:2])), 5)
+			if target_bowl in self.backend.bowls:
+				bowl_xy = np.asarray(self.backend.bowls[target_bowl], dtype=np.float64)
+				carry_target_dist_m = round(float(np.linalg.norm(self.backend._last_carry_tcp[:2] - bowl_xy[:2])), 5)
 		return {"error": error, "carry_target_dist_m": carry_target_dist_m}
 
 	def recover(self, choice: str) -> dict:
@@ -473,13 +480,29 @@ class StepSession:
 		"""realistic: the bowl centres found in the top image at the start of the session."""
 		b = self.backend
 		ests = getattr(b, "_bowl_estimates", None) or {}
+		slots = list(ests.keys()) if ests else list(b._bowl_slots())
+		bowls_m: dict[str, list[float] | None] = {}
+		rim_inliers: dict[str, int] = {}
+		fit_residual_m: dict[str, float | None] = {}
+		missing: list[str] = []
+		for slot in slots:
+			est = ests.get(slot)
+			if est is None:
+				bowls_m[slot] = None
+				rim_inliers[slot] = 0
+				fit_residual_m[slot] = None
+				missing.append(slot)
+			else:
+				bowls_m[slot] = _round(est.xy)
+				rim_inliers[slot] = int(est.rim_points)
+				fit_residual_m[slot] = round(float(est.fit_residual_m), 6)
 		return {
-			"bowls_m": {n: _round(xy) for n, xy in b.bowls.items()},
+			"bowls_m": bowls_m,
+			"found": len(missing) == 0,
+			"missing_bowls": missing,
 			"found_at": "session start",
-			"rim_inliers": {n: (0 if ests.get(n) is None else int(ests[n].rim_points)) for n in b.bowls},
-			"fit_residual_m": {
-				n: (None if ests.get(n) is None else round(float(ests[n].fit_residual_m), 6)) for n in b.bowls
-			},
+			"rim_inliers": rim_inliers,
+			"fit_residual_m": fit_residual_m,
 		}
 
 

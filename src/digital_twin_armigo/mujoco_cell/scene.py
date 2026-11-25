@@ -508,6 +508,40 @@ def _clutter_brick(
 	return f'<body pos="{x:.4f} {y:.4f} {DUPLO_2X2[2] / 2 + 0.003:.4f}" euler="0 0 {yaw:.3f}">{inner}</body>'
 
 
+def _tanner_helland_rgb(kelvin: float) -> tuple[float, float, float]:
+	"""Approximate blackbody RGB in [0, 1] for ``kelvin`` via Tanner Helland's fit."""
+	t = max(1000.0, min(40000.0, float(kelvin))) / 100.0
+	if t <= 66.0:
+		r = 255.0
+		g = 99.4708025861 * math.log(t) - 161.1195681661
+		b = 0.0 if t <= 19.0 else 138.5177312231 * math.log(t - 10.0) - 305.0447927307
+	else:
+		r = 329.698727446 * ((t - 60.0) ** -0.1332047592)
+		g = 288.1221695283 * ((t - 60.0) ** -0.0755148492)
+		b = 255.0
+	return (
+		float(np.clip(r, 0.0, 255.0) / 255.0),
+		float(np.clip(g, 0.0, 255.0) / 255.0),
+		float(np.clip(b, 0.0, 255.0) / 255.0),
+	)
+
+
+_NEUTRAL_KELVIN_RGB = _tanner_helland_rgb(5500.0)
+_LIGHT_K_TINT_STRENGTH = 0.30
+
+
+def kelvin_to_rgb_tint(kelvin: float) -> tuple[float, float, float]:
+	"""Luminance-normalised RGB tint for colour temperature ``kelvin`` (3500-6500 K) with camera AWB residual."""
+	raw = _tanner_helland_rgb(kelvin)
+	rel = tuple(r / max(n, 1e-6) for r, n in zip(raw, _NEUTRAL_KELVIN_RGB, strict=True))
+	rel_max = max(rel)
+	rel_norm = tuple(c / rel_max for c in rel)
+	s = _LIGHT_K_TINT_STRENGTH
+	blended = tuple((1.0 - s) + s * c for c in rel_norm)
+	lum = 0.2126 * blended[0] + 0.7152 * blended[1] + 0.0722 * blended[2]
+	return tuple(c / lum for c in blended)
+
+
 def scene_xml(
 	layout: Layout,
 	use_visual_meshes: bool = True,
@@ -559,6 +593,17 @@ def scene_xml(
 	)
 	ld = " ".join(f"{c:.3f}" for c in layout.light_dir)
 	lv = layout.light_level
+	v3 = getattr(layout, "_scene_v3", None)
+	light_k = getattr(v3, "light_k", None) if v3 is not None else getattr(layout, "light_k", None)
+	if light_k is None:
+		hl_diffuse = f"{0.3 * lv:.2f} {0.3 * lv:.2f} {0.3 * lv:.2f}"
+		hl_ambient = f"{0.35 * lv:.2f} {0.35 * lv:.2f} {0.35 * lv:.2f}"
+		dir_diffuse = f"{0.6 * lv:.2f} {0.6 * lv:.2f} {0.6 * lv:.2f}"
+	else:
+		tr, tg, tb = kelvin_to_rgb_tint(float(light_k))
+		hl_diffuse = f"{0.3 * lv * tr:.3f} {0.3 * lv * tg:.3f} {0.3 * lv * tb:.3f}"
+		hl_ambient = f"{0.35 * lv * tr:.3f} {0.35 * lv * tg:.3f} {0.35 * lv * tb:.3f}"
+		dir_diffuse = f"{0.6 * lv * tr:.3f} {0.6 * lv * tg:.3f} {0.6 * lv * tb:.3f}"
 	distractors = "".join(
 		f'<geom type="box" size="{sx:.3f} {sy:.3f} {sz:.3f}" pos="{x:.3f} {y:.3f} {sz:.3f}" '
 		f'rgba="{0.2 + 0.6 * ((x * 37) % 1):.2f} {0.2 + 0.6 * ((y * 53) % 1):.2f} 0.5 1"/>'
@@ -600,7 +645,7 @@ def scene_xml(
 	return f"""<mujoco model="sorting_cell">
   <include file="so101.xml"/>
   <option timestep="{1.0 / FPS / SUBSTEPS:.6f}" cone="elliptic" impratio="10"/>
-  <visual><headlight diffuse="{0.3 * lv:.2f} {0.3 * lv:.2f} {0.3 * lv:.2f}" ambient="{0.35 * lv:.2f} {0.35 * lv:.2f} {0.35 * lv:.2f}" specular="0 0 0"/>
+  <visual><headlight diffuse="{hl_diffuse}" ambient="{hl_ambient}" specular="0 0 0"/>
     <global offwidth="640" offheight="480"/><quality shadowsize="1024"/></visual>
   <asset>
     <texture name="sky" type="skybox" builtin="gradient" rgb1="0.75 0.75 0.78" rgb2="0.45 0.45 0.5" width="256" height="1536"/>
@@ -611,7 +656,7 @@ def scene_xml(
     {extra_xml[0]}
   </asset>
   <worldbody>
-    <light pos="0.2 0 1.2" dir="{ld}" directional="true" diffuse="{0.6 * lv:.2f} {0.6 * lv:.2f} {0.6 * lv:.2f}" castshadow="true"/>
+    <light pos="0.2 0 1.2" dir="{ld}" directional="true" diffuse="{dir_diffuse}" castshadow="true"/>
     <geom name="table" type="plane" size="3 3 0.05" material="table"/>
     {_bowl("green_bowl", layout.green, green_rgba, use_visual_mesh=use_visual_meshes, torsional=physics is not None)}
     {_bowl("pink_bowl", layout.pink, pink_rgba, use_visual_mesh=use_visual_meshes, torsional=physics is not None)}{extra_bowls}
