@@ -22,7 +22,7 @@ def r(**kw):
 	return base | kw
 
 
-CTX = {"realistic_only_rate": {"b": 0.0}, "void_streak": {}, "freeze": None}
+CTX = {"realistic_only_rate": {"b": 0.0}, "void_streak": {}, "freeze": {"code_commit": "abc123"}}
 
 
 def test_student_train_predicate():
@@ -68,6 +68,7 @@ def _make_ep(root, group, name, *, seed=3000101, verdict="SUCCESS"):
 						"detector": "v7bot",
 						"strategy": "B",
 						"case_id": name,
+						"code_commit": "abc123",
 					}
 				},
 			}
@@ -80,17 +81,18 @@ def _make_ep(root, group, name, *, seed=3000101, verdict="SUCCESS"):
 
 def test_build_product_is_byte_identical_across_rebuilds(tmp_path):
 	src = tmp_path / "data"
+	freeze = {"code_commit": "abc123", "detector": "v7bot"}
 	_make_ep(src, "truth-B-v7bot", "L3000101-N", verdict="SUCCESS")
 	_make_ep(src, "realistic-fixed-B-v7bot", "L3000101-N", verdict="SUCCESS")
 	_make_ep(src, "realistic-drift-B-v7bot", "L3000101-N", verdict="FAILED")
 	con = lake.connect(tmp_path / "lake.sqlite")
 	bronze.register(con, src, source="t")
-	bid = silver.build_silver(con, freeze=None)
+	bid = silver.build_silver(con, freeze=freeze)
 	silver.build_pairs(con, bid)
 
-	out1 = build_product(con, "student_train_v3", silver_build=bid, out_root=tmp_path / "gov", freeze=None)
+	out1 = build_product(con, "student_train_v3", silver_build=bid, out_root=tmp_path / "gov", freeze=freeze)
 	b1 = (out1 / "manifest.jsonl").read_bytes()
-	out2 = build_product(con, "student_train_v3", silver_build=bid, out_root=tmp_path / "gov", freeze=None)
+	out2 = build_product(con, "student_train_v3", silver_build=bid, out_root=tmp_path / "gov", freeze=freeze)
 	b2 = (out2 / "manifest.jsonl").read_bytes()
 	assert out1 == out2
 	assert b1 == b2

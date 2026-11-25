@@ -42,6 +42,7 @@ from ..agent.twin_mujoco import (
 )
 from ..agent.twin_record import EpisodeTrace, Segment, policy_inputs, segment_labels
 from ..constants import PHASES
+from ..governance.segments import assert_train_case
 from ..mujoco_cell.gripper_state import GripperMonitor, GripperMonitorParams, GripperState
 from .contract import ACTION_DIM
 from .contract import INITIAL_Q as CONTRACT_INITIAL_Q
@@ -123,6 +124,9 @@ def assert_train_layouts_only(
 
 	if loaded_cases is None:
 		return
+
+	for row in loaded_cases:
+		assert_train_case(row)
 
 	case_seeds = _extract_case_seeds(loaded_cases)
 	if not case_seeds:
@@ -870,9 +874,7 @@ class TakeoverTwin(StudentTwin):
 		gate_started = False
 		# A grasp takeover recovered in place continues the student's segment (the expert's frames keep its id).
 		keep_open = cfg.in_place_grasp_recovery and seg.kind == "grasp"
-		close_check = (
-			gate_active and cfg.grasp_close_gate and seg.kind == "grasp" and self._grasp_ref is not None
-		)
+		close_check = gate_active and cfg.grasp_close_gate and seg.kind == "grasp" and self._grasp_ref is not None
 		descent_check = (
 			gate_active and cfg.grasp_descent_tol_m is not None and seg.kind == "grasp" and self._grasp_ref is not None
 		)

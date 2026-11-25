@@ -13,7 +13,7 @@ from pathlib import Path
 
 from ..vla import dagger
 from .bronze import _commit
-from .segments import DEFAULT_SEED_RANGES
+from .segments import DEFAULT_SEED_RANGES, is_sealed
 
 __all__ = ["PRODUCTS", "GovernanceError", "Product", "assert_product_invariants", "build_product"]
 
@@ -47,15 +47,34 @@ def _void_streak_of(r: dict, ctx: dict) -> int:
 	return 0
 
 
+def _is_sealed_row(r: dict) -> bool:
+	return r.get("split") == "test" or is_sealed(r.get("seed"), batch=r.get("batch"), options=r.get("case_options"))
+
+
+def _matches_freeze(r: dict, ctx: dict) -> bool:
+	freeze = ctx.get("freeze")
+	if not isinstance(freeze, dict) or not freeze.get("code_commit"):
+		return False
+	if not r.get("teacher_frozen"):
+		return False
+	ep_commit = r.get("provenance_commit")
+	if ep_commit is not None and ep_commit != freeze.get("code_commit"):
+		return False
+	f_det = freeze.get("detector")
+	ep_det = r.get("detector")
+	return not (f_det and ep_det and str(ep_det) != str(f_det))
+
+
 PRODUCTS: dict[str, Product] = {
 	"student_train_v3": Product(
 		"student_train_v3",
 		"realistic",
 		lambda r, ctx: (
 			_base(r)
+			and not _is_sealed_row(r)
 			and r.get("split") == "train"
 			and bool(r.get("physical_success"))
-			and bool(r.get("teacher_frozen"))
+			and _matches_freeze(r, ctx)
 			and (
 				r.get("pair_outcome") == "both_pass"
 				or (r.get("pair_outcome") == "unpaired" and ctx["realistic_only_rate"].get(r.get("batch"), 1.0) < 0.01)
@@ -66,20 +85,29 @@ PRODUCTS: dict[str, Product] = {
 	"privileged_demos_v3": Product(
 		"privileged_demos_v3",
 		"truth",
-		lambda r, ctx: _base(r) and r.get("split") == "train" and r.get("pair_outcome") == "truth_only",
+		lambda r, ctx: (
+			_base(r)
+			and not _is_sealed_row(r)
+			and r.get("split") == "train"
+			and _matches_freeze(r, ctx)
+			and r.get("pair_outcome") == "truth_only"
+		),
 		trainable=True,
 	),
 	"failure_bank": Product(
 		"failure_bank",
 		"realistic",
-		lambda r, ctx: _base(r) and r.get("split") != "test" and r.get("pair_outcome") in ("truth_only", "both_fail"),
+		lambda r, ctx: _base(r) and not _is_sealed_row(r) and r.get("pair_outcome") in ("truth_only", "both_fail"),
 		trainable=False,
 	),
 	"harness_review": Product(
 		"harness_review",
 		None,
 		lambda r, ctx: (
-			bool(r.get("quarantined")) or r.get("pair_outcome") == "realistic_only" or _void_streak_of(r, ctx) >= 2
+			not _is_sealed_row(r)
+			and (
+				bool(r.get("quarantined")) or r.get("pair_outcome") == "realistic_only" or _void_streak_of(r, ctx) >= 2
+			)
 		),
 		trainable=False,
 	),
@@ -89,19 +117,26 @@ for _suite in (k for k in DEFAULT_SEED_RANGES if k != "train"):
 	PRODUCTS[f"eval_{_suite}"] = Product(
 		f"eval_{_suite}",
 		"realistic",
-		lambda r, ctx, s=_suite: _base(r) and r.get("split") == s and (s != "test" or bool(ctx.get("freeze"))),
+		lambda r, ctx, s=_suite: _base(r) and r.get("split") == s and (s != "test" or _matches_freeze(r, ctx)),
 		trainable=False,
 	)
 
 
-def assert_product_invariants(rows: list[dict], product: Product) -> None:
+def assert_product_invariants(rows: list[dict], product: Product, *, freeze: dict | None = None) -> None:
 	"""Enforce hard isolation constraints before any gold manifest is written."""
-	if product.name == "failure_bank":
-		bad_sealed = [r.get("path") for r in rows if r.get("split") == "test"]
+	if product.name != "eval_test":
+		bad_sealed = [r.get("path") for r in rows if _is_sealed_row(r)]
 		if bad_sealed:
-			raise GovernanceError(f"failure_bank cannot contain sealed test episodes: {bad_sealed[:3]}")
+			raise GovernanceError(f"{product.name} cannot contain sealed test episodes: {bad_sealed[:3]}")
+	if product.name == "eval_test" and rows:
+		ctx = {"freeze": freeze}
+		for r in rows:
+			if not _matches_freeze(r, ctx):
+				raise GovernanceError(f"eval_test requires a matching freeze for {r.get('path')!r}")
 	if not product.trainable:
 		return
+	ctx = {"freeze": freeze}
+	case_entries = []
 	for r in rows:
 		if r.get("split") != "train":
 			raise GovernanceError(f"{product.name}: non-train split {r.get('split')!r} in {r.get('path')!r}")
@@ -111,10 +146,14 @@ def assert_product_invariants(rows: list[dict], product: Product) -> None:
 			raise GovernanceError(f"{product.name}: oracle episode {r.get('path')!r}")
 		if r.get("pair_outcome") == "realistic_only":
 			raise GovernanceError(f"{product.name}: realistic_only episode {r.get('path')!r}")
-	seeds = [[int(r["seed"])] for r in rows if r.get("seed") is not None]
-	if seeds:
+		if freeze is not None and not _matches_freeze(r, ctx):
+			raise GovernanceError(f"{product.name}: freeze mismatch in {r.get('path')!r}")
+		if r.get("seed") is not None:
+			opts = r.get("case_options")
+			case_entries.append([int(r["seed"]), False, 0, opts] if isinstance(opts, dict) else [int(r["seed"])])
+	if case_entries:
 		try:
-			dagger.assert_train_layouts_only(cases=seeds)
+			dagger.assert_train_layouts_only(cases=case_entries)
 		except ValueError as exc:
 			raise GovernanceError(str(exc)) from exc
 
@@ -229,7 +268,7 @@ def build_product(
 	*,
 	silver_build: str,
 	out_root: Path,
-	freeze: dict | None,
+	freeze: dict | None = None,
 ) -> Path:
 	"""Build one deterministic gold product manifest and card under ``<out_root>/gold/<name>/<version>/``."""
 	if name not in PRODUCTS:
@@ -246,7 +285,7 @@ def build_product(
 		else:
 			excluded_counts[_exclude_reason(r, product, ctx)] += 1
 
-	assert_product_invariants(selected, product)
+	assert_product_invariants(selected, product, freeze=freeze)
 	selected.sort(key=lambda r: r["path"])
 
 	manifest_items = [

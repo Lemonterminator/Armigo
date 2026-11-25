@@ -12,7 +12,7 @@ from ..experiments.scoring import score_episode
 from ..inventory import audit as inv_audit
 from .bronze import FILES, _commit
 from .pairs import OUTCOMES, flags, pair_key, pair_outcome, sensing_of
-from .segments import split_of
+from .segments import case_split, is_sealed, seed_of_path_or_case
 
 __all__ = ["CHECKS", "QUARANTINE_CHECKS", "build_pairs", "build_silver", "pair_report"]
 
@@ -105,17 +105,25 @@ def _check_sensor_guard(_row: dict, _path: Path, ctx: dict) -> tuple[bool, str |
 def _check_no_truth_fallback(_row: dict, _path: Path, ctx: dict) -> tuple[bool, str | None]:
 	if ctx.get("sensing") != "realistic":
 		return True, None
-	if ctx.get("oracle_events") and not ctx.get("is_oracle"):
-		return False, "oracle_applied_without_oracle_flag"
+	if ctx.get("oracle_events") and not ctx.get("declared_oracle"):
+		return False, "oracle_applied_without_declared_oracle"
 	return True, None
 
 
-def _check_teacher_frozen(_row: dict, _path: Path, ctx: dict) -> tuple[bool, str | None]:
+def _check_teacher_frozen(row: dict, _path: Path, ctx: dict) -> tuple[bool, str | None]:
 	freeze = ctx.get("freeze")
-	if not freeze:
-		return True, None
-	ok = ctx.get("provenance_commit") == freeze.get("code_commit")
-	return (True, None) if ok else (False, "commit_mismatch")
+	if not isinstance(freeze, dict) or not freeze.get("code_commit"):
+		return False, "missing_freeze"
+	commit = ctx.get("provenance_commit")
+	if not commit:
+		return False, "missing_provenance_commit"
+	if commit != freeze.get("code_commit"):
+		return False, "commit_mismatch"
+	f_det = freeze.get("detector")
+	ep_det = row.get("detector")
+	if f_det and ep_det and str(ep_det) != str(f_det):
+		return False, "detector_mismatch"
+	return True, None
 
 
 def _check_latest_attempt(_row: dict, _path: Path, ctx: dict) -> tuple[bool, str | None]:
@@ -209,11 +217,18 @@ def build_silver(
 		row["motion"] = exp.get("motion") or "open"
 		row["evidence"] = exp.get("evidence") or "hold"
 		sensing = _sensing_of(row, episode)
+		declared_oracle = bool(exp.get("oracle"))
 		oracle_events = [e for e in events if e.get("kind") == "oracle_applied"]
-		is_oracle = bool(exp.get("oracle")) or bool(oracle_events)
+		is_oracle = declared_oracle or bool(oracle_events)
 		row["oracle"] = is_oracle
-		seed = _seed_of(task, row)
-		split = split_of(seed)
+		seed = seed_of_path_or_case(ep_dir, task, row)
+		case_list = task.get("case")
+		case_opts = (
+			case_list[3]
+			if isinstance(case_list, list) and len(case_list) >= 4 and isinstance(case_list[3], dict)
+			else None
+		)
+		split = "test" if is_sealed(seed, batch=row.get("batch"), options=case_opts) else case_split(seed, case_opts)
 		pk = pair_key(row) if sensing in ("truth", "realistic") and row.get("engine") and row.get("detector") else None
 		attempt_key = (row.get("batch"), row.get("engine"), row.get("group"), row.get("case_id"))
 		rank = (int(row.get("attempt") or 0), ep_dir.name, p_str)
@@ -250,10 +265,12 @@ def build_silver(
 				"events": events,
 				"sensing": sensing,
 				"seed": seed,
+				"case_options": case_opts,
 				"split": split,
 				"pair_key": pk,
 				"attempt_key": attempt_key,
 				"rank": rank,
+				"declared_oracle": declared_oracle,
 				"oracle_events": oracle_events,
 				"is_oracle": is_oracle,
 				"provenance_commit": exp.get("code_commit") or (prov.get("git") or {}).get("commit"),
@@ -275,6 +292,7 @@ def build_silver(
 			"has_integrity_event": item["p_str"] in integrity_paths,
 			"sensing": item["sensing"],
 			"tool_calls": tool_calls,
+			"declared_oracle": item["declared_oracle"],
 			"oracle_events": item["oracle_events"],
 			"is_oracle": item["is_oracle"],
 			"provenance_commit": item["provenance_commit"],
@@ -298,8 +316,12 @@ def build_silver(
 			"sensing": item["sensing"],
 			"pair_key": list(item["pair_key"]) if item["pair_key"] is not None else None,
 			"seed": item["seed"],
+			"case_options": item["case_options"],
 			"split": item["split"],
 			"sha_episode": item["sha_episode"],
+			"provenance_commit": item["provenance_commit"],
+			"declared_oracle": item["declared_oracle"],
+			"oracle_events_count": len(item["oracle_events"]),
 			"teacher_frozen": check_results["teacher_frozen"]["passed"],
 			"superseded": superseded,
 			"quarantined": quarantined,

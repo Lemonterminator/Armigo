@@ -32,6 +32,7 @@ def _bootstrap_path() -> None:
 _bootstrap_path()
 
 from digital_twin_armigo.experiments.diagnosis import split_of
+from digital_twin_armigo.governance.segments import is_sealed, seed_of_path_or_case
 from digital_twin_armigo.inventory import audit, query
 
 
@@ -43,8 +44,19 @@ def _batch_from_path(path: Path) -> str | None:
 	return None
 
 
+def _read_task_json(ep_path: Path) -> dict | None:
+	tf = ep_path / "task.json"
+	if not tf.is_file():
+		return None
+	try:
+		data = json.loads(tf.read_text(encoding="utf-8-sig"))
+		return data if isinstance(data, dict) else None
+	except (OSError, ValueError):
+		return None
+
+
 def build_benchmark(audit_path: Path, inventory_dir: Path) -> list[dict]:
-	"""Extract human-confirmed latest verdicts, attach episode paths, exclude sealed batches."""
+	"""Extract human-confirmed latest verdicts, attach episode paths, exclude sealed batches and sealed seeds."""
 	audit_path = Path(audit_path)
 	inventory_dir = Path(inventory_dir)
 	if not audit_path.is_file():
@@ -60,7 +72,15 @@ def build_benchmark(audit_path: Path, inventory_dir: Path) -> list[dict]:
 		if ep_path is None:
 			continue
 		batch = _batch_from_path(ep_path)
-		if batch is not None and "sealed" in batch.lower():
+		task = _read_task_json(ep_path)
+		case_list = (task or {}).get("case")
+		case_opts = (
+			case_list[3]
+			if isinstance(case_list, list) and len(case_list) >= 4 and isinstance(case_list[3], dict)
+			else None
+		)
+		seed = seed_of_path_or_case(ep_path, task, None)
+		if is_sealed(seed, batch=batch, options=case_opts):
 			continue
 		entries.append(
 			{
