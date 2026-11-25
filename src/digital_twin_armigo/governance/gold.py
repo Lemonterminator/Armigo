@@ -311,11 +311,17 @@ def build_product(
 		{
 			"path": r["path"],
 			"episode_sha256": r.get("sha_episode"),
+			"product": name,
+			"trainable": product.trainable,
 			"split": r.get("split"),
 			"pair_outcome": r.get("pair_outcome"),
 			"flags": r.get("flags"),
 			"root_cause": r.get("root_cause"),
 			"mechanism": r.get("mechanism"),
+			"has_video": bool(r.get("has_video")),
+			"has_motion": bool(r.get("has_motion")),
+			"video_source": r.get("video_source")
+			or ("recorded" if r.get("has_video") else ("deferred_rerender" if r.get("has_motion") else "missing")),
 		}
 		for r in selected
 	]
@@ -333,12 +339,14 @@ def build_product(
 	by_split = Counter(r.get("split") for r in selected)
 	by_cam = Counter(r.get("camera_condition") for r in selected)
 	by_outcome = Counter(r.get("pair_outcome") for r in selected)
+	by_video = Counter(item["video_source"] for item in manifest_items)
 	card_lines = [
 		f"# Gold Product `{name}` (`{version}`)",
 		"",
 		f"- silver_build: `{silver_build}`",
 		f"- commit: `{commit}`",
 		f"- predicate_sha: `{pred_sha}`",
+		f"- trainable: `{product.trainable}`",
 		f"- n_items: `{len(selected)}`",
 		"",
 		"## By Split",
@@ -349,6 +357,11 @@ def build_product(
 		"",
 		"## By Pair Outcome",
 		*[f"- {k}: {v}" for k, v in sorted(by_outcome.items(), key=lambda kv: str(kv[0]))],
+		"",
+		"## Video Readiness",
+		f"- recorded: {by_video.get('recorded', 0)}",
+		f"- deferred_rerender: {by_video.get('deferred_rerender', 0)}",
+		f"- missing: {by_video.get('missing', 0)}",
 		"",
 		"## Excluded Counts",
 		*([f"- {k}: {v}" for k, v in sorted(excluded_counts.items())] or ["- (none)"]),

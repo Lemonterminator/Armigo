@@ -188,13 +188,16 @@ def test_student_frames_mask_noisy_present_and_absent(tmp_path):
 
 	ep_absent = tmp_path / "ep_absent"
 	_write_minimal_episode(ep_absent, actions, noisy=None)
-	frames_absent = list(student_frames(ep_absent))
+	# Legacy 5-camera default omits mask.noisy for merge compatibility; v3 3-camera or explicit flag includes it
+	frames_legacy = list(student_frames(ep_absent))
+	assert all("mask.noisy" not in f for f in frames_legacy)
+	frames_absent = list(student_frames(ep_absent, student_cameras_only=True))
 	assert [bool(f["mask.noisy"][0]) for f in frames_absent] == [False, False, False]
 	assert all(f["mask.noisy"].dtype == bool and f["mask.noisy"].shape == (1,) for f in frames_absent)
 
 	ep_present = tmp_path / "ep_present"
 	_write_minimal_episode(ep_present, actions, noisy=np.array([False, True, True], dtype=bool))
-	frames_present = list(student_frames(ep_present))
+	frames_present = list(student_frames(ep_present, include_noisy_mask=True))
 	assert [bool(f["mask.noisy"][0]) for f in frames_present] == [False, True, True]
 
 
@@ -398,7 +401,7 @@ def test_run_episode_with_video_and_student_frames_mask_noisy(tmp_path):
 
 	with np.load(out_dir / "branch-0" / "actions.npz", allow_pickle=False) as z:
 		noisy_col = z["noisy"].tolist()
-	frames = list(student_frames(out_dir))
+	frames = list(student_frames(out_dir, student_cameras_only=True))
 	assert len(frames) == len(noisy_col)
 	assert [bool(f["mask.noisy"][0]) for f in frames] == noisy_col
 	assert any(noisy_col) and not all(noisy_col)

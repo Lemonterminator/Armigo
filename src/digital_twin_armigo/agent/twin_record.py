@@ -640,12 +640,24 @@ def segment_labels(episode: Path) -> dict:
 	}
 
 
-def student_frames(episode: Path, start_frame: int = 0, student_cameras_only: bool = False):
+def student_frames(
+	episode: Path,
+	start_frame: int = 0,
+	student_cameras_only: bool = False,
+	*,
+	include_noisy_mask: bool | None = None,
+	video_dir: Path | None = None,
+):
 	"""Yield only contiguous, successful unrewound samples for the LeRobot exporter. In-place retries are allowed
 	(one continuous branch: a recovery demonstration); a physics rewind is not. Joints are in radians. Each frame
 	carries its segment and mask columns (SEGMENT_FEATURES), D1 input vectors (INPUT_FEATURES) and the segment
 	instruction as ``task``; an episode with frames outside any segment is rejected (:class:`SegmentLabelError`).
-	Rows before ``start_frame`` are checked and decoded but not yielded (see :func:`unsupervised_prefix_end`)."""
+	Rows before ``start_frame`` are checked and decoded but not yielded (see :func:`unsupervised_prefix_end`).
+
+	``include_noisy_mask`` defaults to ``True`` when ``student_cameras_only=True`` (canonical v3 3-camera export)
+	and ``False`` when ``student_cameras_only=False`` (legacy 5-camera export without ``mask.noisy`` for merge
+	compatibility). When ``video_dir`` is provided, ``.mkv`` streams are verified against ``rerender_manifest.json``
+	and read from ``video_dir`` even if the bronze episode was recorded with ``video=False``."""
 	from contextlib import ExitStack
 
 	episode = Path(episode)
@@ -653,7 +665,6 @@ def student_frames(episode: Path, start_frame: int = 0, student_cameras_only: bo
 	result = manifest["result"]
 	if (
 		manifest["schema"] != "armigo-agent-episode/v1"
-		or not manifest["video"]
 		or result["verdict"] != "SUCCESS"
 		or not result["student_eligible"]
 		or len(manifest["branches"]) != 1
@@ -663,9 +674,22 @@ def student_frames(episode: Path, start_frame: int = 0, student_cameras_only: bo
 		or manifest["fps"] != FPS
 	):
 		raise ValueError("episode is not eligible for VLA export")
+	if video_dir is None and not manifest["video"]:
+		raise ValueError(
+			f"{episode.name}: episode has no recorded video (video=False); "
+			"deferred rerender is required (pass verified video_dir or --rerender-video)"
+		)
+	use_noisy_mask = bool(student_cameras_only) if include_noisy_mask is None else bool(include_noisy_mask)
 	root = episode / "branch-0"
 	labels = segment_labels(episode)
 	active_cameras = [c for c in CAMERAS if not (student_cameras_only and c in ("front", "top_full"))]
+	if video_dir is not None:
+		from .deferred_video import verify_rerender_dir
+
+		mkv_root = Path(video_dir)
+		verify_rerender_dir(episode, mkv_root, required_cameras=active_cameras)
+	else:
+		mkv_root = root
 	with ExitStack() as stack:
 		rows = stack.enter_context(np.load(root / "actions.npz", allow_pickle=False))
 		gripper_cmds = rows["gripper_cmd"] if "gripper_cmd" in rows.files else None
@@ -684,7 +708,7 @@ def student_frames(episode: Path, start_frame: int = 0, student_cameras_only: bo
 			if arr is not None and len(arr) != len(actions):
 				raise ValueError(f"{col_name} length {len(arr)} != actions length {len(actions)}")
 		readers = {
-			name: iter(stack.enter_context(av.open(str(root / f"{name}.mkv"))).decode(video=0))
+			name: iter(stack.enter_context(av.open(str(mkv_root / f"{name}.mkv"))).decode(video=0))
 			for name in active_cameras
 		}
 		for row_index, (state, action) in enumerate(zip(states, actions, strict=True)):
@@ -714,8 +738,11 @@ def student_frames(episode: Path, start_frame: int = 0, student_cameras_only: bo
 				"mask.supervise_action": np.array(
 					[bool(supervise_col[row_index]) if supervise_col is not None else True], dtype=bool
 				),
-				"mask.noisy": np.array([bool(noisy_col[row_index]) if noisy_col is not None else False], dtype=bool),
 			}
+			if use_noisy_mask:
+				frame["mask.noisy"] = np.array(
+					[bool(noisy_col[row_index]) if noisy_col is not None else False], dtype=bool
+				)
 			for name, reader in readers.items():
 				pixels = next(reader, None)
 				if pixels is None or pixels.time is None or abs(pixels.time - row_index / FPS) > 0.001:
@@ -756,12 +783,27 @@ def _trimmed_segments(segments: list[dict], start: int) -> list[dict]:
 	return out
 
 
+def _resolve_video_dir(video_dirs: Any, idx: int, path: Path) -> Path | None:
+	if video_dirs is None:
+		return None
+	if isinstance(video_dirs, dict):
+		for key in (path, str(path), path.resolve(), str(path.resolve())):
+			if key in video_dirs and video_dirs[key] is not None:
+				return Path(video_dirs[key])
+		return None
+	val = video_dirs[idx]
+	return None if val is None else Path(val)
+
+
 def export_lerobot(
 	episodes: list[Path],
 	out: Path,
 	repo_id: str,
 	trim_unsupervised_prefix: bool = False,
 	student_cameras_only: bool = False,
+	*,
+	include_noisy_mask: bool | None = None,
+	video_dirs: Any = None,
 ):
 	"""Export ``episodes`` as a LeRobot dataset. With ``trim_unsupervised_prefix`` each episode starts at
 	:func:`unsupervised_prefix_end` (paired carry episodes: the shared prefix carries no supervision)."""
@@ -770,10 +812,18 @@ def export_lerobot(
 	from ..constants import CAMERA_SHAPES
 	from ..lerobot_export import lerobot_features
 
+	use_noisy_mask = bool(student_cameras_only) if include_noisy_mask is None else bool(include_noisy_mask)
+	resolved_vdirs = [_resolve_video_dir(video_dirs, i, Path(p)) for i, p in enumerate(episodes)]
+
 	# Fail before creating output if an episode ended on a branch with privileged failure context or lacks segment
 	# labels (student_frames checks both on its first frame).
-	for path in episodes:
-		frames = student_frames(path, student_cameras_only=student_cameras_only)
+	for path, vdir in zip(episodes, resolved_vdirs, strict=True):
+		frames = student_frames(
+			path,
+			student_cameras_only=student_cameras_only,
+			include_noisy_mask=use_noisy_mask,
+			video_dir=vdir,
+		)
 		try:
 			next(frames)
 		finally:
@@ -784,6 +834,7 @@ def export_lerobot(
 	else:
 		cam_shapes["top_full"] = [TOP_FULL[1], TOP_FULL[0], 3]
 
+	seg_features = {key: dict(spec) for key, spec in SEGMENT_FEATURES.items() if use_noisy_mask or key != "mask.noisy"}
 	dataset = LeRobotDataset.create(
 		repo_id=repo_id,
 		fps=FPS,
@@ -798,12 +849,18 @@ def export_lerobot(
 			video=True,
 		)
 		| {key: dict(spec) for key, spec in INPUT_FEATURES.items()}
-		| {key: dict(spec) for key, spec in SEGMENT_FEATURES.items()},
+		| seg_features,
 	)
 	starts = [unsupervised_prefix_end(p) if trim_unsupervised_prefix else 0 for p in episodes]
 	try:
-		for path, start in zip(episodes, starts, strict=True):
-			for frame in student_frames(path, start, student_cameras_only=student_cameras_only):
+		for path, start, vdir in zip(episodes, starts, resolved_vdirs, strict=True):
+			for frame in student_frames(
+				path,
+				start,
+				student_cameras_only=student_cameras_only,
+				include_noisy_mask=use_noisy_mask,
+				video_dir=vdir,
+			):
 				dataset.add_frame(frame)
 			dataset.save_episode()
 	finally:
@@ -862,7 +919,7 @@ def export_lerobot(
 		out / "meta/segments.json",
 		{
 			"schema": "armigo-student-segments/v1",
-			"features": sorted(SEGMENT_FEATURES),
+			"features": sorted(seg_features),
 			"segment_done": SEGMENT_DONE_CONVENTION,
 			"chunk_valid_len": CHUNK_VALID_LEN_CONVENTION,
 			"episodes": episodes_meta,
@@ -1250,14 +1307,32 @@ def main():
 		action="store_true",
 		help="Export only canonical student cameras (omit front and top_full)",
 	)
+	parser.add_argument(
+		"--include-noisy-mask",
+		action=argparse.BooleanOptionalAction,
+		default=None,
+		help="Include mask.noisy feature (default: True for --student-cameras-only, False for legacy 5-camera export)",
+	)
+	parser.add_argument(
+		"--video-dir-map",
+		type=Path,
+		default=None,
+		help="Optional JSON mapping episode_dir -> verified deferred rerender video_dir",
+	)
 	parser.add_argument("episodes", nargs="+", type=Path)
 	args = parser.parse_args()
+	extra_kw: dict[str, Any] = {}
+	if args.include_noisy_mask is not None:
+		extra_kw["include_noisy_mask"] = args.include_noisy_mask
+	if args.video_dir_map is not None:
+		extra_kw["video_dirs"] = json.loads(args.video_dir_map.read_text(encoding="utf-8"))
 	export_lerobot(
 		args.episodes,
 		args.out,
 		args.repo_id,
 		trim_unsupervised_prefix=args.trim_unsupervised_prefix,
 		student_cameras_only=args.student_cameras_only,
+		**extra_kw,
 	)
 
 

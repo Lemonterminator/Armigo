@@ -315,6 +315,13 @@ def build_silver(
 
 		row_flags = flags({**row, "oracle": item["is_oracle"]})
 		row["quarantined"] = quarantined
+		ep_meta = _read_json(ep_dir / "episode.json")
+		has_video = bool(ep_meta.get("video")) and all(
+			(ep_dir / "branch-0" / f"{cam}.mkv").is_file() for cam in ("wrist", "top_rgb", "top_depth")
+		)
+		has_motion = (ep_dir / "replay" / "motion.npz").is_file()
+		video_source = "recorded" if has_video else ("deferred_rerender" if has_motion else "missing")
+		video_ready = bool(has_video or has_motion)
 		enriched = {
 			**row,
 			"sensing": item["sensing"],
@@ -337,6 +344,10 @@ def build_silver(
 			"sensor_guard_basis": ctx.get("sensor_guard_basis"),
 			"checks": check_results,
 			"flags": row_flags,
+			"has_video": has_video,
+			"has_motion": has_motion,
+			"video_ready": video_ready,
+			"video_source": video_source,
 			"audit_state": (latest_audit or {}).get("state"),
 			"audit_root_cause": (latest_audit or {}).get("root_cause"),
 			"audit_mechanism": (latest_audit or {}).get("mechanism"),

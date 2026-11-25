@@ -147,6 +147,8 @@ def _export_shard(
 	delete_mkv: bool = False,
 	staging_root: Path | None = None,
 	cleanup_log: Path | None = None,
+	include_noisy_mask: bool | None = None,
+	video_dir_map: dict[str, str] | None = None,
 ) -> None:
 	"""Export ``eps`` (trimmed to their supervised part) into ``shard``, read it back, and optionally clean staging ``*.mkv``."""
 	from datetime import UTC, datetime
@@ -166,6 +168,17 @@ def _export_shard(
 	cmd += ["--repo-id", REPO_ID, "--trim-unsupervised-prefix"]
 	if student_cameras_only:
 		cmd.append("--student-cameras-only")
+	effective_noisy = student_cameras_only if include_noisy_mask is None else bool(include_noisy_mask)
+	if not effective_noisy:
+		cmd.append("--no-include-noisy-mask")
+	elif include_noisy_mask is True:
+		cmd.append("--include-noisy-mask")
+	if video_dir_map:
+		sub_map = {str(e): video_dir_map[str(e)] for e in eps if str(e) in video_dir_map}
+		if sub_map:
+			vmap_path = shard.with_suffix(".video_dirs.json")
+			vmap_path.write_text(json.dumps(sub_map, indent=2) + "\n", encoding="utf-8")
+			cmd += ["--video-dir-map", str(vmap_path)]
 	cmd += map(str, eps)
 	with log.open("w", encoding="utf-8") as fh:
 		subprocess.run(cmd, check=True, cwd=ROOT, env=_env(), stdout=fh, stderr=subprocess.STDOUT)
@@ -212,14 +225,69 @@ def _export_shard(
 		)
 
 
+def _is_trainable_product_name(name: str) -> bool:
+	from digital_twin_armigo.governance.gold import PRODUCTS
+
+	if name in PRODUCTS:
+		return bool(PRODUCTS[name].trainable)
+	if name.startswith("eval_") or name in ("harness_review", "failure_bank", "eval_test"):
+		return False
+	return False
+
+
+def _validate_manifest_product_eligibility(manifest_path: Path) -> None:
+	"""Reject non-trainable gold manifests using sibling metadata, card.md, or gold/<product>/<ver> directory."""
+	import re
+
+	mpath = Path(manifest_path).resolve()
+	meta_file = mpath.parent / "manifest_meta.json"
+	if meta_file.is_file():
+		meta = json.loads(meta_file.read_text(encoding="utf-8-sig"))
+		if meta.get("trainable") is False:
+			raise ValueError(f"manifest {mpath} is marked non-trainable in manifest_meta.json")
+		prod = meta.get("product")
+		if prod is not None and not _is_trainable_product_name(str(prod)):
+			raise ValueError(f"manifest product {prod!r} in manifest_meta.json is not trainable")
+
+	card_file = mpath.parent / "card.md"
+	if card_file.is_file():
+		card_text = card_file.read_text(encoding="utf-8-sig")
+		m_hdr = re.search(r"^#\s+Gold Product\s+`([^`]+)`", card_text, flags=re.MULTILINE)
+		if m_hdr:
+			prod = m_hdr.group(1).strip()
+			if not _is_trainable_product_name(prod):
+				raise ValueError(f"manifest product {prod!r} (from card.md) is not trainable")
+		if re.search(r"^-\s+trainable:\s+`False`", card_text, flags=re.MULTILINE):
+			raise ValueError(f"manifest {mpath} is marked trainable=False in card.md")
+
+	# Canonical gold layout: <root>/gold/<product>/<version>/manifest.jsonl
+	parts = mpath.parts
+	if len(parts) >= 4 and parts[-4] == "gold":
+		dir_prod = parts[-3]
+		if not _is_trainable_product_name(dir_prod):
+			raise ValueError(f"manifest product {dir_prod!r} (from path {mpath}) is not trainable")
+
+
 def load_manifest_episodes(manifest_path: Path) -> list[Path]:
-	"""Load and SHA256-verify every episode listed in a gold ``manifest.jsonl`` before any export."""
+	"""Load, verify product trainability, and SHA256-verify every episode listed in a gold ``manifest.jsonl``."""
+	mpath = Path(manifest_path)
+	_validate_manifest_product_eligibility(mpath)
 	eps: list[Path] = []
-	for line_no, raw_line in enumerate(Path(manifest_path).read_text(encoding="utf-8-sig").splitlines(), 1):
+	for line_no, raw_line in enumerate(mpath.read_text(encoding="utf-8-sig").splitlines(), 1):
 		line = raw_line.strip()
 		if not line:
 			continue
 		item = json.loads(line)
+		if "trainable" in item and item["trainable"] is not True:
+			raise ValueError(f"manifest line {line_no}: item is not trainable (trainable={item['trainable']!r})")
+		if "product" in item and item["product"] is not None:
+			prod = str(item["product"])
+			if not _is_trainable_product_name(prod):
+				raise ValueError(f"manifest line {line_no}: product {prod!r} is not trainable")
+		if "split" in item and item["split"] is not None and str(item["split"]) != "train":
+			raise ValueError(
+				f"manifest line {line_no}: non-train split {item['split']!r} is forbidden for training export"
+			)
 		ep_dir = Path(item["path"])
 		expected = item.get("episode_sha256")
 		ep_file = ep_dir / "episode.json"
@@ -238,6 +306,46 @@ def load_manifest_episodes(manifest_path: Path) -> list[Path]:
 	return eps
 
 
+def _prepare_deferred_videos(
+	eps: list[Path],
+	out: Path,
+	*,
+	student_cameras_only: bool,
+) -> dict[str, str]:
+	"""Verifiably rerender missing student videos into ``<out>/rerender_cache/<ep_key>`` (bronze stays read-only)."""
+	from digital_twin_armigo.agent.deferred_video import (
+		ALL_RENDER_CAMERAS,
+		STUDENT_REQUIRED_CAMERAS,
+		rerender_student_videos,
+		verify_rerender_dir,
+	)
+
+	req_cams = STUDENT_REQUIRED_CAMERAS if student_cameras_only else ALL_RENDER_CAMERAS
+	cache_root = out / "rerender_cache"
+	video_dir_map: dict[str, str] = {}
+	for ep in eps:
+		ep_json = json.loads((ep / "episode.json").read_text(encoding="utf-8"))
+		has_recorded = bool(ep_json.get("video")) and all((ep / "branch-0" / f"{c}.mkv").is_file() for c in req_cams)
+		if has_recorded:
+			continue
+		ep_key = f"{ep.name}-{hashlib.sha256(str(ep.resolve()).encode('utf-8')).hexdigest()[:12]}"
+		cache_dir = cache_root / ep_key
+		reusable = False
+		if (cache_dir / "rerender_manifest.json").is_file():
+			try:
+				verify_rerender_dir(ep, cache_dir, required_cameras=req_cams)
+				reusable = True
+			except ValueError:
+				shutil.rmtree(cache_dir, ignore_errors=True)
+		if not reusable:
+			if cache_dir.exists():
+				shutil.rmtree(cache_dir)
+			rerender_student_videos(ep, cache_dir, student_cameras_only=student_cameras_only)
+			verify_rerender_dir(ep, cache_dir, required_cameras=req_cams)
+		video_dir_map[str(ep)] = str(cache_dir)
+	return video_dir_map
+
+
 def export_pending(
 	out: Path,
 	lerobot_python: Path,
@@ -246,6 +354,8 @@ def export_pending(
 	eps_override: list[Path] | None = None,
 	*,
 	delete_mkv: bool | None = None,
+	include_noisy_mask: bool | None = None,
+	rerender_video: bool = False,
 ) -> list[Path]:
 	"""Export accepted episodes not yet in a shard into new shards (``jobs`` exporters at once, pairs kept together)."""
 	from concurrent.futures import ThreadPoolExecutor
@@ -259,6 +369,9 @@ def export_pending(
 	eps = [e for e in source_eps if str(e) not in done]
 	if not eps:
 		return []
+	video_dir_map = (
+		_prepare_deferred_videos(eps, out, student_cameras_only=student_cameras_only) if rerender_video else {}
+	)
 	pairs = [eps[i : i + 2] for i in range(0, len(eps), 2)]
 	parts = [p for p in (pairs[k::jobs] for k in range(jobs)) if p]
 	first = len(_shards(out))
@@ -275,6 +388,8 @@ def export_pending(
 				student_cameras_only,
 				delete_mkv=effective_delete,
 				staging_root=out if effective_delete else None,
+				include_noisy_mask=include_noisy_mask,
+				video_dir_map=video_dir_map or None,
 			)
 			for s, part in zip(shards, parts, strict=True)
 		]
@@ -286,22 +401,31 @@ def export_pending(
 class BackgroundExport:
 	"""Runs :func:`export_pending` after each rollout batch without blocking the next batch (one export at a time)."""
 
-	def __init__(self, out: Path, lerobot_python: Path, jobs: int, student_cameras_only: bool = True):
+	def __init__(
+		self,
+		out: Path,
+		lerobot_python: Path,
+		jobs: int,
+		student_cameras_only: bool = True,
+		include_noisy_mask: bool | None = None,
+	):
 		from concurrent.futures import ThreadPoolExecutor
 
-		self.out, self.lerobot_python, self.jobs, self.student_cameras_only = (
+		self.out, self.lerobot_python, self.jobs, self.student_cameras_only, self.include_noisy_mask = (
 			out,
 			lerobot_python,
 			jobs,
 			student_cameras_only,
+			include_noisy_mask,
 		)
 		self.pool = ThreadPoolExecutor(1)
 		self.pending = None
 
 	def __call__(self) -> None:
 		self.wait()
+		extra = {"include_noisy_mask": self.include_noisy_mask} if self.include_noisy_mask is not None else {}
 		self.pending = self.pool.submit(
-			export_pending, self.out, self.lerobot_python, self.jobs, self.student_cameras_only
+			export_pending, self.out, self.lerobot_python, self.jobs, self.student_cameras_only, **extra
 		)
 
 	def wait(self) -> None:
@@ -354,6 +478,17 @@ def main(argv=None) -> int:
 		default=True,
 		help="Export only canonical student cameras (omit front and top_full)",
 	)
+	p.add_argument(
+		"--include-noisy-mask",
+		action=argparse.BooleanOptionalAction,
+		default=None,
+		help="Include mask.noisy column (default: True for student-cameras-only, False for legacy 5-camera export)",
+	)
+	p.add_argument(
+		"--rerender-video",
+		action="store_true",
+		help="Verifiably rerender missing student videos from replay/motion.npz into <out>/rerender_cache (bronze read-only)",
+	)
 	args = p.parse_args(argv)
 
 	if args.manifest is not None:
@@ -367,6 +502,8 @@ def main(argv=None) -> int:
 			args.export_jobs,
 			args.student_cameras_only,
 			eps_override=manifest_eps,
+			include_noisy_mask=args.include_noisy_mask,
+			rerender_video=args.rerender_video,
 		)
 		if args.merge_out is not None:
 			merge(args.merge_out, [*args.merge_with, *_shards(args.out)], args.lerobot_python)
@@ -383,7 +520,13 @@ def main(argv=None) -> int:
 	args.out.mkdir(parents=True, exist_ok=True)
 	exporting = args.export or args.export_only
 	hook = (
-		BackgroundExport(args.out, args.lerobot_python, args.export_jobs, args.student_cameras_only)
+		BackgroundExport(
+			args.out,
+			args.lerobot_python,
+			args.export_jobs,
+			args.student_cameras_only,
+			include_noisy_mask=args.include_noisy_mask,
+		)
 		if exporting
 		else None
 	)
@@ -391,7 +534,12 @@ def main(argv=None) -> int:
 		collect(cases, args.out, args.detector, args.workers, args.batch if exporting else None, hook)
 	if exporting:
 		hook.wait()
-		export_pending(args.out, args.lerobot_python, args.export_jobs, args.student_cameras_only)
+		extra_kw = {}
+		if args.include_noisy_mask is not None:
+			extra_kw["include_noisy_mask"] = args.include_noisy_mask
+		if args.rerender_video:
+			extra_kw["rerender_video"] = True
+		export_pending(args.out, args.lerobot_python, args.export_jobs, args.student_cameras_only, **extra_kw)
 	if args.merge_out is not None:
 		merge(args.merge_out, [*args.merge_with, *_shards(args.out)], args.lerobot_python)
 	return 0

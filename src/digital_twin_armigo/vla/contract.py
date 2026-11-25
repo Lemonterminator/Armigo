@@ -7,7 +7,7 @@ training environment (``E:\\il\\lerobot-cuda``) can import and execute it identi
 from __future__ import annotations
 
 import json
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -180,6 +180,110 @@ SEGMENT_FRAME_NORM_MAX = 5.0
 
 DEFAULT_HORIZON: dict[str, int] = {"smolvla": 50, "act": 100}
 
+
+@dataclass(frozen=True)
+class StudentInputContract:
+	"""Explicit versioned contract shared by offline dataset, replay, and online ``/predict`` serving."""
+
+	version: str
+	zero_bowl: bool
+	cameras: tuple[str, ...] = STUDENT_CAMERA_NAMES
+	state_dim: int = STATE_DIM
+	instruction_mode: str = "template"
+
+	def __post_init__(self) -> None:
+		if self.version not in ("v2", "v3"):
+			raise ValueError(f"unsupported StudentInputContract version {self.version!r}; expected 'v2' or 'v3'")
+		if tuple(self.cameras) != STUDENT_CAMERA_NAMES:
+			raise ValueError(f"cameras must be {STUDENT_CAMERA_NAMES}, got {self.cameras!r}")
+		if int(self.state_dim) != STATE_DIM:
+			raise ValueError(f"state_dim must be {STATE_DIM}, got {self.state_dim!r}")
+
+	def to_dict(self) -> dict[str, Any]:
+		return {
+			"schema": CONTRACT_VERSION,
+			"version": self.version,
+			"zero_bowl": bool(self.zero_bowl),
+			"cameras": list(self.cameras),
+			"state_dim": int(self.state_dim),
+			"instruction_mode": str(self.instruction_mode),
+		}
+
+	@classmethod
+	def for_version(cls, version: str) -> StudentInputContract:
+		v = str(version).strip().lower()
+		if v == "v3":
+			return STUDENT_INPUT_CONTRACT_V3
+		if v == "v2":
+			return STUDENT_INPUT_CONTRACT_V2
+		raise ValueError(f"unknown student input contract version {version!r}; expected 'v2' or 'v3'")
+
+	@classmethod
+	def from_zero_bowl(cls, zero_bowl: bool) -> StudentInputContract:
+		return STUDENT_INPUT_CONTRACT_V3 if bool(zero_bowl) else STUDENT_INPUT_CONTRACT_V2
+
+	@classmethod
+	def from_dict(cls, data: Mapping[str, Any]) -> StudentInputContract:
+		version = data.get("version")
+		if version is None:
+			version = "v3" if bool(data.get("zero_bowl", False)) else "v2"
+		base = cls.for_version(str(version))
+		zero_bowl = bool(data["zero_bowl"]) if "zero_bowl" in data and data["zero_bowl"] is not None else base.zero_bowl
+		cameras = tuple(data.get("cameras", base.cameras))
+		state_dim = int(data.get("state_dim", base.state_dim))
+		instruction_mode = str(data.get("instruction_mode", base.instruction_mode))
+		return cls(
+			version=base.version,
+			zero_bowl=zero_bowl,
+			cameras=cameras,
+			state_dim=state_dim,
+			instruction_mode=instruction_mode,
+		)
+
+
+STUDENT_INPUT_CONTRACT_V2 = StudentInputContract(
+	version="v2",
+	zero_bowl=False,
+	cameras=STUDENT_CAMERA_NAMES,
+	state_dim=STATE_DIM,
+	instruction_mode="template",
+)
+
+STUDENT_INPUT_CONTRACT_V3 = StudentInputContract(
+	version="v3",
+	zero_bowl=True,
+	cameras=STUDENT_CAMERA_NAMES,
+	state_dim=STATE_DIM,
+	instruction_mode="paraphrase",
+)
+
+
+def resolve_student_input_contract(
+	*,
+	scene: str | None = None,
+	bowls: Sequence[str] | None = None,
+	input_contract: StudentInputContract | Mapping[str, Any] | str | None = None,
+	zero_bowl: bool | None = None,
+) -> StudentInputContract:
+	"""Resolve a :class:`StudentInputContract` from explicit overrides or episode/payload metadata."""
+	if input_contract is not None:
+		if isinstance(input_contract, StudentInputContract):
+			resolved = input_contract
+		elif isinstance(input_contract, str):
+			resolved = StudentInputContract.for_version(input_contract)
+		elif isinstance(input_contract, Mapping):
+			resolved = StudentInputContract.from_dict(input_contract)
+		else:
+			raise TypeError(f"unsupported input_contract {input_contract!r}")
+		if zero_bowl is not None and bool(zero_bowl) != resolved.zero_bowl:
+			raise ValueError(f"conflicting zero_bowl={zero_bowl!r} and input_contract.zero_bowl={resolved.zero_bowl!r}")
+		return resolved
+	if zero_bowl is not None:
+		return StudentInputContract.from_zero_bowl(bool(zero_bowl))
+	is_v3 = (scene == "v3") or (bowls is not None and any(str(b) in V3_EXTRA_BOWL_COLOURS for b in bowls))
+	return STUDENT_INPUT_CONTRACT_V3 if is_v3 else STUDENT_INPUT_CONTRACT_V2
+
+
 # Exact match to twin_mujoco.INITIAL_Q (ExpertParams.open_g = 0.85).
 DEFAULT_OPEN_G = 0.85
 INITIAL_Q = np.array([*normalized_to_rad(np.array(REST_U, dtype=np.float64))[:5], DEFAULT_OPEN_G], dtype=np.float64)
@@ -344,6 +448,30 @@ def encode_state_from_task(
 		segment_frame=segment_frame,
 		roll_deg=task.get("roll_deg"),
 		zero_bowl=zero_bowl,
+	)
+
+
+def encode_student_state(
+	q_t: Any,
+	q_prev: Any | None,
+	prev_action: Any | None,
+	gripper_cmd: Any,
+	task: Mapping[str, Any],
+	segment_frame: int = 0,
+	*,
+	input_contract: StudentInputContract | Mapping[str, Any] | str | None = None,
+	zero_bowl: bool | None = None,
+) -> np.ndarray:
+	"""Single canonical state encoder shared by offline dataset, replay, and online ``/predict`` serving."""
+	contract = resolve_student_input_contract(input_contract=input_contract, zero_bowl=zero_bowl)
+	return encode_state_from_task(
+		q_t=q_t,
+		q_prev=q_prev,
+		prev_action=prev_action,
+		gripper_cmd=gripper_cmd,
+		task=task,
+		segment_frame=segment_frame,
+		zero_bowl=contract.zero_bowl,
 	)
 
 

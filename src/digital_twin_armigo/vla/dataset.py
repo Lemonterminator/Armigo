@@ -18,12 +18,12 @@ from .contract import (
 	SEGMENT_KINDS_ORDER,
 	STATE_DIM,
 	STUDENT_CAMERAS,
-	V3_EXTRA_BOWL_COLOURS,
 	ActionNormalizer,
-	encode_state,
-	encode_state_from_task,
+	StudentInputContract,
+	encode_student_state,
 	end_step_target_from_segment,
 	policy_inputs_from_segment_dict,
+	resolve_student_input_contract,
 )
 
 try:
@@ -535,6 +535,8 @@ class SegmentChunkDataset(_BaseDataset):
 		default_image_shape: tuple[int, int] = (64, 64),
 		return_torch: bool | None = None,
 		drop_unsupervised: bool = False,
+		zero_bowl: bool | None = None,
+		input_contract: StudentInputContract | Mapping[str, Any] | str | None = None,
 	) -> None:
 		"""``drop_unsupervised``: leave out samples that carry no loss at all (every action step masked and no end-step
 		label), e.g. the unsupervised prefix of paired-carry or takeover episodes; otherwise they fill batch slots at
@@ -555,6 +557,11 @@ class SegmentChunkDataset(_BaseDataset):
 		self.video_backend = video_backend
 		self.default_image_shape = tuple(default_image_shape)
 		self.return_torch = (torch is not None) if return_torch is None else bool(return_torch)
+		self._forced_contract: StudentInputContract | None = (
+			resolve_student_input_contract(input_contract=input_contract, zero_bowl=zero_bowl)
+			if (input_contract is not None or zero_bowl is not None)
+			else None
+		)
 		if self.return_torch and torch is None:
 			raise RuntimeError("return_torch=True requested, but PyTorch is not installed in this environment")
 
@@ -588,6 +595,8 @@ class SegmentChunkDataset(_BaseDataset):
 		default_image_shape: tuple[int, int] = (64, 64),
 		return_torch: bool | None = None,
 		drop_unsupervised: bool = False,
+		zero_bowl: bool | None = None,
+		input_contract: StudentInputContract | Mapping[str, Any] | str | None = None,
 	) -> SegmentChunkDataset:
 		return cls(
 			root=None,
@@ -599,6 +608,8 @@ class SegmentChunkDataset(_BaseDataset):
 			default_image_shape=default_image_shape,
 			return_torch=return_torch,
 			drop_unsupervised=drop_unsupervised,
+			zero_bowl=zero_bowl,
+			input_contract=input_contract,
 		)
 
 	def _load_lerobot(self, root: Path, *, repo_id: str, episodes: list[int] | None) -> list[_EpisodeData]:
@@ -789,19 +800,27 @@ class SegmentChunkDataset(_BaseDataset):
 				# conservatively drop the end-step label rather than teach it.
 				if unsup_cutoff < min(h, seg_rem):
 					end_target = IGNORE_INDEX
-				zero_bowl = (ep.scene == "v3") or any(b in V3_EXTRA_BOWL_COLOURS for b in ep.bowl)
-				state_vec = encode_state(
+				ep_contract = (
+					self._forced_contract
+					if self._forced_contract is not None
+					else resolve_student_input_contract(scene=ep.scene, bowls=ep.bowl)
+				)
+				task_dict = {
+					"kind": ep.segment_kind[t],
+					"instruction": task_rows[t],
+					"bowl": ep.bowl[t] if ep.bowl[t] else None,
+					"view": int(ep.view[t]) if int(ep.view[t]) > 0 else None,
+					"views": int(ep.views[t]) if int(ep.views[t]) > 0 else None,
+					"roll_deg": roll_rows[t],
+				}
+				state_vec = encode_student_state(
 					q_t=ep.state[t],
 					q_prev=q_prev[t],
 					prev_action=ep.prev_action[t],
 					gripper_cmd=ep.gripper_cmd[t],
-					segment_kind=ep.segment_kind[t],
-					bowl=ep.bowl[t],
-					view=int(ep.view[t]),
-					views=int(ep.views[t]),
+					task=task_dict,
 					segment_frame=int(ep.segment_frame[t]),
-					roll_deg=roll_rows[t],
-					zero_bowl=zero_bowl,
+					input_contract=ep_contract,
 				)
 				weight = self.takeover_weight if bool(ep.is_takeover[t]) else 1.0
 				self._samples.append(
@@ -828,15 +847,19 @@ class SegmentChunkDataset(_BaseDataset):
 					is_blind = bool(ep.is_blind[anchor_row])
 					is_takeover = bool(ep.is_takeover[anchor_row])
 					supervise_action = bool(ep.supervise_action[anchor_row])
-					zero_bowl = (ep.scene == "v3") or any(b in V3_EXTRA_BOWL_COLOURS for b in ep.bowl)
-					state_vec = encode_state_from_task(
+					ep_contract = (
+						self._forced_contract
+						if self._forced_contract is not None
+						else resolve_student_input_contract(scene=ep.scene, bowls=ep.bowl)
+					)
+					state_vec = encode_student_state(
 						q_t=ep.state[anchor_row],
 						q_prev=q_prev[anchor_row],
 						prev_action=ep.prev_action[anchor_row],
 						gripper_cmd=ep.gripper_cmd[anchor_row],
 						task=pi,
 						segment_frame=0,
-						zero_bowl=zero_bowl,
+						input_contract=ep_contract,
 					)
 					action_mask = np.zeros(h, dtype=bool)
 					action_chunk = np.repeat(ep.prev_action[anchor_row][None, :], h, axis=0).astype(np.float32)
