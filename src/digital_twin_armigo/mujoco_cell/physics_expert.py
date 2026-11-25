@@ -176,6 +176,10 @@ class ExpertParams:
 	max_block_replans: int = 2  # maximum reactive replans when gripper is BLOCKED (separate from max_grasp_retries)
 	open_ladder: tuple[float, ...] = (0.85, 0.70, 0.55, 0.40)  # candidate pre-grasp openings from widest to narrowest
 	pre_narrow_open: bool = True  # Stage 3: pre-narrow along open_ladder only when default open_g is blocked
+	# Closing descent (None: off). The jaws close monotonically while descending from hover, reaching a jaw gap of
+	# ``descend_close_ratio`` x the (believed) brick width at the grasp height; the closing ramp then starts from
+	# there. Grasp clearance is checked with those narrower jaws (pre-grasp pose and the remaining sweep).
+	descend_close_ratio: float | None = None
 	# Inspection (used only with an ``inspect`` callback): extra (wrist flex rad, wrist roll deg) show poses tried in
 	# order while the label is still UNKNOWN after the ``show_roll_deg`` poses, and whether to stop showing as soon
 	# as the label is KNOWN.
@@ -439,8 +443,12 @@ class ClosedLoopExpert:
 			target = np.array([bpos[0] + offset * zdir[0], bpos[1] + offset * zdir[1], z_grasp])
 		pos, _ = self.kin.site_pose(q)
 		q_pre = self._ik(target + np.array([0.0, 0.0, p.pregrasp_dz_m]), q, roll)
+		g_close = g_open
+		if p.descend_close_ratio is not None:
+			g_close = self._gripper_for_gap(q, band, fixed_face, p.descend_close_ratio * 2.0 * half_w, g_open)
+			q_pre[5] = self._descent_gripper(g_open, g_close, p.hover_z_m - z_grasp, p.pregrasp_dz_m)
 		sweep = []
-		for g in np.linspace(g_open, p.hold_g, p.clearance_sweep_samples):
+		for g in np.linspace(g_close, p.hold_g, p.clearance_sweep_samples):
 			qg = q.copy()
 			qg[5] = g
 			sweep.append(qg)
@@ -452,6 +460,7 @@ class ClosedLoopExpert:
 			"roll": float(roll),
 			"q": q,
 			"open_g": g_open,
+			"close_g": float(g_close),
 			"clearance_m": clear,
 			"gap_ok": jaw_gap >= min_gap,
 			"ik_error_m": float(np.linalg.norm(pos - target)),
@@ -463,8 +472,37 @@ class ClosedLoopExpert:
 				"roll": float(roll),
 				"clearance_m": clear,
 				"open_g": g_open,
+				"close_g": float(g_close),
 			},
 		}
+
+	def _gripper_for_gap(self, q: np.ndarray, band, fixed_face: float, gap: float, g_open: float) -> float:
+		"""Gripper angle (between ``hold_g`` and ``g_open``) whose moving-jaw face is ``gap`` from the fixed-jaw face
+		in the brick's slab ``band`` (bisection; the gap grows with the angle). ``g_open`` when even that is
+		narrower."""
+		lo, hi = self.p.hold_g, g_open
+		qq = q.copy()
+
+		def gap_at(g: float) -> float:
+			qq[5] = g
+			return jaw_pad_faces(self.cell, self.kin, qq, band)[1] - fixed_face
+
+		if gap_at(hi) <= gap:
+			return float(hi)
+		for _ in range(20):
+			mid = 0.5 * (lo + hi)
+			if gap_at(mid) < gap:
+				lo = mid
+			else:
+				hi = mid
+		return float(hi)
+
+	@staticmethod
+	def _descent_gripper(g_open: float, g_close: float, hover_dz: float, dz: float) -> float:
+		"""Gripper command at height ``dz`` above the grasp on the closing descent: linear in height from ``g_open``
+		at hover (``hover_dz`` above the grasp) to ``g_close`` at the grasp height."""
+		f = float(np.clip(1.0 - dz / max(hover_dz, 1e-6), 0.0, 1.0))
+		return g_open + f * (g_close - g_open)
 
 	def grasp_candidates(self, open_g: float | None = None) -> list[dict]:
 		"""Every jaw-side / roll option for the brick's current pose, best first.
@@ -536,6 +574,7 @@ class ClosedLoopExpert:
 				self._active_open_g = float(c["open_g"])
 		self.z_grasp = c["info"]["grasp_z_m"]
 		self.grasp_info = dict(c["info"])
+		self._close_g = float(c.get("close_g", self._active_open_g))
 		return c["target"], c["roll"], c["q"]
 
 	def _next_clear_opening(self, current_open_g: float) -> float | None:
@@ -603,8 +642,14 @@ class ClosedLoopExpert:
 			target, roll, q = yield from self.recheck.descend(self, phase, target, roll, q)
 		pre = target + np.array([0.0, 0.0, p.pregrasp_dz_m])
 		q = self._ik(pre, q, roll)
+		closing = p.descend_close_ratio is not None
+		g_close = getattr(self, "_close_g", self._active_open_g)
+		if closing:  # jaws close monotonically with height (see ExpertParams.descend_close_ratio)
+			q[5] = self._descent_gripper(self._active_open_g, g_close, p.hover_z_m - self.z_grasp, p.pregrasp_dz_m)
 		yield from self._move(q, p.descend_s, phase)
 		q = self._ik(target, q, roll)
+		if closing:
+			q[5] = g_close
 		yield from self._move(q, p.final_descend_s, "grasp")
 		corr = yield from self._servo(target, roll, "grasp", p.servo_tol_m)
 		return _Grasp(target=target, roll=roll, corr=corr)

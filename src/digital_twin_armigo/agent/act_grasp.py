@@ -138,6 +138,7 @@ def grasp_trial(
 	clamp_wait: bool = True,
 	clamp_wait_empty_rad: float | None = 0.03,
 	video: bool = False,
+	expert_overrides: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
 	"""``prepare`` then the first grasp and lift of ``case``; the scripted expert when ``policy`` is None, else the
 	hybrid (student grasp). Returns the outcome on truth: ``lifted`` (brick up and between both jaws)."""
@@ -158,6 +159,10 @@ def grasp_trial(
 			clamp_wait=clamp_wait,
 			clamp_wait_empty_rad=clamp_wait_empty_rad,
 		)
+	if expert_overrides:  # e.g. {"descend_close_ratio": 1.3}: a planner variant for the scripted (and hybrid) arm
+		from dataclasses import replace
+
+		twin.expert.p = replace(twin.expert.p, **expert_overrides)
 	z0 = float(twin.cell.brick_pos()[2])
 	error = twin.prepare()
 	frames0 = twin.ep.n_frames

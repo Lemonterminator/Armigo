@@ -32,9 +32,9 @@ def _scripted(args: tuple) -> dict:
 	os.environ["CUDA_VISIBLE_DEVICES"] = ""
 	from digital_twin_armigo.agent.act_grasp import grasp_trial
 
-	seed, split, out = args
+	seed, split, out, overrides = args
 	try:
-		return grasp_trial(make_case(seed, split), out / f"case-{seed}")
+		return grasp_trial(make_case(seed, split), out / f"case-{seed}", expert_overrides=overrides)
 	except Exception as e:  # noqa: BLE001 - a crashed trial is a reported failure
 		return {"case": make_case(seed, split), "lifted": False, "error": f"crash:{type(e).__name__}:{e}"}
 
@@ -78,17 +78,25 @@ def main(argv: list[str] | None = None) -> int:
 	ap.add_argument("--replan-interval", type=int, default=None)
 	ap.add_argument("--temporal-ensemble", type=float, default=None)
 	ap.add_argument("--guard", action="store_true", help="ignore a grasp end-step before the gripper closes")
+	ap.add_argument(
+		"--descend-close-ratio",
+		type=float,
+		default=None,
+		help="scripted arm: close the jaws while descending to this x the believed brick width (ExpertParams)",
+	)
 	a = ap.parse_args(argv)
 	seeds = list(range(a.seed0, a.seed0 + a.n))
 	summary_path = a.out / "summary.json"
 	summary = json.loads(summary_path.read_text(encoding="utf-8")) if summary_path.exists() else {}
 	arms: list[tuple[str, list[dict]]] = []
 	if not a.skip_scripted:
-		out = a.out / "scripted"
+		overrides = {"descend_close_ratio": a.descend_close_ratio} if a.descend_close_ratio else None
+		name = "scripted" + (f"-close{a.descend_close_ratio:g}" if overrides else "")
+		out = a.out / name
 		out.mkdir(parents=True, exist_ok=True)
 		with ProcessPoolExecutor(a.workers) as pool:
-			rows = list(pool.map(_scripted, [(s, a.split, out) for s in seeds]))
-		arms.append(("scripted", rows))
+			rows = list(pool.map(_scripted, [(s, a.split, out, overrides) for s in seeds]))
+		arms.append((name, rows))
 	if a.ckpt is not None:
 		sys.path.insert(0, str(ROOT / "scripts" / "vla"))
 		from eval_closed_loop import managed_policy_server
