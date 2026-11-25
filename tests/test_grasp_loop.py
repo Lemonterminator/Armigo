@@ -205,3 +205,60 @@ def test_step_mcp_last_wrist_fix_strips_truth_keys(tmp_path):
 		svc.run_sync(_check)
 	finally:
 		svc.close()
+
+
+def test_segmenter_unet_runs_once_and_lab_default_unchanged(tmp_path):
+	from pathlib import Path
+
+	import pytest
+
+	pytest.importorskip("mujoco")
+	pytest.importorskip("cv2")
+	from digital_twin_armigo.agent.twin_mujoco import TwinMujoco, sample_case
+	from digital_twin_armigo.agent.twin_record import EpisodeTrace
+	from digital_twin_armigo.experiments.diag_mcp import compare_runs
+	from digital_twin_armigo.inspection_scorer import FixedScorer
+
+	def _run_seg(name: str, **kw):
+		ep_dir = tmp_path / name
+		trace = EpisodeTrace(ep_dir, video=False)
+		scorer = FixedScorer(lambda _c, _rgb: -1.0, {"top": 0.0, "wrist_cam": 0.0})
+		twin = TwinMujoco(sample_case(600001, False, 5), scorer, trace, sensing="realistic", motion="w2s", **kw)
+		try:
+			assert twin.prepare() is None
+			assert twin._grasp() is None
+			assert twin.place("normal") is None
+			res = twin.evaluate("normal", [], [])
+			trace.finish(res, {})
+			return ep_dir, twin._brick_net
+		finally:
+			trace.close()
+			twin.close()
+
+	dir_def, net_def = _run_seg("lab_def")
+	dir_lab, net_lab = _run_seg("lab_exp", segmenter="lab")
+	assert net_def is None and net_lab is None
+	cmp_out = compare_runs(dir_def, dir_lab)
+	assert cmp_out["identical_discrete"] and cmp_out["score_deltas"] == [] and cmp_out["verdict_equal"]
+
+	onnx_path = Path(__file__).resolve().parent / "data" / "brickseg_tiny.onnx"
+	trace_u = EpisodeTrace(tmp_path / "unet", video=False)
+	scorer_u = FixedScorer(lambda _c, _rgb: -1.0, {"top": 0.0, "wrist_cam": 0.0})
+	twin_u = TwinMujoco(
+		sample_case(600001, False, 5),
+		scorer_u,
+		trace_u,
+		sensing="realistic",
+		motion="w2s",
+		segmenter="unet",
+		segmenter_onnx=onnx_path,
+	)
+	try:
+		assert twin_u.prepare() is None
+		assert twin_u._grasp() is None
+		assert twin_u._brick_net is not None
+		fixes = [e for e in trace_u.events if e["kind"] == "wrist_fix"]
+		assert len(fixes) >= 1
+	finally:
+		trace_u.close()
+		twin_u.close()

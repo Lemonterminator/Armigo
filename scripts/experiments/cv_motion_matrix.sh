@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-# Stages 1-4 of the CV motion & evidence matrix (Task C7 Step 2).
+# Stages 1-4 + 3b of the CV motion & evidence matrix (Task C7 Step 2 + Task U4 Stage 3b).
 # Requires GPU detector/worker scheduling; do NOT run unattended during CPU-only handoff.
-# Usage: bash scripts/experiments/cv_motion_matrix.sh [stage1|stage2|stage3|stage4|all] [workers]
+# Usage: bash scripts/experiments/cv_motion_matrix.sh [stage1|stage2|stage3|stage3b|stage4|all] [workers]
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 
@@ -13,6 +13,7 @@ W=${2:-4}
 STAGE3_MOTIONS=${STAGE3_MOTIONS:-"open w2s"}
 WINNER_MOTION=${WINNER_MOTION:-w2s}
 WINNER_EVIDENCE=${WINNER_EVIDENCE:-hold}
+WINNER_SEGMENTER=${WINNER_SEGMENTER:-lab}
 CONFIRM_SUITE=${CONFIRM_SUITE:-config/agent_bench/v2/loop_01_96.json}
 
 stage1() {
@@ -54,6 +55,18 @@ stage3() {
 	"$PY" -m digital_twin_armigo.experiments.report --root "$ROOT" --batch cvm-s3
 }
 
+stage3b() {
+	for seg in lab unet; do
+		for cam in fixed recal drift; do
+			"$PY" -m digital_twin_armigo.experiments.runner run \
+				--root "$ROOT" --batch cvm-s3b --sensing realistic --camera "$cam" \
+				--strategy B --suite p2_dev12 --detector v7bot \
+				--motion "$WINNER_MOTION" --evidence "$WINNER_EVIDENCE" --segmenter "$seg" --workers "$W"
+		done
+	done
+	"$PY" -m digital_twin_armigo.experiments.report --root "$ROOT" --batch cvm-s3b
+}
+
 stage4() {
 	for cam in fixed recal drift; do
 		"$PY" -m digital_twin_armigo.experiments.runner run \
@@ -63,7 +76,7 @@ stage4() {
 		"$PY" -m digital_twin_armigo.experiments.runner run \
 			--root "$ROOT" --batch cvm-s4-confirm --sensing realistic --camera "$cam" \
 			--strategy B --suite "$CONFIRM_SUITE" --detector v7bot \
-			--motion "$WINNER_MOTION" --evidence "$WINNER_EVIDENCE" --workers "$W"
+			--motion "$WINNER_MOTION" --evidence "$WINNER_EVIDENCE" --segmenter "$WINNER_SEGMENTER" --workers "$W"
 	done
 	"$PY" -m digital_twin_armigo.experiments.report --root "$ROOT" --batch cvm-s4-confirm
 }
@@ -72,6 +85,7 @@ case "$STAGE" in
 	stage1) stage1 ;;
 	stage2) stage2 ;;
 	stage3) stage3 ;;
+	stage3b) stage3b ;;
 	stage4) stage4 ;;
 	all) stage1; stage2; stage3; stage4 ;;
 	*) echo "unknown stage: $STAGE" >&2; exit 2 ;;

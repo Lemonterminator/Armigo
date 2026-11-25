@@ -39,3 +39,15 @@ def test_calib_offset_is_deterministic_and_sized():
 def test_drift_and_offset_are_exclusive():
 	with pytest.raises(ValueError):
 		sample_case(3_000_101, positive=False, face=0, options={"cameras": "drift", "calib_offset_mm": 5})
+
+
+def test_segmenter_suffix_and_contract():
+	from digital_twin_armigo.experiments.contract import SEGMENTERS
+
+	assert SEGMENTERS == ("lab", "unet")
+	assert "segmenter" in EXPERIMENT_FIELDS
+	assert group_name("realistic", "drift", "B", "v7bot", segmenter="lab") == "realistic-drift-B-v7bot"
+	assert (
+		group_name("realistic", "drift", "B", "v7bot", motion="w2s", segmenter="unet")
+		== "realistic-drift-B-v7bot-mw2s-sunet"
+	)

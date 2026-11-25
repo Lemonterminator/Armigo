@@ -708,6 +708,8 @@ class TwinMujoco:
 		belief_cameras="actual",
 		evidence="hold",
 		detector_latency_s=0.15,
+		segmenter="lab",
+		segmenter_onnx=None,
 	):
 		if sensing not in SENSING:
 			raise ValueError(f"sensing must be one of {SENSING}")
@@ -718,11 +720,16 @@ class TwinMujoco:
 		if belief_cameras not in ("actual", "estimated"):
 			raise ValueError(f"belief_cameras must be 'actual' or 'estimated', got {belief_cameras!r}")
 		if evidence not in EVIDENCE:
-			raise ValueError(f"evidence must be one of {EVIDENCE}, got {evidence!r}")
+			raise ValueError(f"evidence must be one of {EVIDENCE}")
+		if segmenter not in ("lab", "unet"):
+			raise ValueError(f"segmenter must be 'lab' or 'unet', got {segmenter!r}")
 		self.motion = motion
 		self.evidence = evidence
 		self.belief_cameras = "estimated" if evidence != "hold" else belief_cameras
 		self.detector_latency_s = float(detector_latency_s)
+		self.segmenter = segmenter
+		self.segmenter_onnx = None if segmenter_onnx is None else Path(segmenter_onnx)
+		self._brick_net = None
 		self.fuse_cfg = FuseCfg()
 		raw_oracle = oracle if oracle else getattr(layout, "oracle", ())
 		if isinstance(raw_oracle, str):
@@ -878,6 +885,14 @@ class TwinMujoco:
 			heights, mode = spec
 			self.expert.recheck = GraspLoop(heights, mode, self._wrist_look)
 
+	def _get_brick_net(self):
+		if self._brick_net is None:
+			from .brick_pose_nn import BrickSegNet
+
+			onnx_p = self.segmenter_onnx or Path("E:/Armigo_data_v3/perception/brickseg-v1/model/brickseg.onnx")
+			self._brick_net = BrickSegNet(onnx_p)
+		return self._brick_net
+
 	def _wrist_look(self, h: float):
 		"""One wrist-camera re-localisation during grasp descent: fuse and return replanned grasp or None."""
 		cell, ex = self.cell, self.expert
@@ -888,11 +903,28 @@ class TwinMujoco:
 		k = wrist_k(float(cell.model.cam_fovy[cid]), rgb.shape)
 		size = self._believed_brick_size()
 		top_z = float(self.brick_est.pos[2] + size[2] / 2)
-		fix, reason = localize_from_wrist(rgb, k, w2c, self.brick_est.pos[:2], self.brick_est.yaw, size, top_z)
+		net = self._get_brick_net() if self.segmenter == "unet" else None
+		fix, reason = localize_from_wrist(
+			rgb,
+			k,
+			w2c,
+			self.brick_est.pos[:2],
+			self.brick_est.yaw,
+			size,
+			top_z,
+			segmenter=self.segmenter,
+			net=net,
+		)
 		info: dict = {"accepted": False}
 		if fix is not None:
 			fused, info = fuse(self.brick_est, fix, self.fuse_cfg)
 			info |= {"area_px": fix.area_px, "fill": round(fix.fill, 3), "tilt_deg": round(fix.tilt_deg, 2)}
+			if fix.z is not None:
+				info["z_m"] = round(fix.z, 4)
+			if fix.tilt_brick_deg is not None:
+				info["tilt_brick_deg"] = round(fix.tilt_brick_deg, 2)
+			if fix.reproj_px is not None:
+				info["reproj_px"] = round(fix.reproj_px, 3)
 			if fused is not None:
 				self.brick_est = fused
 		loop = ex.recheck
@@ -1325,6 +1357,8 @@ class TwinMujoco:
 			"fuse_cfg": asdict(self.fuse_cfg),
 			"belief_cameras": self.belief_cameras,
 			"evidence": self.evidence,
+			"segmenter": self.segmenter,
+			"segmenter_onnx": None if self.segmenter_onnx is None else str(self.segmenter_onnx),
 			"segments": self._checkpoint_extra(),
 		}
 		if self.perception is not None:
@@ -2407,6 +2441,10 @@ class TwinMujoco:
 			self.belief_cameras = str(agent["belief_cameras"])
 		if agent.get("evidence") is not None:
 			self.evidence = str(agent["evidence"])
+		if agent.get("segmenter") is not None:
+			self.segmenter = str(agent["segmenter"])
+		if agent.get("segmenter_onnx") is not None:
+			self.segmenter_onnx = Path(agent["segmenter_onnx"])
 		self._configure_recheck()
 		if self.realistic:
 			self._contact.reset()

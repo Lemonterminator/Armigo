@@ -38,6 +38,7 @@ from .contract import (
 	EVIDENCE,
 	MOTIONS,
 	ORACLE_PARTS,
+	SEGMENTERS,
 	SENSING,
 	STRATEGIES,
 	case_id,
@@ -103,6 +104,7 @@ def group_name(
 	motion: str = "open",
 	evidence: str = "hold",
 	calib_offset_mm: float = 0,
+	segmenter: str = "lab",
 ) -> str:
 	if sensing == "truth":
 		base = f"truth-{detector}" if strategy == "A" else f"truth-{strategy}-{detector}"
@@ -119,6 +121,8 @@ def group_name(
 		if off != 0:
 			mm = int(off) if off.is_integer() else off
 			base = f"{base}-c{mm}"
+	if segmenter != "lab":
+		base = f"{base}-s{segmenter}"
 	return base
 
 
@@ -276,16 +280,19 @@ def plan_group(a) -> tuple[dict, list[dict], Path]:
 	motion = str(getattr(a, "motion", "open") or "open")
 	evidence = str(getattr(a, "evidence", "hold") or "hold")
 	calib_offset_mm = float(getattr(a, "calib_offset_mm", 0) or 0)
+	segmenter = str(getattr(a, "segmenter", "lab") or "lab")
 	if motion not in MOTIONS:
 		raise SystemExit(f"unknown motion {motion!r}; expected one of {MOTIONS}")
 	if evidence not in EVIDENCE:
 		raise SystemExit(f"unknown evidence {evidence!r}; expected one of {EVIDENCE}")
+	if segmenter not in SEGMENTERS:
+		raise SystemExit(f"unknown segmenter {segmenter!r}; expected one of {SEGMENTERS}")
 	if calib_offset_mm < 0:
 		raise SystemExit(f"calib_offset_mm must be >= 0, got {calib_offset_mm}")
 	if a.sensing == "truth" and a.camera != "fixed":
 		raise SystemExit("omniscient (truth) runs use the fixed cameras")
-	if a.sensing == "truth" and (motion != "open" or evidence != "hold" or calib_offset_mm != 0):
-		raise SystemExit("motion, evidence and calib_offset_mm variants are only for realistic sensing")
+	if a.sensing == "truth" and (motion != "open" or evidence != "hold" or calib_offset_mm != 0 or segmenter != "lab"):
+		raise SystemExit("motion, evidence, segmenter and calib_offset_mm variants are only for realistic sensing")
 	if calib_offset_mm and a.camera == "drift":
 		raise SystemExit("--calib-offset-mm cannot be combined with --camera drift")
 	if oracle and a.sensing == "truth":
@@ -301,6 +308,8 @@ def plan_group(a) -> tuple[dict, list[dict], Path]:
 		agent_options["motion"] = motion
 	if evidence != "hold":
 		agent_options["evidence"] = evidence
+	if segmenter != "lab":
+		agent_options["segmenter"] = segmenter
 	if oracle:
 		agent_options["oracle"] = list(oracle)
 	policy = json.loads(Path(a.policy).read_text(encoding="utf-8")) if a.policy else {}
@@ -331,6 +340,7 @@ def plan_group(a) -> tuple[dict, list[dict], Path]:
 		motion=motion,
 		evidence=evidence,
 		calib_offset_mm=calib_offset_mm,
+		segmenter=segmenter,
 	)
 	group_dir = root / "runs" / a.batch / a.engine / group
 	group_dir.mkdir(parents=True, exist_ok=True)
@@ -360,6 +370,7 @@ def plan_group(a) -> tuple[dict, list[dict], Path]:
 		"motion": motion,
 		"evidence": evidence,
 		"calib_offset_mm": calib_offset_mm,
+		"segmenter": segmenter,
 		"suite": a.suite,
 		"suite_sha256": suite_sha,
 		"sealed": sealed,
@@ -415,6 +426,7 @@ def plan_group(a) -> tuple[dict, list[dict], Path]:
 			"motion": motion,
 			"evidence": evidence,
 			"calib_offset_mm": calib_offset_mm,
+			"segmenter": segmenter,
 			"suite": a.suite,
 			"suite_sha256": suite_sha,
 			"layout_id": layout_id(case[0]),
@@ -540,6 +552,7 @@ def _common(p):
 	p.add_argument("--motion", choices=MOTIONS, default="open")
 	p.add_argument("--evidence", choices=EVIDENCE, default="hold")
 	p.add_argument("--calib-offset-mm", type=float, default=0.0)
+	p.add_argument("--segmenter", choices=SEGMENTERS, default="lab")
 
 
 def main(argv=None) -> int:
