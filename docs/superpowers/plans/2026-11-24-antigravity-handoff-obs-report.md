@@ -108,3 +108,62 @@ reasons: {'BAD_FOOTPRINT': 4}
 ### Skipped / Unrun Steps
 
 - **C7 Steps 3–5 (Smoke/full matrix runs on GPU with defect detector)**: Skipped per handoff scope (GPU occupied; no large runs).
+
+
+---
+
+## Part U (`U1–U5`)
+
+### Task Summary
+
+| Task | Commit | New & Modified Files | New Tests | Task / Full Pytest Result |
+| :--- | :--- | :--- | :--- | :--- |
+| U1 | `230ccde` | `src/digital_twin_armigo/mujoco_cell/cell.py`, `src/digital_twin_armigo/perception_nn/{__init__,labels}.py`, `scripts/perception/make_brickseg_dataset.py`, `tests/test_brickseg_labels.py` | 3 | `tests/test_brickseg_labels.py + tests/test_inspection_views.py`: `23 passed`; full `pytest -q`: `1029 passed, 14 skipped, 2 xfailed, 16 warnings in 1444.46s (0:24:04)` |
+| U2 | `e3b9f9c` | `src/digital_twin_armigo/perception_nn/model.py`, `scripts/perception/{make_tiny_onnx_fixture,train_brickseg}.py`, `tests/data/brickseg_tiny.{onnx,json}`, `tests/test_brick_pose_nn.py` | 2 | `test_brickseg_unet_shape_and_params` ran in `lerobot-cuda` (`CUDA_VISIBLE_DEVICES=""`); `tests/test_brick_pose_nn.py` (`.venv`): `1 passed, 1 skipped`; full `pytest -q`: `1030 passed, 15 skipped, 2 xfailed, 16 warnings in 1503.67s (0:25:03)` |
+| U3 | `27335b8` | `src/digital_twin_armigo/agent/{brick_pose_nn,wrist_localize}.py`, `tests/test_brick_pose_nn.py` | 6 | `tests/test_brick_pose_nn.py + tests/test_wrist_localize.py + tests/test_grasp_loop.py`: `19 passed, 1 skipped`; full `pytest -q`: `1036 passed, 15 skipped, 2 xfailed, 16 warnings in 1478.65s (0:24:38)` |
+| U4a | `3404d9d` | `docs/experiments/brickseg_prereg.md` | 0 | Preregistration committed prior to U4 evaluation/code |
+| U4b | `0a1660f` | `scripts/perception/eval_brick_pose.py`, `scripts/experiments/cv_motion_matrix.sh`, `src/digital_twin_armigo/experiments/{contract,runner}.py`, `src/digital_twin_armigo/agent/twin_mujoco.py`, `tests/{test_cv_motion_runner,test_grasp_loop}.py` | 2 | `tests/test_cv_motion_runner.py + test_grasp_loop.py + test_truth_diagnostics.py + test_vla_paired_carry.py`: `29 passed`; full `pytest -q`: `1038 passed, 15 skipped, 2 xfailed, 16 warnings in 1470.35s (0:24:30)` |
+| U5 | `c2a620b` | `scripts/perception/realism_compare.py`, `tests/test_u5_realism_compare.py` | 1 | `tests/test_u5_realism_compare.py`: `1 passed`; full `pytest -q`: `1039 passed, 15 skipped, 2 xfailed, 16 warnings in 1460.00s (0:24:20)` |
+
+### Latest Full Pytest Suite Tail (`obs U5`)
+
+```text
+1039 passed, 15 skipped, 2 xfailed, 16 warnings in 1460.00s (0:24:20)
+```
+
+The additional skip (+1 vs `14 skipped`) is `tests/test_brick_pose_nn.py::test_brickseg_unet_shape_and_params`, which requires `torch` (executed directly in `E:/il/lerobot-cuda/Scripts/python.exe` with `CUDA_VISIBLE_DEVICES=""`).
+
+### Formal Artifacts & Smoke Checks
+
+- **U1 50-case smoke (`C:/scratch/brickseg-dev/smoke`, `--preview-dir C:/scratch/brickseg-dev/preview`)**:
+  - `total_frames = 276`, `total_dropped = 24`, `wall_s = 15.68`; 10 preview overlays in `C:/scratch/brickseg-dev/preview` (`preview_00_idx4.png`..`preview_09_idx227.png`).
+- **U1 Formal CPU Dataset (`E:/Armigo_data_v3/perception/brickseg-v1`)**:
+  - Command: `PYTHONPATH=src E:/digital_twin_armigo/.venv/Scripts/python scripts/perception/make_brickseg_dataset.py --train-cases 2000 --val-cases 250 --ood-cases 200 --workers 3 --out-dir E:/Armigo_data_v3/perception/brickseg-v1 --preview-dir E:/Armigo_data_v3/perception/brickseg-v1/preview --clean`
+  - Recorded `E:/Armigo_data_v3/perception/brickseg-v1/manifest.json` (`git_commit = 230ccde902ede4a7ea1cd1b3c68e0d3a51382f3b`, `wall_s = 333.97`):
+    - `total_frames`: `12936`
+    - `total_dropped`: `1764`
+    - `frames_by_split`: `{"train": 10598, "val": 1304, "ood-appearance": 1034}`
+    - `dropped_by_split`: `{"train": 1402, "val": 196, "ood-appearance": 166}`
+    - Preview PNGs (`10` files): `E:/Armigo_data_v3/perception/brickseg-v1/preview` (`preview_00_idx4.png`..`preview_09_idx227.png`).
+- **U2 `CUDA_VISIBLE_DEVICES=""` CPU checks (`lerobot-cuda`)**:
+  - `make_tiny_onnx_fixture.py --out-dir tests/data`: `tests/data/brickseg_tiny.onnx` = `133,113` bytes (`130.0 KB <= 200 KB` via `pure_python_onnx`) + `tests/data/brickseg_tiny.json` (`427` bytes).
+  - `BrickSegUNet(base=24, classes=4, heat=2)`: `params = 1096734`, output shape `(2, 6, 240, 320)`.
+  - 1-epoch CPU smoke (`train_brickseg.py --data-dir C:/scratch/brickseg-dev/smoke --out-dir C:/scratch/brickseg-dev/smoke_model --epochs 1 --limit 64 --batch-size 4 --base 8 --device cpu`): `train_samples = 52`, `val_samples = 12`, `wall_s = 1.94`, `val_loss = 2963.7862`, `top_iou = 0.0`, `pck_2px = 0.260274`.
+- **U4b `eval_brick_pose.py` smoke (`C:/scratch/brickseg-dev/eval_smoke.md`)**:
+  - Read `E:/Armigo_data_v3/perception/brickseg-v1` + `tests/data/brickseg_tiny.onnx` (`--limit 10`): `3` summary rows (`val` upright `lab`/`unet-pnp`/`unet-rect`, `n=6`), `cpu_infer_ms` median `6.371 ms`, p90 `7.049 ms`.
+- **U5 `realism_compare.py` smoke (`C:/scratch/brickseg-real/compare`)**:
+  - Ran against `real_ref` + `tests/data/brickseg_tiny.onnx`: wrote `2` panels (`real_ref_top_rgb_v2_3217.png`, `real_ref_wrist_3217.png`), `index.html`, `notes.md`. No real-robot metrics or thresholds computed; `C:/Users/Jiang/.gemini/antigravity/scratch/hackjunction` remained untouched (`file count before=107456 after=107456`).
+
+### Deviations / Clarifications from Plan & Edge Fixes
+
+1. **`BrickSegUNet` parameter count & pure-Python ONNX fallback (`U2`)**:
+   - Plan prose estimated `1.5M–2.5M` params; `BrickSegUNet(base=24, classes=4, heat=2)` has `1,096,734` parameters (`> 1M`).
+   - `E:/il/lerobot-cuda` lacks `onnx` / `onnxscript` / `onnxruntime`, so `export_onnx` (`dynamo=False`) automatically falls back to `_serialize_unet_onnx` (`pure_python_onnx` opset-17 protobuf serialization, verified loadable in `.venv` via `cv2.dnn.readNetFromONNX`). Caught `BLE001` by narrowing to `(ImportError, ModuleNotFoundError, RuntimeError)` in `model.py`.
+2. **`tests/test_brick_pose_nn.py` preservation (`U3`)**: Kept both U2 (`test_brickseg_unet_shape_and_params`, `test_tiny_onnx_loads_in_cv2_dnn`) and U3 (6 pose/dispatch tests) in `tests/test_brick_pose_nn.py`.
+3. **`SimpleNamespace` stub compatibility in `TwinMujoco.evaluate()` (`U4b`)**: Kept `getattr(self, "motion", "open")` and `getattr(self, "oracle", None)` in `evaluate()` so `tests/test_vla_paired_carry.py` passes alongside `--segmenter`.
+
+### Skipped / Unrun Steps
+
+- **U2 Step 5 (GPU training on `brickseg-v1`)**: Skipped per handoff scope (hardware GPU occupied).
+- **U4 Step 4 (offline eval on trained ONNX & `cv_motion_matrix.sh stage3b` GPU matrix runs)**: Skipped per handoff scope.
+- **U5 Step 2 (optional Studio video sampling + manual visual review in `notes.md`)**: Skipped per handoff scope (video sampling unrun; script exercised on `real_ref`).
