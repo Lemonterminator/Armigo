@@ -26,6 +26,9 @@ class WristFix:
 	fill: float
 	footprint_m: tuple[float, float]
 	tilt_deg: float
+	z: float | None = None
+	tilt_brick_deg: float | None = None
+	reproj_px: float | None = None
 
 
 @dataclass(frozen=True)
@@ -86,7 +89,39 @@ def _blob(rgb, centre, gate_px, min_delta=35.0):
 	return (labels == i).astype(np.uint8)
 
 
-def localize_from_wrist(rgb, k, world_from_cam, prior_xy, prior_yaw, size, top_z, *, gate_m=0.04, max_tilt_deg=50.0):
+def localize_from_wrist(
+	rgb,
+	k,
+	world_from_cam,
+	prior_xy,
+	prior_yaw,
+	size,
+	top_z,
+	*,
+	gate_m=0.04,
+	max_tilt_deg=50.0,
+	segmenter: str = "lab",
+	net=None,
+):
+	if segmenter == "unet":
+		if net is None:
+			raise ValueError("segmenter='unet' requires a BrickSegNet instance")
+		from .brick_pose_nn import localize_with_net
+
+		return localize_with_net(
+			net,
+			rgb,
+			k,
+			world_from_cam,
+			prior_xy,
+			prior_yaw,
+			size,
+			top_z=top_z,
+			gate_m=gate_m,
+			max_tilt_deg=max_tilt_deg,
+		)
+	if segmenter != "lab":
+		raise ValueError(f"unknown wrist segmenter {segmenter!r}")
 	axis = world_from_cam[:3, 2]
 	tilt = math.degrees(math.acos(float(np.clip(-axis[2], -1.0, 1.0))))
 	if tilt > max_tilt_deg:
