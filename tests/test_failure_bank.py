@@ -84,8 +84,20 @@ def _write_fake_npz(ep_dir: Path, state_val: float, *, n_frames: int = 8) -> Non
 		segment=np.arange(n_frames, dtype=np.int32),
 		phase=np.full(n_frames, "approach"),
 	)
+	(ep_dir / "events.jsonl").write_text(
+		json.dumps({"seq": 0, "kind": "segment", "segment_kind": "grasp", "frame": 100})
+		+ "\n"
+		+ json.dumps({"seq": 1, "kind": "failure", "code": "no_clamp", "frame": 200})
+		+ "\n",
+		encoding="utf-8",
+	)
 	(ep_dir / "episode.json").write_text(
-		json.dumps({"result": {"verdict": "FAILED", "label": "normal", "destination": "pink"}}),
+		json.dumps(
+			{
+				"provenance": {"engine": "mujoco", "experiment": {"camera_condition": "drift"}},
+				"result": {"verdict": "FAILED", "label": "normal", "destination": "table"},
+			}
+		),
 		encoding="utf-8",
 	)
 
@@ -153,8 +165,9 @@ def test_failure_bank_deterministic_two_subprocess_repro(tmp_path):
 	fb = _load_script("failure_bank")
 
 	dev_cases = load_suite(ROOT / "config" / "agent_bench" / "v2" / "dev_suite_700001.json")
-	first_case = list(dev_cases[0])
-	assert first_case == [700001, False, 0]
+	# Use defective case [700001, True, 0] with fixed scorer (-1.0 < 0.0) so MuJoCo genuinely reproduces R7 FN.
+	first_case = list(dev_cases[1])
+	assert first_case == [700001, True, 0]
 
 	root = tmp_path / "data"
 	batch = "b-repro"
@@ -164,8 +177,8 @@ def test_failure_bank_deterministic_two_subprocess_repro(tmp_path):
 	_write_synth_episode(
 		root / "runs" / traj_id,
 		case=first_case,
-		result={"verdict": "FAILED", "label": "normal"},
-		events=[{"kind": "segment", "segment_kind": "grasp", "frame": 50}, {"kind": "failure", "code": "no_clamp"}],
+		result={"verdict": "FAILED", "label": "normal", "label_correct": False},
+		events=[],
 		experiment={"batch": batch, "engine": "mujoco", "group": group, "case_id": cid, "sensing": "realistic"},
 	)
 
@@ -179,7 +192,7 @@ def test_failure_bank_deterministic_two_subprocess_repro(tmp_path):
 				"round": "round-01",
 				"clusters": [
 					{
-						"key": ["grasp", "no_clamp", "grasp_or_path_failure"],
+						"key": ["inspect", "place_miss", "false_negative_visible"],
 						"n": 1,
 						"impact": 1.0,
 						"share": 1.0,
@@ -192,7 +205,7 @@ def test_failure_bank_deterministic_two_subprocess_repro(tmp_path):
 		encoding="utf-8",
 	)
 
-	out_suite = tmp_path / "failure_bank" / "round-01-grasp-no_clamp-grasp_or_path_failure.json"
+	out_suite = tmp_path / "failure_bank" / "round-01-inspect-place_miss-false_negative_visible.json"
 	manifest_path = tmp_path / "v2" / "manifest.json"
 	manifest_path.parent.mkdir(parents=True)
 	manifest_path.write_text((ROOT / "config" / "agent_bench" / "v2" / "manifest.json").read_text(encoding="utf-8"))
@@ -203,7 +216,7 @@ def test_failure_bank_deterministic_two_subprocess_repro(tmp_path):
 			"--ledger",
 			str(ledger_path),
 			"--cluster",
-			"grasp:no_clamp:grasp_or_path_failure",
+			"inspect:place_miss:false_negative_visible",
 			"--round",
 			"01",
 			"--max",
@@ -224,10 +237,10 @@ def test_failure_bank_deterministic_two_subprocess_repro(tmp_path):
 	assert out_suite.is_file()
 
 	suite = json.loads(out_suite.read_text(encoding="utf-8"))
-	assert suite["name"] == "round-01-grasp-no_clamp-grasp_or_path_failure"
+	assert suite["name"] == "round-01-inspect-place_miss-false_negative_visible"
 	assert suite["sealed"] is False
 	assert suite["source_round"] == "round-01"
-	assert suite["cluster"] == ["grasp", "no_clamp", "grasp_or_path_failure"]
+	assert suite["cluster"] == ["inspect", "place_miss", "false_negative_visible"]
 	assert isinstance(suite["commit"], str) and suite["commit"]
 	assert suite["cases"] == [first_case]
 	assert load_suite(out_suite) == [tuple(first_case)]
@@ -354,14 +367,14 @@ def test_failure_bank_checkpoint_resume_late_stage(tmp_path):
 	scorer = FixedScorer(lambda _c, _r: -1.0, {"top": 0.0, "wrist_cam": 0.0})
 	trace = EpisodeTrace(ep_dir, video=False)
 	policy = Policy()
-	twin = ExpertTracer(sample_case(*case), scorer, trace, sensing="realistic", strategy="A")
+	twin = ExpertTracer(sample_case(*case), scorer, trace, sensing="truth", strategy="A")
 	try:
 		result = build_graph(twin, policy).invoke({}, config={"recursion_limit": 64})["result"]
 		trace.finish(
 			result,
 			{
 				"engine": "mujoco",
-				"sensing": "realistic",
+				"sensing": "truth",
 				"agent_options": {"strategy": "A", "max_scored_views": 6, "boundary": "belief_cell"},
 				"experiment": {"batch": batch, "engine": "mujoco", "group": group, "case_id": cid},
 			},
@@ -375,6 +388,14 @@ def test_failure_bank_checkpoint_resume_late_stage(tmp_path):
 	)
 	live_ids = live_checkpoint_ids(ep_dir / "events.jsonl")
 	assert "checkpoint-1" in live_ids
+
+	# Inject a wrong-bowl coordinate into the latest checkpoint so resuming from it genuinely reproduces
+	# place:PLACEMENT_UNVERIFIED:wrong_bowl_carry in MuJoCo.
+	latest_ck = live_ids[-1]
+	ck_path = ep_dir / "checkpoints" / f"{latest_ck}.json"
+	ck_doc = json.loads(ck_path.read_text(encoding="utf-8"))
+	ck_doc["agent"]["bowls"]["green"] = list(ck_doc["agent"]["bowls"]["pink"])
+	write_json(ck_path, ck_doc)
 
 	# Annotate episode as a late-stage place failure (after checkpoint-1) so failure_bank triggers resume_from.
 	with (ep_dir / "events.jsonl").open("a", encoding="utf-8") as f:

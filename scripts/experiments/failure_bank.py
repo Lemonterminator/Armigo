@@ -18,16 +18,15 @@ from collections.abc import Sequence
 from datetime import UTC, datetime
 from pathlib import Path
 
-import numpy as np
-
 REPO = Path(__file__).resolve().parents[2]
 if str(REPO / "src") not in sys.path:
 	sys.path.insert(0, str(REPO / "src"))
 
 from digital_twin_armigo.experiments.contract import case_id as make_case_id
+from digital_twin_armigo.experiments.diag_mcp import compare_runs
 from digital_twin_armigo.experiments.ledger import _resolve_review
 from digital_twin_armigo.experiments.runner import code_commit
-from digital_twin_armigo.experiments.triage import TriageRow
+from digital_twin_armigo.experiments.triage import TriageRow, triage_episode
 from digital_twin_armigo.inventory import audit
 
 DEFAULT_BANK_DIR = REPO / "config" / "agent_bench" / "failure_bank"
@@ -312,6 +311,10 @@ def extract_case_spec(
 
 	prov = episode.get("provenance") or {}
 	exp = prov.get("experiment") or {}
+	engine = str(exp.get("engine") or prov.get("engine") or plan.get("engine") or "mujoco")
+	source_commit = exp.get("code_commit") or prov.get("code_commit") or plan.get("code_commit")
+	source_commit_dirty = isinstance(source_commit, str) and "-dirty" in source_commit
+	camera_condition = exp.get("camera_condition") or plan.get("camera_condition")
 	policy = task.get("policy") or prov.get("policy") or plan.get("policy") or {}
 	sensing = exp.get("sensing") or prov.get("sensing") or plan.get("sensing") or "realistic"
 	agent_options = dict(prov.get("agent_options") or plan.get("agent_options") or {})
@@ -327,6 +330,10 @@ def extract_case_spec(
 		"traj_id": traj_id,
 		"case_id": cid,
 		"case": case,
+		"engine": engine,
+		"source_commit": source_commit,
+		"source_commit_dirty": source_commit_dirty,
+		"camera_condition": camera_condition,
 		"policy": policy,
 		"sensing": sensing,
 		"agent_options": agent_options,
@@ -361,6 +368,10 @@ def _run_one_episode(spec: dict, out_dir: Path) -> None:
 		load_history,
 		restore,
 	)
+
+	engine = str(spec.get("engine") or "mujoco")
+	if engine != "mujoco":
+		raise ValueError(f"unsupported_engine: {engine}")
 
 	case = tuple(spec["case"])
 	policy = Policy(**(spec.get("policy") or {}))
@@ -399,12 +410,16 @@ def _run_one_episode(spec: dict, out_dir: Path) -> None:
 			result["student_eligible"] = False
 		else:
 			result = graph.invoke({}, config=config)["result"]
+		exp_meta = {}
+		if spec.get("camera_condition"):
+			exp_meta["camera_condition"] = spec["camera_condition"]
 		trace.finish(
 			result,
 			{
 				"engine": getattr(backend, "engine", "mujoco"),
 				"sensing": sensing,
 				"agent_options": agent_options,
+				**({"experiment": exp_meta} if exp_meta else {}),
 				**({"resumed_from": link} if link else {}),
 			},
 		)
@@ -447,33 +462,37 @@ def _branch_dirs(ep_dir: Path) -> list[str]:
 	return [name for _, name in found]
 
 
-def compare_episode_trajectories(dir_a: Path, dir_b: Path) -> tuple[bool, str | None]:
-	"""Check bitwise equality of ``actions.npz`` trajectories and outcomes across two runs."""
-	branches_a = _branch_dirs(dir_a)
-	branches_b = _branch_dirs(dir_b)
-	if not branches_a:
-		return False, "missing branch-* output in run 1"
-	if branches_a != branches_b:
-		return False, f"branch mismatch: {branches_a} vs {branches_b}"
+def _format_action_diff(diff: dict | None) -> str:
+	if not diff:
+		return "actions_mismatch"
+	reason = diff.get("reason")
+	if reason == "branch_mismatch":
+		return f"branch mismatch: {diff.get('branches_a')} vs {diff.get('branches_b')}"
+	bname = diff.get("branch", "branch")
+	if reason == "missing_actions_npz":
+		return f"missing actions.npz in {bname}"
+	key = diff.get("key", "array")
+	if reason == "key_presence_mismatch":
+		return f"{bname}: array {key} presence mismatch ({diff.get('in_a')} vs {diff.get('in_b')})"
+	if reason == "shape_mismatch":
+		return f"{bname}: {key} shape mismatch {diff.get('shape_a')} vs {diff.get('shape_b')}"
+	return f"{bname}: {key} differs bitwise (frame={diff.get('first_frame')}, max_abs_diff={diff.get('max_abs_diff')})"
 
-	for bname in branches_a:
-		npz_a = dir_a / bname / "actions.npz"
-		npz_b = dir_b / bname / "actions.npz"
-		if not npz_a.is_file() or not npz_b.is_file():
-			return False, f"missing actions.npz in {bname}"
-		with np.load(npz_a, allow_pickle=False) as za, np.load(npz_b, allow_pickle=False) as zb:
-			if "state_f64" not in za.files and "state" not in za.files:
-				return False, f"{bname}: missing state arrays"
-			for key in TRAJ_COMPARE_KEYS:
-				in_a, in_b = key in za.files, key in zb.files
-				if in_a != in_b:
-					return False, f"{bname}: array {key} presence mismatch ({in_a} vs {in_b})"
-				if not in_a:
-					continue
-				if za[key].shape != zb[key].shape:
-					return False, f"{bname}: {key} shape mismatch {za[key].shape} vs {zb[key].shape}"
-				if not np.array_equal(za[key], zb[key]):
-					return False, f"{bname}: {key} differs bitwise"
+
+def compare_episode_trajectories(dir_a: Path, dir_b: Path) -> tuple[bool, str | None]:
+	"""Compare two reproduced runs via ``diag_mcp.compare_runs`` (completeness, events, verdicts, bitwise actions)."""
+	cmp = compare_runs(dir_a, dir_b, tol=1e-6, action_tol=0.0)
+	if not cmp["complete"]:
+		return False, f"incomplete_repro: {'; '.join(cmp['errors'])}"
+	if cmp["actions_equal"] is None:
+		return False, "missing branch-* output or actions.npz"
+	if cmp["actions_equal"] is False:
+		return False, _format_action_diff(cmp["action_diff"])
+	if not cmp["identical_discrete"]:
+		div = cmp["first_divergence"] or {}
+		return False, f"discrete_event_divergence at index {div.get('index')}"
+	if not cmp["verdict_equal"]:
+		return False, "verdict_mismatch"
 
 	res_a = _read_json(dir_a / "episode.json").get("result") or {}
 	res_b = _read_json(dir_b / "episode.json").get("result") or {}
@@ -501,6 +520,7 @@ def build_failure_bank(
 	ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
 	cluster = match_cluster(ledger, cluster_spec)
 	cluster_key = list(cluster["key"])
+	expected_cluster = tuple(cluster_key)
 	round_name = _format_round(round_label)
 	slug = cluster_slug(cluster_key)
 
@@ -520,9 +540,11 @@ def build_failure_bank(
 	traj_ids = collect_cluster_traj_ids(ledger_path, cluster, audit_db=audit_db)
 
 	commit = code_commit()
+	commit_dirty = isinstance(commit, str) and "-dirty" in commit
 	kept_cases: list[list] = []
 	kept_meta: list[dict] = []
 	dropped_meta: list[dict] = []
+	dirty_sources: list[str] = []
 	resume_map: dict[str, str] = {}
 	seen_case_ids: set[str] = set()
 
@@ -546,6 +568,27 @@ def build_failure_bank(
 				continue
 			seen_case_ids.add(cid)
 
+			engine = str(spec.get("engine") or "mujoco")
+			source_commit = spec.get("source_commit")
+			source_commit_dirty = bool(spec.get("source_commit_dirty"))
+			if source_commit_dirty:
+				dirty_sources.append(tid)
+
+			if engine != "mujoco":
+				dropped_meta.append(
+					{
+						"case_id": cid,
+						"traj_id": tid,
+						"case": spec["case"],
+						"engine": engine,
+						"source_commit": source_commit,
+						"source_commit_dirty": source_commit_dirty,
+						"resume_from": spec["resume_from"],
+						"reason": f"unsupported_engine: {engine}",
+					}
+				)
+				continue
+
 			case_work = work_root / cid
 			run1_dir = case_work / "run-1"
 			run2_dir = case_work / "run-2"
@@ -558,6 +601,9 @@ def build_failure_bank(
 						"case_id": cid,
 						"traj_id": tid,
 						"case": spec["case"],
+						"engine": engine,
+						"source_commit": source_commit,
+						"source_commit_dirty": source_commit_dirty,
 						"resume_from": spec["resume_from"],
 						"reason": f"repro_error: {type(exc).__name__}: {exc}",
 					}
@@ -571,8 +617,31 @@ def build_failure_bank(
 						"case_id": cid,
 						"traj_id": tid,
 						"case": spec["case"],
+						"engine": engine,
+						"source_commit": source_commit,
+						"source_commit_dirty": source_commit_dirty,
 						"resume_from": spec["resume_from"],
 						"reason": reason or "trajectory_mismatch",
+					}
+				)
+				continue
+
+			t1 = triage_episode(run1_dir)
+			t2 = triage_episode(run2_dir)
+			got_1 = (t1.stage, t1.code, t1.root_cause)
+			got_2 = (t2.stage, t2.code, t2.root_cause)
+			if got_1 != expected_cluster or got_2 != expected_cluster:
+				dropped_meta.append(
+					{
+						"case_id": cid,
+						"traj_id": tid,
+						"case": spec["case"],
+						"engine": engine,
+						"source_commit": source_commit,
+						"source_commit_dirty": source_commit_dirty,
+						"resume_from": spec["resume_from"],
+						"repro_clusters": [list(got_1), list(got_2)],
+						"reason": "target_cluster_not_reproduced",
 					}
 				)
 				continue
@@ -583,6 +652,9 @@ def build_failure_bank(
 				"case_id": cid,
 				"traj_id": tid,
 				"case": spec["case"],
+				"engine": engine,
+				"source_commit": source_commit,
+				"source_commit_dirty": source_commit_dirty,
 				"bitwise_equal": True,
 				"branches": branches,
 				"resume_from": spec["resume_from"],
@@ -599,17 +671,26 @@ def build_failure_bank(
 		with tempfile.TemporaryDirectory(prefix="armigo-failure-bank-") as tmp_dir:
 			_check_all(Path(tmp_dir))
 
+	warnings: list[str] = []
+	if commit_dirty:
+		warnings.append(f"current working tree commit is dirty: {commit}")
+	if dirty_sources:
+		warnings.append(f"{len(dirty_sources)} source episode(s) came from dirty commits: {dirty_sources[:5]}")
+
 	payload: dict = {
 		"name": suite_name,
 		"sealed": False,
 		"source_round": round_name,
 		"cluster": cluster_key,
 		"commit": commit,
+		"commit_dirty": commit_dirty,
 		"cases": kept_cases,
 		"repro_checked": {
 			"commit": commit,
+			"commit_dirty": commit_dirty,
 			"runs_per_case": 2,
 			"checked_at": datetime.now(UTC).isoformat(timespec="seconds"),
+			"warnings": warnings,
 			"kept": kept_meta,
 			"dropped": dropped_meta,
 		},

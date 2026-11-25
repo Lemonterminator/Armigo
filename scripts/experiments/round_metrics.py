@@ -13,9 +13,10 @@ import argparse
 import json
 import math
 import os
+import re
 import statistics
 import sys
-from collections import defaultdict
+from collections import Counter, defaultdict
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -101,6 +102,68 @@ def _task_metrics(score_rows: list[dict]) -> dict:
 	)
 
 
+_CF_ORACLE_RE = re.compile(r"-oracle-([a-z]+(?:\+[a-z]+)*)(?=$|-)")
+_CF_REALISTIC_GROUP_RE = re.compile(r"^realistic-([^-]+)-([A-Za-z0-9_]+)-([^-]+)(.*)$")
+_CF_TRUTH_GROUP_RE = re.compile(r"^truth-(?:([ABC])-)?([^-]+)(.*)$")
+_CF_MOTION_RE = re.compile(r"-m(open|w[1-4][sa])(?=$|-)")
+_CF_EVIDENCE_RE = re.compile(r"-e(hold|img|dense-10|dense-20)(?=$|-)")
+_CF_CONTEXT_FIELDS = (
+	"traj_id",
+	"path",
+	"engine",
+	"camera_condition",
+	"strategy",
+	"motion",
+	"evidence",
+	"segmenter",
+	"group",
+)
+
+
+def _cf_parse_group(group: str | None) -> dict[str, str]:
+	if not group:
+		return {}
+	base = _CF_ORACLE_RE.sub("", str(group))
+	meta: dict[str, str] = {}
+	rest = ""
+	m_real = _CF_REALISTIC_GROUP_RE.match(base)
+	if m_real:
+		meta["camera_condition"] = m_real.group(1)
+		meta["strategy"] = m_real.group(2)
+		rest = m_real.group(4)
+	else:
+		m_truth = _CF_TRUTH_GROUP_RE.match(base)
+		if not m_truth:
+			return {}
+		meta["camera_condition"] = "fixed"
+		meta["strategy"] = m_truth.group(1) or "A"
+		rest = m_truth.group(3)
+	if rest:
+		m_mot = _CF_MOTION_RE.search(rest)
+		if m_mot:
+			meta["motion"] = m_mot.group(1)
+		m_ev = _CF_EVIDENCE_RE.search(rest)
+		if m_ev:
+			meta["evidence"] = m_ev.group(1)
+	return meta
+
+
+def _cf_has_context(row: dict) -> bool:
+	return any(row.get(k) not in (None, "") for k in _CF_CONTEXT_FIELDS)
+
+
+def _cf_composite_key(row: dict) -> tuple[str, ...]:
+	parsed = _cf_parse_group(row.get("group"))
+	return (
+		str(row.get("engine") or "mujoco"),
+		str(row.get("camera_condition") or parsed.get("camera_condition") or "fixed"),
+		str(row.get("strategy") or parsed.get("strategy") or "A"),
+		str(row.get("motion") or parsed.get("motion") or "open"),
+		str(row.get("evidence") or parsed.get("evidence") or "hold"),
+		str(row["case_id"]),
+	)
+
+
 def _attribution_coverage(score_rows: list[dict], counterfactual_path: Path | None) -> dict:
 	failed = [r for r in score_rows if r.get("root_cause") != "none"]
 	n_failed = len(failed)
@@ -111,11 +174,26 @@ def _attribution_coverage(score_rows: list[dict], counterfactual_path: Path | No
 	cf_rate: float | None = None
 	if counterfactual_path is not None:
 		cf_rows = _read_jsonl(counterfactual_path)
-		cf_by_case = {r["case_id"]: r for r in cf_rows if r.get("case_id")}
 		cf_by_traj = {r["traj_id"]: r for r in cf_rows if r.get("traj_id")}
+		cf_by_path = {_norm_path(r["path"]): r for r in cf_rows if r.get("path")}
+		cf_by_composite = {_cf_composite_key(r): r for r in cf_rows if r.get("case_id") and _cf_has_context(r)}
+		cf_case_counts = Counter(r["case_id"] for r in cf_rows if r.get("case_id"))
+		cf_unique_fallback = {
+			r["case_id"]: r
+			for r in cf_rows
+			if r.get("case_id") and cf_case_counts[r["case_id"]] == 1 and not _cf_has_context(r)
+		}
 		cf_n = 0
 		for r in failed:
-			cf_row = cf_by_case.get(r.get("case_id")) or cf_by_traj.get(r.get("traj_id"))
+			cf_row = None
+			if r.get("traj_id"):
+				cf_row = cf_by_traj.get(r["traj_id"])
+			if cf_row is None and r.get("path"):
+				cf_row = cf_by_path.get(_norm_path(r["path"]))
+			if cf_row is None and r.get("case_id") and _cf_has_context(r):
+				cf_row = cf_by_composite.get(_cf_composite_key(r))
+			if cf_row is None and r.get("case_id"):
+				cf_row = cf_unique_fallback.get(r["case_id"])
 			if cf_row and cf_row.get("verdict") == "confirmed":
 				cf_n += 1
 		cf_rate = cf_n / n_failed if n_failed else None

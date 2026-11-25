@@ -111,6 +111,8 @@ def normalize_criteria(raw: dict | None) -> dict:
 					return src[k]
 		return default
 
+	bank_metric = pick((raw, g1), ("bank_metric", "cluster_metric"), None)
+	target_cluster = pick((raw, g1), ("target_cluster",), None)
 	return {
 		"bank_min_fix_rate": float(
 			pick((raw, g1), ("bank_min_fix_rate", "min_fix_rate"), DEFAULT_CRITERIA["bank_min_fix_rate"])
@@ -135,6 +137,8 @@ def normalize_criteria(raw: dict | None) -> dict:
 		"bootstrap_b": int(pick((raw, g3), ("bootstrap_b", "B"), DEFAULT_CRITERIA["bootstrap_b"])),
 		"seed": int(pick((raw, g3), ("seed",), DEFAULT_CRITERIA["seed"])),
 		"metric": str(pick((raw,), ("metric",), DEFAULT_CRITERIA["metric"])),
+		**({"bank_metric": str(bank_metric)} if bank_metric is not None else {}),
+		**({"target_cluster": target_cluster} if target_cluster is not None else {}),
 		**({"cluster": str(raw["cluster"])} if raw.get("cluster") else {}),
 	}
 
@@ -146,30 +150,210 @@ def load_criteria(path: Path) -> dict:
 	return normalize_criteria(data)
 
 
+_EVIDENCE_BANK_METRICS = frozenset({"evidence_sufficient", "evidence_complete", "r5_resolved"})
+_TRIAGE_CLEAN_BANK_METRICS = frozenset({"triage_clean", "triage_cleared"})
+_RULE_TO_CAUSE = {
+	"R1": "bowl_localization",
+	"R2": "perception_pose_error",
+	"R3": "calibration_stale",
+	"R4": "wrong_bowl_carry",
+	"R5": "evidence_insufficient",
+	"R6": "grasp_or_path_failure",
+	"R7": "false_positive_visible",
+	"R8": "tool_contract",
+}
+
+
+def _extract_layout_seeds(items: Sequence[dict | str] | set[str] | None) -> set[str]:
+	seeds: set[str] = set()
+	if not items:
+		return seeds
+	for item in items:
+		if isinstance(item, dict):
+			raw = item.get("layout_id")
+			if not raw:
+				cid = str(item.get("case_id") or "")
+				raw = cid.split("-")[0] if cid else ""
+		else:
+			raw = str(item).split("-")[0]
+		token = str(raw or "").strip()
+		if not token:
+			continue
+		if token.isdigit():
+			token = f"L{token}"
+		seeds.add(token)
+	return seeds
+
+
+def _check_group_consistency(
+	base_rows: list[dict],
+	new_rows: list[dict],
+	*,
+	allow_group_mismatch: bool = False,
+) -> str | None:
+	if len(base_rows) != len({r["case_id"] for r in base_rows if "case_id" in r}):
+		return "duplicate_case_ids_in_base"
+	if len(new_rows) != len({r["case_id"] for r in new_rows if "case_id" in r}):
+		return "duplicate_case_ids_in_new"
+	base_cells = sorted({(r.get("engine"), r.get("group")) for r in base_rows if r.get("group") or r.get("engine")})
+	new_cells = sorted({(r.get("engine"), r.get("group")) for r in new_rows if r.get("group") or r.get("engine")})
+	base_groups = sorted({str(r.get("group")) for r in base_rows if r.get("group")})
+	new_groups = sorted({str(r.get("group")) for r in new_rows if r.get("group")})
+	if len(base_groups) > 1 or len(base_cells) > 1:
+		return "mixed_groups_in_base"
+	if len(new_groups) > 1 or len(new_cells) > 1:
+		return "mixed_groups_in_new"
+	if not allow_group_mismatch and base_cells and new_cells and base_cells[0] != new_cells[0]:
+		return "group_mismatch"
+	return None
+
+
+def _row_root_cause(row: dict) -> str | None:
+	rc = row.get("triage_root_cause") or row.get("root_cause")
+	if rc is None and isinstance(row.get("triage"), dict):
+		rc = row["triage"].get("root_cause")
+	if rc is None and isinstance(row.get("first_error"), dict):
+		rc = row["first_error"].get("root_cause")
+	return str(rc) if rc is not None else None
+
+
+def _row_triage_rule(row: dict) -> str | None:
+	rule = row.get("triage_rule") or row.get("rule")
+	if rule is None and isinstance(row.get("triage"), dict):
+		rule = row["triage"].get("rule")
+	return str(rule) if rule is not None else None
+
+
+def _parse_target_cluster(target_cluster: str | Sequence | None) -> tuple[str | None, str | None]:
+	"""Return ``(target_rule_id, target_root_cause)`` from a cluster spec."""
+	if target_cluster is None:
+		return None, None
+	if isinstance(target_cluster, (list, tuple)) and len(target_cluster) >= 3:
+		return None, str(target_cluster[2])
+	spec = str(target_cluster).strip()
+	if not spec:
+		return None, None
+	upper = spec.upper()
+	if upper in _RULE_TO_CAUSE:
+		return upper, _RULE_TO_CAUSE[upper]
+	for sep in (":", "/"):
+		if sep in spec:
+			parts = spec.split(sep)
+			if len(parts) == 3 and parts[2].strip():
+				return None, parts[2].strip()
+	return None, spec
+
+
+def _bank_row_passes(
+	row: dict,
+	*,
+	bank_metric: str | None = None,
+	target_cluster: str | Sequence | None = None,
+) -> bool:
+	phys_ok = bool(row.get("physical_success"))
+	metric_name = (bank_metric or "").strip().lower()
+	target_rule, target_cause = _parse_target_cluster(target_cluster)
+
+	if not metric_name and target_rule is None and target_cause is None:
+		return phys_ok
+	if metric_name in ("physical_success", "success_rate") and target_rule is None and target_cause is None:
+		return phys_ok
+
+	label_ok = row.get("label_correct") is not False
+	rc = _row_root_cause(row)
+	rule = _row_triage_rule(row)
+	verdict = row.get("scored_verdict") or row.get("verdict_final_cycle") or row.get("verdict")
+
+	if metric_name in _EVIDENCE_BANK_METRICS or target_rule == "R5" or target_cause == "evidence_insufficient":
+		if row.get("evidence_sufficient") is False:
+			return False
+		if verdict == "evidence_insufficient" or rc == "evidence_insufficient" or rule == "R5":
+			return False
+		return phys_ok and label_ok and (rc in (None, "none"))
+
+	if metric_name in _TRIAGE_CLEAN_BANK_METRICS:
+		return (
+			phys_ok
+			and label_ok
+			and (rc in (None, "none"))
+			and (rule in (None, "none"))
+			and verdict != "evidence_insufficient"
+		)
+
+	if target_rule is not None or target_cause is not None:
+		if target_rule is not None and rule == target_rule:
+			return False
+		if target_cause is not None and rc == target_cause:
+			return False
+		return phys_ok and label_ok and (rc in (None, "none"))
+
+	if metric_name in METRICS:
+		num, den = METRICS[metric_name]
+		if metric_name == "success_rate":
+			return phys_ok
+		return phys_ok and (not den(row) or not bool(num(row)))
+
+	raise ValueError(f"unsupported Gate 1 bank_metric: {bank_metric!r}")
+
+
 def evaluate_gate1_bank(
 	bank_base: Sequence[dict] | str | Path,
 	bank_new: Sequence[dict] | str | Path,
 	*,
 	min_fix_rate: float = 0.70,
+	bank_metric: str | None = None,
+	target_cluster: str | Sequence | None = None,
+	expected_ids: set[str] | Sequence[str] | None = None,
+	allow_group_mismatch: bool = False,
 ) -> dict:
 	"""Gate 1: fraction of baseline bank failures that succeed after the fix."""
 	base_rows = load_score_rows(bank_base)
 	new_rows = load_score_rows(bank_new)
+	group_err = _check_group_consistency(base_rows, new_rows, allow_group_mismatch=allow_group_mismatch)
+
 	base_map = {r["case_id"]: r for r in base_rows}
 	new_map = {r["case_id"]: r for r in new_rows}
 
-	base_failures = [cid for cid, r in sorted(base_map.items()) if not bool(r.get("physical_success"))]
-	fixed = sum(1 for cid in base_failures if cid in new_map and bool(new_map[cid].get("physical_success")))
+	base_failures = [
+		cid
+		for cid, r in sorted(base_map.items())
+		if not _bank_row_passes(r, bank_metric=bank_metric, target_cluster=target_cluster)
+	]
+	fixed = sum(
+		1
+		for cid in base_failures
+		if cid in new_map and _bank_row_passes(new_map[cid], bank_metric=bank_metric, target_cluster=target_cluster)
+	)
 	missing_in_new = sum(1 for cid in base_failures if cid not in new_map)
 	regressed_in_bank = sum(
 		1
 		for cid, r in base_map.items()
-		if bool(r.get("physical_success")) and cid in new_map and not bool(new_map[cid].get("physical_success"))
+		if _bank_row_passes(r, bank_metric=bank_metric, target_cluster=target_cluster)
+		and cid in new_map
+		and not _bank_row_passes(new_map[cid], bank_metric=bank_metric, target_cluster=target_cluster)
 	)
 	total_base_failures = len(base_failures)
 	fix_rate = (fixed / total_base_failures) if total_base_failures > 0 else 0.0
-	passed = total_base_failures > 0 and fix_rate >= min_fix_rate
+
+	fail_reason: str | None = group_err
+	expected_set = set(expected_ids) if expected_ids is not None else None
+	if (
+		fail_reason is None
+		and expected_set is not None
+		and (not expected_set.issubset(base_map) or not expected_set.issubset(new_map))
+	):
+		fail_reason = "incomplete_suite_coverage"
+	if fail_reason is None and missing_in_new > 0:
+		fail_reason = "incomplete_pairing"
+	if fail_reason is None and total_base_failures <= 0:
+		fail_reason = "no_base_failures"
+	if fail_reason is None and fix_rate < min_fix_rate:
+		fail_reason = "fix_rate_below_threshold"
+
+	passed = fail_reason is None
 	return {
+		"bank_metric": bank_metric or ("cluster" if target_cluster is not None else "physical_success"),
+		**({"target_cluster": target_cluster} if target_cluster is not None else {}),
 		"n_base_rows": len(base_map),
 		"n_new_rows": len(new_map),
 		"total_base_failures": total_base_failures,
@@ -179,6 +363,7 @@ def evaluate_gate1_bank(
 		"regressed_in_bank": regressed_in_bank,
 		"fix_rate": fix_rate,
 		"min_fix_rate": min_fix_rate,
+		"fail_reason": fail_reason,
 		"passed": passed,
 	}
 
@@ -192,17 +377,35 @@ def evaluate_gate2_regression(
 	bootstrap_b: int = 2000,
 	seed: int = 0,
 	metric: str = "success_rate",
+	expected_ids: set[str] | Sequence[str] | None = None,
+	allow_group_mismatch: bool = False,
 ) -> dict:
 	"""Gate 2: paired regression check via exact McNemar test on discordant pairs."""
 	base_rows = load_score_rows(reg_base)
 	new_rows = load_score_rows(reg_new)
+	group_err = _check_group_consistency(base_rows, new_rows, allow_group_mismatch=allow_group_mismatch)
+
 	pc = paired_comparison(base_rows, new_rows, metric=metric, B=bootstrap_b, seed=seed)
 	n10 = int(pc["n10"])  # A passed, B failed (new failures)
 	n01 = int(pc["n01"])  # A failed, B passed (new successes)
 	net_regression = n10 - n01
 	p_mcnemar = float(pc["p_mcnemar"])
-	# Reject only if net regression exceeds budget or discordant degradation is statistically detectable.
-	passed = pc["n_pairs"] > 0 and net_regression <= max_net_regression and (n10 <= n01 or p_mcnemar > min_mcnemar_p)
+	unmatched_base = int(pc["unmatched_a"])
+	unmatched_new = int(pc["unmatched_b"])
+	matched_ids = {r["case_id"] for r in base_rows} & {r["case_id"] for r in new_rows}
+
+	fail_reason: str | None = group_err
+	expected_set = set(expected_ids) if expected_ids is not None else None
+	if fail_reason is None and expected_set is not None and not expected_set.issubset(matched_ids):
+		fail_reason = "incomplete_suite_coverage"
+	if fail_reason is None and (unmatched_base > 0 or unmatched_new > 0):
+		fail_reason = "incomplete_pairing"
+	if fail_reason is None and pc["n_pairs"] <= 0:
+		fail_reason = "no_pairs"
+	if fail_reason is None and not (net_regression <= max_net_regression and (n10 <= n01 or p_mcnemar > min_mcnemar_p)):
+		fail_reason = "regression_detected"
+
+	passed = fail_reason is None
 	return {
 		"metric": metric,
 		"n_pairs": int(pc["n_pairs"]),
@@ -215,8 +418,9 @@ def evaluate_gate2_regression(
 		"p_mcnemar": p_mcnemar,
 		"max_net_regression": max_net_regression,
 		"min_mcnemar_p": min_mcnemar_p,
-		"unmatched_base": int(pc["unmatched_a"]),
-		"unmatched_new": int(pc["unmatched_b"]),
+		"unmatched_base": unmatched_base,
+		"unmatched_new": unmatched_new,
+		"fail_reason": fail_reason,
 		"passed": passed,
 	}
 
@@ -241,14 +445,41 @@ def evaluate_gate3_fresh(
 	bootstrap_b: int = 2000,
 	seed: int = 0,
 	metric: str = "success_rate",
+	expected_ids: set[str] | Sequence[str] | None = None,
+	forbidden_seeds: set[str] | Sequence[str] | None = None,
+	allow_group_mismatch: bool = False,
 ) -> dict:
 	"""Gate 3: layout-clustered bootstrap non-inferiority on fresh seeds."""
 	base_rows = load_score_rows(fresh_base)
 	new_rows = load_score_rows(fresh_new)
+	group_err = _check_group_consistency(base_rows, new_rows, allow_group_mismatch=allow_group_mismatch)
+
 	pc = paired_comparison(base_rows, new_rows, metric=metric, B=bootstrap_b, seed=seed)
 	base_rate, new_rate = _matched_rates(base_rows, new_rows, metric)
 	ci_lo = float(pc["ci_lo"])
-	passed = pc["n_pairs"] > 0 and math.isfinite(ci_lo) and ci_lo >= min_ci_lo
+	unmatched_base = int(pc["unmatched_a"])
+	unmatched_new = int(pc["unmatched_b"])
+	matched_ids = {r["case_id"] for r in base_rows} & {r["case_id"] for r in new_rows}
+
+	fresh_seeds = (
+		_extract_layout_seeds(base_rows) | _extract_layout_seeds(new_rows) | _extract_layout_seeds(expected_ids)
+	)
+	seed_overlap = sorted(fresh_seeds & set(forbidden_seeds or ()))
+
+	fail_reason: str | None = group_err
+	if fail_reason is None and seed_overlap:
+		fail_reason = "seed_overlap_with_bank_or_reg"
+	expected_set = set(expected_ids) if expected_ids is not None else None
+	if fail_reason is None and expected_set is not None and not expected_set.issubset(matched_ids):
+		fail_reason = "incomplete_suite_coverage"
+	if fail_reason is None and (unmatched_base > 0 or unmatched_new > 0):
+		fail_reason = "incomplete_pairing"
+	if fail_reason is None and pc["n_pairs"] <= 0:
+		fail_reason = "no_pairs"
+	if fail_reason is None and not (math.isfinite(ci_lo) and ci_lo >= min_ci_lo):
+		fail_reason = "ci_below_threshold"
+
+	passed = fail_reason is None
 	return {
 		"metric": metric,
 		"n_pairs": int(pc["n_pairs"]),
@@ -260,8 +491,10 @@ def evaluate_gate3_fresh(
 		"ci_hi": float(pc["ci_hi"]),
 		"min_ci_lo": min_ci_lo,
 		"bootstrap_b": bootstrap_b,
-		"unmatched_base": int(pc["unmatched_a"]),
-		"unmatched_new": int(pc["unmatched_b"]),
+		"unmatched_base": unmatched_base,
+		"unmatched_new": unmatched_new,
+		"seed_overlap_with_bank_or_reg": seed_overlap,
+		"fail_reason": fail_reason,
 		"passed": passed,
 	}
 
@@ -274,31 +507,66 @@ def evaluate_three_gates(
 	fresh_base: Sequence[dict] | str | Path,
 	fresh_new: Sequence[dict] | str | Path,
 	criteria: dict | None = None,
+	*,
+	expected_bank_ids: set[str] | Sequence[str] | None = None,
+	expected_reg_ids: set[str] | Sequence[str] | None = None,
+	expected_fresh_ids: set[str] | Sequence[str] | None = None,
+	allow_group_mismatch: bool = False,
 ) -> dict:
 	"""Evaluate Gates 1, 2, 3 and return ``verdict`` in ``{'merge', 'overfit_bank', 'reject'}``."""
 	crit = normalize_criteria(criteria)
-	g1 = evaluate_gate1_bank(bank_base, bank_new, min_fix_rate=crit["bank_min_fix_rate"])
+	bank_base_rows = load_score_rows(bank_base)
+	bank_new_rows = load_score_rows(bank_new)
+	reg_base_rows = load_score_rows(reg_base)
+	reg_new_rows = load_score_rows(reg_new)
+	fresh_base_rows = load_score_rows(fresh_base)
+	fresh_new_rows = load_score_rows(fresh_new)
+
+	forbidden_fresh_seeds = (
+		_extract_layout_seeds(bank_base_rows)
+		| _extract_layout_seeds(bank_new_rows)
+		| _extract_layout_seeds(reg_base_rows)
+		| _extract_layout_seeds(reg_new_rows)
+		| _extract_layout_seeds(expected_bank_ids)
+		| _extract_layout_seeds(expected_reg_ids)
+	)
+	bank_metric = crit.get("bank_metric") or (crit["metric"] if crit["metric"] != "success_rate" else None)
+
+	g1 = evaluate_gate1_bank(
+		bank_base_rows,
+		bank_new_rows,
+		min_fix_rate=crit["bank_min_fix_rate"],
+		bank_metric=bank_metric,
+		target_cluster=crit.get("target_cluster"),
+		expected_ids=expected_bank_ids,
+		allow_group_mismatch=allow_group_mismatch,
+	)
 	g2 = evaluate_gate2_regression(
-		reg_base,
-		reg_new,
+		reg_base_rows,
+		reg_new_rows,
 		max_net_regression=crit["regression_max_net_regression"],
 		min_mcnemar_p=crit["regression_min_mcnemar_p"],
 		bootstrap_b=crit["bootstrap_b"],
 		seed=crit["seed"],
 		metric=crit["metric"],
+		expected_ids=expected_reg_ids,
+		allow_group_mismatch=allow_group_mismatch,
 	)
 	g3 = evaluate_gate3_fresh(
-		fresh_base,
-		fresh_new,
+		fresh_base_rows,
+		fresh_new_rows,
 		min_ci_lo=crit["fresh_min_ci_lo"],
 		bootstrap_b=crit["bootstrap_b"],
 		seed=crit["seed"],
 		metric=crit["metric"],
+		expected_ids=expected_fresh_ids,
+		forbidden_seeds=forbidden_fresh_seeds,
+		allow_group_mismatch=allow_group_mismatch,
 	)
 
 	if g1["passed"] and g2["passed"] and g3["passed"]:
 		verdict = "merge"
-	elif g1["passed"] and g2["passed"] and not g3["passed"]:
+	elif g1["passed"] and g2["passed"] and not g3["passed"] and g3.get("fail_reason") == "ci_below_threshold":
 		verdict = "overfit_bank"
 	else:
 		verdict = "reject"
@@ -693,6 +961,10 @@ def main(argv: list[str] | None = None) -> int:
 		role_pairs["fresh"][0],
 		role_pairs["fresh"][1],
 		criteria,
+		expected_bank_ids=bank_ids,
+		expected_reg_ids=reg_ids,
+		expected_fresh_ids=fresh_ids,
+		allow_group_mismatch=(args.base_group is not None and args.group is not None and args.base_group != args.group),
 	)
 
 	payload = {

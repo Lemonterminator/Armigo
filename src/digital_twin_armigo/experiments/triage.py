@@ -8,9 +8,10 @@ camera condition, expected label, or brick symmetry) and evaluates R1-R8 in prio
 from __future__ import annotations
 
 import math
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import asdict, dataclass
 from pathlib import Path
+from types import MappingProxyType
 
 from .attribution import (
 	BOTTOM_MIN_PX,
@@ -36,6 +37,45 @@ _CARRY_SEGMENTS = frozenset({"carry", "lift", "carry_to_bowl", "return_to_lift",
 _R6_CODES = frozenset({"no_clamp", "BRICK_LOST", "brick_lost", "grasp_slip", "pick_miss"})
 _R8_EVENT_KINDS = frozenset({"detector_error", "tool_error", "tool_exception", "contract_error", "timeout"})
 _R8_CODE_SUBSTRINGS = ("TIMEOUT", "EXCEPTION", "CONTRACT", "SCHEMA", "TOOL_ERROR", "TOOL_EXCEPTION", "NONFINITE")
+_R1_CODES: Mapping[str, str] = MappingProxyType(
+	{
+		"BOWL_NOT_FOUND": "bowl_localization",
+		"BRICK_NOT_FOUND": "perception_pose_error",
+	}
+)
+_NON_BOWL_DESTINATIONS = frozenset({"", "none", "table", "inspection_table", "lost", "unknown"})
+
+# Read-only compatibility map linking every ROOT_CAUSES entry (including v3's 5 added causes) to compatible MECHANISMS
+# without removing any existing ROOT_CAUSES label so historical human audits remain readable.
+ROOT_CAUSE_TO_MECHANISM_COMPAT: Mapping[str, tuple[str, ...]] = MappingProxyType(
+	{
+		# v3 added root causes
+		"perception_pose_error": ("brick_yaw_error", "brick_pose_error", "view_belief_error"),
+		"calibration_stale": ("calibration_drift",),
+		"bowl_localization": ("bowl_pose_error",),
+		"wrong_bowl_carry": ("bowl_pose_error", "calibration_drift"),
+		"tool_contract": (),
+		# Legacy attribution root causes
+		"grasp_or_path_failure": ("brick_pose_error", "brick_yaw_error", "calibration_drift"),
+		"recovery_failure": ("brick_pose_error", "brick_yaw_error", "calibration_drift"),
+		"placement_failure": ("bowl_pose_error", "brick_pose_error"),
+		"evidence_insufficient": ("brick_yaw_error", "view_belief_error", "brick_pose_error"),
+		"target_face_not_in_view": ("brick_yaw_error", "view_belief_error", "brick_pose_error"),
+		"premature_stop": ("brick_yaw_error", "view_belief_error", "brick_pose_error"),
+		"crop_error": ("view_belief_error", "brick_pose_error", "brick_yaw_error"),
+		"occlusion": ("view_belief_error", "brick_pose_error", "brick_yaw_error"),
+		"false_positive_visible": (),
+		"false_negative_visible": (),
+		"infra_failure": (),
+		"none": (),
+		"other": (),
+	}
+)
+
+
+def compatible_mechanisms(root_cause: str) -> tuple[str, ...]:
+	"""Return compatible ``precursors.MECHANISMS`` entries for a ``ROOT_CAUSES`` label."""
+	return ROOT_CAUSE_TO_MECHANISM_COMPAT.get(root_cause, ())
 
 
 @dataclass(frozen=True)
@@ -151,11 +191,32 @@ def _failure_records(events: list[dict], result: dict) -> list[dict]:
 
 
 def _bowl_name(value: str | None) -> str | None:
-	if value in ("green", "green_bowl"):
+	if not isinstance(value, str):
+		return None
+	token = value.strip()
+	lower = token.lower()
+	if lower in _NON_BOWL_DESTINATIONS:
+		return None
+	if lower in ("green", "green_bowl"):
 		return "green"
-	if value in ("pink", "pink_bowl"):
+	if lower in ("pink", "pink_bowl"):
 		return "pink"
+	if lower.startswith("extra:"):
+		return token
+	if lower.endswith("_bowl"):
+		stem = token[:-5]
+		return stem if stem and stem.lower() not in _NON_BOWL_DESTINATIONS else None
 	return None
+
+
+def _fill_bowl_key(key: str | None) -> str | None:
+	norm = _bowl_name(key)
+	if norm is not None:
+		return norm
+	if not isinstance(key, str):
+		return None
+	token = key.strip()
+	return token if token and token.lower() not in _NON_BOWL_DESTINATIONS else None
 
 
 def _expected_label(result: dict) -> str | None:
@@ -172,12 +233,24 @@ def _expected_label(result: dict) -> str | None:
 
 def _rule_r1(events: list[dict], result: dict) -> dict | None:
 	for rec in _failure_records(events, result):
-		if rec["code"] == "BOWL_NOT_FOUND":
+		code = rec["code"]
+		if code in _R1_CODES:
 			stage = rec["stage"] if rec["stage"] and rec["stage"] != "recover" else "prepare"
-			return {"code": "BOWL_NOT_FOUND", "stage": stage, "frame": rec["frame"]}
+			return {
+				"code": code,
+				"root_cause": _R1_CODES[code],
+				"stage": stage,
+				"frame": rec["frame"],
+			}
 	for key in ("code", "execution_error", "error"):
-		if result.get(key) == "BOWL_NOT_FOUND":
-			return {"code": "BOWL_NOT_FOUND", "stage": "prepare", "frame": None}
+		val = result.get(key)
+		if val in _R1_CODES:
+			return {
+				"code": val,
+				"root_cause": _R1_CODES[val],
+				"stage": "prepare",
+				"frame": None,
+			}
 	return None
 
 
@@ -270,16 +343,21 @@ def _rule_r4(events: list[dict], result: dict) -> dict | None:
 		for ev in reversed(events):
 			if ev.get("kind") == "placement_check":
 				fill = ev.get("fill_pixels") or {}
-				filled = [b for b in ("green", "pink") if (fill.get(b) or 0) >= FILL_MIN_PIXELS]
+				filled: list[tuple[str, float]] = []
+				for raw_key, raw_px in fill.items():
+					bname = _fill_bowl_key(raw_key)
+					px = float(raw_px or 0)
+					if bname is not None and px >= FILL_MIN_PIXELS:
+						filled.append((bname, px))
 				if len(filled) == 1:
-					actual = filled[0]
-				elif target is not None:
-					other = "pink" if target == "green" else "green"
-					if (fill.get(other) or 0) >= FILL_MIN_PIXELS:
-						actual = other
+					actual = filled[0][0]
+				elif filled and target is not None:
+					others = [(b, px) for b, px in filled if b != target]
+					if others:
+						actual = max(others, key=lambda kv: (kv[1], kv[0]))[0]
 				break
 
-	if actual in ("green", "pink") and (target is None or actual != target):
+	if actual is not None and (target is None or actual != target):
 		return {
 			"code": "PLACEMENT_UNVERIFIED",
 			"target_bowl": target,
@@ -534,7 +612,7 @@ def _default_stage_and_code(events: list[dict], result: dict) -> tuple[str, str 
 def _stage_and_code_for_rule(rule_id: str, ev: dict, events: list[dict], result: dict) -> tuple[str, str | None]:
 	default_stage, default_code = _default_stage_and_code(events, result)
 	if rule_id == "R1":
-		return str(ev.get("stage") or "prepare"), "BOWL_NOT_FOUND"
+		return str(ev.get("stage") or "prepare"), str(ev.get("code") or "BOWL_NOT_FOUND")
 	if rule_id == "R2":
 		return "perception", default_code
 	if rule_id == "R3":

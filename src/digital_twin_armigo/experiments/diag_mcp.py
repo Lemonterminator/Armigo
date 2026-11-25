@@ -10,13 +10,16 @@ from __future__ import annotations
 import argparse
 import json
 import math
+import re
 import time
 from collections.abc import Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from .scoring import _events, _json, score_episode
+import numpy as np
+
+from .scoring import _events, score_episode
 
 TOOLS = ("episode_summary", "compare_runs", "ledger_clusters", "counterfactual_result")
 DEFAULT_HOST = "127.0.0.1"
@@ -25,7 +28,22 @@ DEFAULT_PORT = 8770
 _TIMELINE_KINDS = frozenset({"node", "failure", "tool_call", "view"})
 _TIMELINE_LIMIT = 200
 _TIMELINE_HALF = 100
-_IGNORED_COMPARE_KEYS = frozenset({"wall_time_s", "latency_s", "seq"})
+_IGNORED_NESTED_TIMING_KEYS = frozenset(
+	{
+		"wall_time_s",
+		"latency_s",
+		"elapsed_ms",
+		"elapsed_s",
+		"inference_ms",
+		"score_ms",
+		"duration_s",
+		"ts",
+		"timestamp",
+	}
+)
+_IGNORED_COMPARE_KEYS = _IGNORED_NESTED_TIMING_KEYS | frozenset({"seq"})
+_BRANCH_RE = re.compile(r"^branch-(\d+)$")
+_ACTION_COMPARE_KEYS = ("state_f64", "action_f64", "state", "action", "segment", "phase")
 
 
 def _is_timeline_event(event: dict[str, Any]) -> bool:
@@ -109,18 +127,23 @@ def _values_equal(va: Any, vb: Any, tol: float) -> bool:
 	if _is_number(va) and _is_number(vb):
 		return _numbers_equal(va, vb, tol)
 	if isinstance(va, dict) and isinstance(vb, dict):
-		if va.keys() != vb.keys():
+		keys_a = set(va) - _IGNORED_NESTED_TIMING_KEYS
+		keys_b = set(vb) - _IGNORED_NESTED_TIMING_KEYS
+		if keys_a != keys_b:
 			return False
-		return all(_values_equal(va[k], vb[k], tol) for k in va)
+		return all(_values_equal(va[k], vb[k], tol) for k in keys_a)
 	if isinstance(va, list) and isinstance(vb, list):
 		return len(va) == len(vb) and all(_values_equal(x, y, tol) for x, y in zip(va, vb, strict=True))
 	return type(va) is type(vb) and va == vb
 
 
 def _observations_discrete_equal(oa: dict[str, Any], ob: dict[str, Any], tol: float) -> bool:
-	if oa.keys() != ob.keys():
+	keys_a = set(oa) - _IGNORED_NESTED_TIMING_KEYS
+	keys_b = set(ob) - _IGNORED_NESTED_TIMING_KEYS
+	if keys_a != keys_b:
 		return False
-	for k, val_a in oa.items():
+	for k in keys_a:
+		val_a = oa[k]
 		val_b = ob[k]
 		if k == "score" and _is_number(val_a) and _is_number(val_b):
 			continue  # detector score deltas are reported separately without breaking discrete equality
@@ -146,6 +169,44 @@ def _discrete_event_equal(ea: dict[str, Any], eb: dict[str, Any], tol: float) ->
 	return True
 
 
+def _collect_timing_deltas(
+	idx: int,
+	node: Any,
+	va: Any,
+	vb: Any,
+	tol: float,
+	prefix: str = "",
+) -> list[dict[str, Any]]:
+	out: list[dict[str, Any]] = []
+	if isinstance(va, dict) and isinstance(vb, dict):
+		all_keys = sorted(set(va) | set(vb))
+		for k in all_keys:
+			field = f"{prefix}.{k}" if prefix else str(k)
+			if k in _IGNORED_NESTED_TIMING_KEYS:
+				ta, tb = va.get(k), vb.get(k)
+				if _is_number(ta) and _is_number(tb):
+					if not _numbers_equal(ta, tb, tol):
+						fa, fb = float(ta), float(tb)
+						out.append(
+							{
+								"index": idx,
+								"field": field,
+								"node": node,
+								"a": fa,
+								"b": fb,
+								"delta": (fb - fa) if (math.isfinite(fa) and math.isfinite(fb)) else None,
+							}
+						)
+				elif ta != tb:
+					out.append({"index": idx, "field": field, "node": node, "a": ta, "b": tb, "delta": None})
+			elif k in va and k in vb:
+				out.extend(_collect_timing_deltas(idx, node, va[k], vb[k], tol, field))
+	elif isinstance(va, list) and isinstance(vb, list) and len(va) == len(vb):
+		for j, (xa, xb) in enumerate(zip(va, vb, strict=True)):
+			out.extend(_collect_timing_deltas(idx, node, xa, xb, tol, f"{prefix}[{j}]"))
+	return out
+
+
 def _score_delta(idx: int, ea: dict[str, Any], eb: dict[str, Any], tol: float) -> dict[str, Any] | None:
 	oa, ob = ea.get("observation"), eb.get("observation")
 	if not (isinstance(oa, dict) and isinstance(ob, dict)):
@@ -168,43 +229,206 @@ def _score_delta(idx: int, ea: dict[str, Any], eb: dict[str, Any], tol: float) -
 	}
 
 
-def compare_runs(a: Path, b: Path, *, tol: float = 1e-6) -> dict[str, Any]:
-	"""Align ``events.jsonl`` of ``a`` and ``b`` positionally, compare discrete events, and check verdict equality."""
+def _load_strict_events(path: Path, side: str, errors: list[str]) -> list[dict[str, Any]] | None:
+	if not path.is_file():
+		errors.append(f"{side}: missing events.jsonl ({path})")
+		return None
+	out: list[dict[str, Any]] = []
+	try:
+		with path.open(encoding="utf-8-sig") as fh:
+			for lineno, raw in enumerate(fh, start=1):
+				line = raw.strip()
+				if not line:
+					continue
+				try:
+					ev = json.loads(line)
+				except ValueError as exc:
+					errors.append(f"{side}: invalid events.jsonl line {lineno}: {exc}")
+					return None
+				if not isinstance(ev, dict):
+					errors.append(f"{side}: non-object event at events.jsonl line {lineno}")
+					return None
+				out.append(ev)
+	except OSError as exc:
+		errors.append(f"{side}: unreadable events.jsonl: {exc}")
+		return None
+	return out
+
+
+def _load_strict_episode(path: Path, side: str, errors: list[str]) -> tuple[dict[str, Any] | None, str | None]:
+	if not path.is_file():
+		errors.append(f"{side}: missing episode.json ({path})")
+		return None, None
+	try:
+		ep = json.loads(path.read_text(encoding="utf-8-sig"))
+	except (OSError, ValueError) as exc:
+		errors.append(f"{side}: invalid episode.json: {exc}")
+		return None, None
+	if not isinstance(ep, dict):
+		errors.append(f"{side}: episode.json root is not an object")
+		return None, None
+	res = ep.get("result")
+	if not isinstance(res, dict) or not res:
+		errors.append(f"{side}: missing result in episode.json")
+		return ep, None
+	verdict = res.get("verdict_final_cycle")
+	if not isinstance(verdict, str) or not verdict.strip():
+		verdict = res.get("verdict")
+	if not isinstance(verdict, str) or not verdict.strip():
+		errors.append(f"{side}: missing verdict in episode.json")
+		return ep, None
+	return ep, verdict.strip()
+
+
+def _branch_dirs(ep_dir: Path) -> list[str]:
+	if not ep_dir.is_dir():
+		return []
+	found: list[tuple[int, str]] = []
+	for entry in ep_dir.iterdir():
+		if entry.is_dir():
+			m = _BRANCH_RE.match(entry.name)
+			if m:
+				found.append((int(m.group(1)), entry.name))
+	found.sort()
+	return [name for _, name in found]
+
+
+def _first_array_diff(arr_a: np.ndarray, arr_b: np.ndarray, action_tol: float) -> tuple[int, float | None] | None:
+	if action_tol == 0.0 or not (np.issubdtype(arr_a.dtype, np.floating) and np.issubdtype(arr_b.dtype, np.floating)):
+		if np.array_equal(arr_a, arr_b):
+			return None
+		neq = arr_a != arr_b
+		row_bad = neq.any(axis=tuple(range(1, neq.ndim))) if neq.ndim > 1 else neq
+		first_frame = int(np.flatnonzero(row_bad)[0]) if np.any(row_bad) else 0
+		max_abs: float | None = None
+		if np.issubdtype(arr_a.dtype, np.number) and np.issubdtype(arr_b.dtype, np.number):
+			diff = np.abs(arr_a.astype(np.float64) - arr_b.astype(np.float64))
+			finite = diff[np.isfinite(diff)]
+			max_abs = float(finite.max()) if finite.size else None
+		return first_frame, max_abs
+
+	fa = arr_a.astype(np.float64)
+	fb = arr_b.astype(np.float64)
+	diff = np.abs(fa - fb)
+	both_nan = np.isnan(fa) & np.isnan(fb)
+	nonfinite_mismatch = (~np.isfinite(fa) | ~np.isfinite(fb)) & ~both_nan & (fa != fb)
+	exceeds = nonfinite_mismatch | (~both_nan & (diff > action_tol))
+	if not np.any(exceeds):
+		return None
+	row_bad = exceeds.any(axis=tuple(range(1, exceeds.ndim))) if exceeds.ndim > 1 else exceeds
+	first_frame = int(np.flatnonzero(row_bad)[0]) if np.any(row_bad) else 0
+	finite = diff[np.isfinite(diff)]
+	max_abs = float(finite.max()) if finite.size else None
+	return first_frame, max_abs
+
+
+def _compare_actions(dir_a: Path, dir_b: Path, *, action_tol: float) -> tuple[bool | None, dict[str, Any] | None]:
+	branches_a = _branch_dirs(dir_a)
+	branches_b = _branch_dirs(dir_b)
+	if not branches_a and not branches_b:
+		return None, None
+	if branches_a != branches_b:
+		return False, {"reason": "branch_mismatch", "branches_a": branches_a, "branches_b": branches_b}
+
+	compared_any = False
+	for bname in branches_a:
+		npz_a = dir_a / bname / "actions.npz"
+		npz_b = dir_b / bname / "actions.npz"
+		if npz_a.is_file() != npz_b.is_file():
+			return False, {
+				"branch": bname,
+				"reason": "missing_actions_npz",
+				"in_a": npz_a.is_file(),
+				"in_b": npz_b.is_file(),
+			}
+		if not npz_a.is_file():
+			continue
+		compared_any = True
+		with np.load(npz_a, allow_pickle=False) as za, np.load(npz_b, allow_pickle=False) as zb:
+			for key in _ACTION_COMPARE_KEYS:
+				in_a, in_b = key in za.files, key in zb.files
+				if in_a != in_b:
+					return False, {
+						"branch": bname,
+						"key": key,
+						"reason": "key_presence_mismatch",
+						"in_a": in_a,
+						"in_b": in_b,
+					}
+				if not in_a:
+					continue
+				arr_a, arr_b = za[key], zb[key]
+				if arr_a.shape != arr_b.shape:
+					return False, {
+						"branch": bname,
+						"key": key,
+						"reason": "shape_mismatch",
+						"shape_a": list(arr_a.shape),
+						"shape_b": list(arr_b.shape),
+					}
+				diff = _first_array_diff(arr_a, arr_b, action_tol)
+				if diff is not None:
+					first_frame, max_abs = diff
+					return False, {
+						"branch": bname,
+						"key": key,
+						"reason": "array_diff",
+						"first_frame": first_frame,
+						"max_abs_diff": max_abs,
+					}
+	return (True, None) if compared_any else (None, None)
+
+
+def compare_runs(a: Path, b: Path, *, tol: float = 1e-6, action_tol: float = 1e-9) -> dict[str, Any]:
+	"""Validate completeness, compare discrete events, timing/score deltas, verdicts, and ``branch-*/actions.npz``."""
 	dir_a, dir_b = Path(a), Path(b)
-	events_a = _events(dir_a / "events.jsonl")
-	events_b = _events(dir_b / "events.jsonl")
+	errors: list[str] = []
+	events_a = _load_strict_events(dir_a / "events.jsonl", "a", errors)
+	_ep_a, verdict_a = _load_strict_episode(dir_a / "episode.json", "a", errors)
+	events_b = _load_strict_events(dir_b / "events.jsonl", "b", errors)
+	_ep_b, verdict_b = _load_strict_episode(dir_b / "episode.json", "b", errors)
+
+	complete = len(errors) == 0
+	verdict_equal = bool(verdict_a and verdict_b and verdict_a == verdict_b)
 
 	first_divergence: dict[str, Any] | None = None
 	score_deltas: list[dict[str, Any]] = []
-	n = min(len(events_a), len(events_b))
-	for i in range(n):
-		ea, eb = events_a[i], events_b[i]
-		if not _discrete_event_equal(ea, eb, tol):
-			first_divergence = {"index": i, "a": ea, "b": eb}
-			break
-		delta = _score_delta(i, ea, eb, tol)
-		if delta is not None:
-			score_deltas.append(delta)
+	timing_deltas: list[dict[str, Any]] = []
 
-	if first_divergence is None and len(events_a) != len(events_b):
-		first_divergence = {
-			"index": n,
-			"a": events_a[n] if n < len(events_a) else None,
-			"b": events_b[n] if n < len(events_b) else None,
-		}
+	if events_a is not None and events_b is not None:
+		n = min(len(events_a), len(events_b))
+		for i in range(n):
+			ea, eb = events_a[i], events_b[i]
+			if not _discrete_event_equal(ea, eb, tol):
+				first_divergence = {"index": i, "a": ea, "b": eb}
+				break
+			delta = _score_delta(i, ea, eb, tol)
+			if delta is not None:
+				score_deltas.append(delta)
+			timing_deltas.extend(_collect_timing_deltas(i, ea.get("node"), ea, eb, tol))
 
-	ep_a = _json(dir_a / "episode.json") or {}
-	ep_b = _json(dir_b / "episode.json") or {}
-	res_a = ep_a.get("result") or {}
-	res_b = ep_b.get("result") or {}
-	verdict_a = res_a.get("verdict_final_cycle") or res_a.get("verdict")
-	verdict_b = res_b.get("verdict_final_cycle") or res_b.get("verdict")
+		if first_divergence is None and len(events_a) != len(events_b):
+			first_divergence = {
+				"index": n,
+				"a": events_a[n] if n < len(events_a) else None,
+				"b": events_b[n] if n < len(events_b) else None,
+			}
+
+	actions_equal, action_diff = _compare_actions(dir_a, dir_b, action_tol=action_tol)
+	identical_discrete = bool(complete and first_divergence is None)
+	identical = bool(complete and identical_discrete and verdict_equal and (actions_equal is not False))
 
 	return {
-		"identical_discrete": first_divergence is None,
+		"complete": complete,
+		"identical": identical,
+		"identical_discrete": identical_discrete,
 		"first_divergence": first_divergence,
 		"score_deltas": score_deltas,
-		"verdict_equal": verdict_a == verdict_b,
+		"timing_deltas": timing_deltas,
+		"verdict_equal": verdict_equal,
+		"actions_equal": actions_equal,
+		"action_diff": action_diff,
+		"errors": errors,
 	}
 
 

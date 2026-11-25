@@ -7,8 +7,9 @@ Impact definition (from plan section 1):
     - otherwise by effective root cause: ``"evidence_insufficient"`` -> ``0.3``,
       ``"premature_stop"`` or ``code`` in ``("UNKNOWN", "ABSTAIN")`` -> ``0.5``,
       all other failures -> ``1.0``.
-    Cluster ``impact`` is the sum of episode losses in that cluster; ``share`` is
-    ``n / failure_episodes`` across all non-clean episodes.
+    Cluster ``impact`` is the sum of episode losses in that cluster; ``freq_share``
+    (and backwards-compatible alias ``share``) is ``n / failure_episodes`` while
+    ``impact_share`` is ``impact / total_impact`` (used by stopping criteria).
 """
 
 from __future__ import annotations
@@ -176,6 +177,8 @@ def build_ledger(
 	clusters = []
 	for (stage, code, cause), grp in groups.items():
 		n = grp["n"]
+		freq_share = round(n / total_failures, 6) if total_failures else 0.0
+		impact_share = round(grp["impact"] / total_impact, 6) if total_impact > 0 else 0.0
 		factor_dist = {
 			fname: {val: cnt for val, cnt in sorted(cnts.items(), key=lambda kv: (-kv[1], kv[0]))}
 			for fname, cnts in sorted(grp["factors"].items())
@@ -185,7 +188,9 @@ def build_ledger(
 				"key": [stage, code, cause],
 				"n": n,
 				"impact": round(grp["impact"], 6),
-				"share": round(n / total_failures, 6) if total_failures else 0.0,
+				"freq_share": freq_share,
+				"impact_share": impact_share,
+				"share": freq_share,  # backwards-compatible alias of freq_share; stopping criteria use impact_share
 				"factors": factor_dist,
 				"examples": grp["examples"],
 				"review_agreement": round(grp["agreed"] / grp["reviewed"], 6) if grp["reviewed"] else None,
@@ -202,6 +207,50 @@ def build_ledger(
 		"reviewed_episodes": total_reviewed,
 		"review_agreement": round(total_agreed / total_reviewed, 6) if total_reviewed else None,
 		"clusters": clusters,
+	}
+
+
+def check_stop_criterion(
+	ledger: dict,
+	*,
+	max_top_impact_share: float = 0.15,
+	max_top_impact: float | None = None,
+) -> dict:
+	"""Evaluate loop stopping criterion using severity-weighted ``impact_share`` (not frequency count share)."""
+	clusters = ledger.get("clusters") or []
+	if not clusters:
+		return {
+			"stop": True,
+			"reason": "no_failures",
+			"top_cluster": None,
+			"top_impact_share": 0.0,
+			"top_freq_share": 0.0,
+			"top_impact": 0.0,
+		}
+	top = clusters[0]
+	total_impact = float(ledger.get("total_impact") or 0.0)
+	top_impact = float(top.get("impact") or 0.0)
+	impact_share = (
+		float(top["impact_share"])
+		if top.get("impact_share") is not None
+		else (top_impact / total_impact if total_impact > 0 else 0.0)
+	)
+	freq_share = float(top.get("freq_share") if top.get("freq_share") is not None else (top.get("share") or 0.0))
+	stop_by_share = impact_share <= max_top_impact_share
+	stop_by_impact = max_top_impact is not None and top_impact <= max_top_impact
+	stop = stop_by_share or stop_by_impact
+	reason = (
+		"top_impact_share_below_threshold"
+		if stop_by_share
+		else ("top_impact_below_threshold" if stop_by_impact else "continue")
+	)
+	return {
+		"stop": stop,
+		"reason": reason,
+		"top_cluster": top.get("key"),
+		"top_impact_share": round(impact_share, 6),
+		"top_freq_share": round(freq_share, 6),
+		"top_impact": round(top_impact, 6),
 	}
 
 
@@ -402,24 +451,30 @@ def render_ledger_md(
 		"",
 		"## Clusters",
 		"",
-		"| # | Stage | Code | Root Cause | N | Share | Impact | Review Agreement |",
-		"|---:|---|---|---|---:|---:|---:|---:|",
+		"| # | Stage | Code | Root Cause | N | Freq Share | Impact | Impact Share | Review Agreement |",
+		"|---:|---|---|---|---:|---:|---:|---:|---:|",
 	]
 	for idx, c in enumerate(ledger["clusters"], 1):
 		stage, code, cause = c["key"]
+		freq_share = c.get("freq_share", c.get("share"))
+		impact_share = c.get("impact_share")
 		lines.append(
 			f"| {idx} | {stage} | {code or '-'} | {cause} | {c['n']} | "
-			f"{_fmt_pct(c['share'])} | {c['impact']:.2f} | {_fmt_pct(c['review_agreement'])} |"
+			f"{_fmt_pct(freq_share)} | {c['impact']:.2f} | {_fmt_pct(impact_share)} | "
+			f"{_fmt_pct(c['review_agreement'])} |"
 		)
 
 	for idx, c in enumerate(ledger["clusters"], 1):
 		stage, code, cause = c["key"]
+		freq_share = c.get("freq_share", c.get("share"))
+		impact_share = c.get("impact_share")
 		lines += [
 			"",
 			f"### {idx}. {stage} / {code or '-'} / {cause}",
 			"",
 			(
-				f"- Count: {c['n']} ({_fmt_pct(c['share'])} of failures) · Impact: {c['impact']:.2f} · "
+				f"- Count: {c['n']} ({_fmt_pct(freq_share)} of failures) · "
+				f"Impact: {c['impact']:.2f} ({_fmt_pct(impact_share)} of impact) · "
 				f"Review agreement: {_fmt_pct(c['review_agreement'])}"
 			),
 		]

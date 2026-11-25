@@ -189,6 +189,14 @@ def test_counterfactual_cli_plan_and_summarize(tmp_path):
 	assert summary == [
 		{
 			"case_id": "L700001-D2",
+			"engine": "mujoco",
+			"camera_condition": "drift",
+			"strategy": "B",
+			"motion": "open",
+			"evidence": "hold",
+			"segmenter": "lab",
+			"group": "realistic-drift-B-v7bot",
+			"path": str(ep),
 			"symptom": "recovery_failure",
 			"mechanism": "brick_pose_error",
 			"verdict": "confirmed",
