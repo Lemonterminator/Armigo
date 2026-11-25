@@ -137,9 +137,10 @@ def test_recorded_camera_observation_precedes_its_action_and_rewound_trace_is_re
 	assert [int(r["segment.index"][0]) for r in rows] == [0, 1]
 	assert [bool(r["segment.done"][0]) for r in rows] == [False, True]  # segment 0 ended at observation 1
 	assert [int(r["segment.chunk_valid_len"][0]) for r in rows] == [1, 1]
+	# The legacy 5-camera export keeps the pre-v3 feature set (no mask.noisy) so old shards still merge (WP5).
 	assert set(rows[0]) == {"task", "action", "observation.state"} | {
 		"observation.images." + x for x in ("front", "wrist", "top_rgb_v2", "top_depth_v2", "top_full")
-	} | set(INPUT_FEATURES) | set(SEGMENT_FEATURES)
+	} | set(INPUT_FEATURES) | (set(SEGMENT_FEATURES) - {"mask.noisy"})
 	# A recording without segment labels (segment == -1) is not exportable.
 	np.savez(branch / "actions.npz", state=np.zeros((2, 6)), action=action, segment=np.array([-1, -1], dtype=np.int32))
 	with pytest.raises(SegmentLabelError, match="no segment"):

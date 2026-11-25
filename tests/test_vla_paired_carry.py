@@ -470,14 +470,26 @@ def test_v3_three_bowl_run_branches_smoke(tmp_path):
 	from digital_twin_armigo.inspection_scorer import FixedScorer
 	from digital_twin_armigo.vla.paired_carry import run_branches
 
-	case = next(
-		(seed, True, 2, {"scene": "v3", "split": "train"})
-		for seed in range(3000001, 3000050)
-		if sample_case(seed, True, 2, {"scene": "v3", "split": "train"}).extra_bowls
-	)
-	scorer = FixedScorer(lambda _c, _r: 1.0, {"top": 0.0, "wrist_cam": 0.0})
-	rec = run_branches(case, tmp_path / "branches", scorer, crop_size=256, sensing="realistic")
+	def three_bowl_cases():
+		for seed in range(3000001, 3000050):
+			case = (seed, True, 2, {"scene": "v3", "split": "train"})
+			try:
+				layout = sample_case(*case)
+			except RuntimeError:  # no wide camera passes the student-crop visibility check; suites drop these seeds
+				continue
+			if layout.extra_bowls:
+				yield case
 
+	scorer = FixedScorer(lambda _c, _r: 1.0, {"top": 0.0, "wrist_cam": 0.0})
+	# This test is about forking a successful parent into three targets, not about the teacher's success on one
+	# layout: a teacher failure on the first candidate (it moves with tiny lighting changes, e.g. WP4 light_k) skips
+	# to the next three-bowl layout. At most three parents are tried.
+	for _, case in zip(range(3), three_bowl_cases(), strict=False):
+		rec = run_branches(case, tmp_path / "branches", scorer, crop_size=256, sensing="realistic")
+		if rec.get("skip") != "parent_not_eligible":
+			break
+
+	assert rec.get("skip") is None, rec
 	assert rec["fork_state_match"] is True
 	assert len(rec["branches"]) == 3
 	assert len({b["target"] for b in rec["branches"]}) == 3
