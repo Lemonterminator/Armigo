@@ -55,9 +55,19 @@ def write_card_texture(directory: Path) -> None:
 	margin = round(CARD_MARGIN_M * CARD_PX_PER_M)
 	img = card_board().generateImage((side, side), marginSize=margin, borderBits=1)
 	target = directory / CARD_TEXTURE
+	ok, png = cv2.imencode(".png", img)
+	if not ok:
+		raise OSError("could not encode the calibration card texture")
+	data = png.tobytes()
+	# Replacing an identical file on every cell build kept the replace window open; on Windows a concurrent reader
+	# still saw it empty now and then ("empty PNG file", 1 in ~150 parallel episodes). Write only when it differs.
+	try:
+		if target.read_bytes() == data:
+			return
+	except OSError:
+		pass
 	tmp = directory / f"{CARD_TEXTURE}.{os.getpid()}.{threading.get_ident()}.tmp.png"
-	if not cv2.imwrite(str(tmp), img):
-		raise OSError("could not write the calibration card texture")
+	tmp.write_bytes(data)
 	try:
 		for attempt in range(50):
 			try:
