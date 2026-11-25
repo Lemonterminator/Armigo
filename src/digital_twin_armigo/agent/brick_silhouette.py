@@ -11,8 +11,9 @@ contrast: the foreground fraction inside the silhouette minus the foreground fra
 - Region contrast tolerates objects touching the brick (a marker, the gripper) because they cover only part of the
   band, and it is near zero for a pose inside a large foreground region. A same-colour object of another size does
   not fit the known cuboid.
-- Counts are taken only inside the valid region (inside the image and inside the search gate), so a brick cut by the
-  image border or the gate circle is fitted from what is visible.
+- Counts are taken only inside the valid region: the image, within the search gate plus the brick's half-diagonal
+  (and the band) of the prior. The gate bounds where the fitted *centre* may be (``OUTSIDE_GATE``); it does not crop
+  the silhouette, so a brick whose centre is inside the gate is seen whole, and only the image border clips it.
 """
 
 from __future__ import annotations
@@ -67,8 +68,9 @@ def _table_colour(img: np.ndarray, ring: np.ndarray) -> np.ndarray | None:
 	return np.median(sel[ssel >= np.median(ssel)], axis=0)
 
 
-def foreground_mask(rgb, centre, gate_px, *, resid_min=22.0, alpha_lo=0.3, alpha_hi=1.08):
-	"""uint8 mask of non-table pixels inside the gate, treating darker copies of the table colour as background.
+def foreground_mask(rgb, centre, gate_px, *, resid_min=22.0, alpha_lo=0.3, alpha_hi=1.08, region_px=None):
+	"""uint8 mask of non-table pixels within ``region_px`` (default ``gate_px``) of ``centre``, treating darker copies
+	of the table colour as background; the table colour comes from a ring at 1.6-2.4 ``gate_px``.
 
 	A pixel ``p`` is background when it is within ``resid_min`` (8-bit RGB units) of ``alpha * table`` for some
 	``alpha`` in ``[alpha_lo, alpha_hi]``. Returns ``None`` if the table colour cannot be estimated."""
@@ -87,7 +89,7 @@ def foreground_mask(rgb, centre, gate_px, *, resid_min=22.0, alpha_lo=0.3, alpha
 	bb = float(bg @ bg)
 	alpha = np.clip((img @ bg) / bb, alpha_lo, alpha_hi)
 	resid = np.linalg.norm(img - alpha[..., None] * bg, axis=-1)
-	mask = ((resid > resid_min) & (r < gate_px)).astype(np.uint8)
+	mask = ((resid > resid_min) & (r < (gate_px if region_px is None else region_px))).astype(np.uint8)
 	return cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
 
 
@@ -270,12 +272,14 @@ def fit_silhouette(
 	if depth <= 1e-4:
 		return None, "NO_BLOB"
 	gate_px = gate_m * k[0, 0] / depth
-	fg = foreground_mask(rgb, centre, gate_px)
+	# The centre may be up to the gate away from the prior; the region must hold the whole brick and its band there.
+	region_px = (gate_m + 0.5 * math.hypot(size[0], size[1]) + _BAND_M) * k[0, 0] / depth
+	fg = foreground_mask(rgb, centre, gate_px, region_px=region_px)
 	if fg is None or not fg.any():
 		return None, "NO_BLOB"
 	h, w = rgb.shape[:2]
 	yy, xx = np.mgrid[0:h, 0:w]
-	valid = np.hypot(xx - centre[0], yy - centre[1]) < gate_px
+	valid = np.hypot(xx - centre[0], yy - centre[1]) < region_px
 	cam_from_world = np.linalg.inv(world_from_cam)
 	score = _Scorer(fg.astype(bool), valid, k, cam_from_world, size, top_z)
 	# Smallest region worth a start: a quarter of the brick's top face at this depth.

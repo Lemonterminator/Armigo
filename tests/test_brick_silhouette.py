@@ -125,6 +125,17 @@ def test_marker_card_touching_the_brick_does_not_pull_the_fit():
 	assert e_xy < 1.0 and e_yaw < 1.0
 
 
+def test_a_prior_far_inside_the_gate_does_not_clip_the_brick():
+	"""Under camera drift the prior is often 13-18 mm off; the 4 cm gate bounds the fitted centre, not the region the
+	silhouette is counted in, so a whole brick in view must not come back CLIPPED (it did when the gate cropped it)."""
+	k, w2c, xy, yaw = _setup()
+	img = _draw_cuboid(_table(), k, w2c, xy, yaw)
+	fix, why = fit_silhouette(img, k, w2c, xy + [0.016, -0.009], yaw + math.radians(4), SIZE, TOP_Z)
+	assert why is None
+	e_xy, e_yaw = _errors(fix, xy, yaw)
+	assert e_xy < 1.0 and e_yaw < 1.0
+
+
 def test_same_colour_object_of_another_size_is_not_accepted():
 	k, w2c, xy, yaw = _setup()
 	img = _draw_cuboid(_table(), k, w2c, xy, yaw, size=(0.0318, 0.0318, 0.0192))  # a 2x2 where a 2x4 is expected
