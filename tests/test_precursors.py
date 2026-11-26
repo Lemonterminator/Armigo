@@ -5,7 +5,6 @@ from pathlib import Path
 from digital_twin_armigo.experiments.attribution import first_error
 from digital_twin_armigo.experiments.precursors import (
 	DEFAULT_THRESHOLDS,
-	MECHANISMS,
 	explain,
 	load_thresholds,
 	precursors,
@@ -168,10 +167,13 @@ def test_score_episode_and_report_include_mechanisms(tmp_path):
 	assert row["upstream"] == "calibration_drift"
 	summary = build_summary([row], {}, B=10)
 	assert summary["mechanisms"] == {"recovery_failure": {"brick_pose_error": 1}}
+	assert summary["upstreams"] == {"recovery_failure": {"calibration_drift": 1}}
 	md = render_markdown("b", summary)
 	assert "## 症状 × 机制（前兆，未经反事实证实）" in md
-	assert "| 症状 | " + " | ".join([*MECHANISMS, "(none)"]) + " |" in md
-	assert "| recovery_failure | 0 | 1 | 0 | 0 | 0 | 0 |" in md
+	assert "| 症状 | brick_pose_error | (none) |" in md
+	assert "## 症状 × 上游来源（前兆，未经反事实证实）" in md
+	assert "| 症状 | calibration_drift | (none) |" in md
+	assert md.count("| recovery_failure | 1 | 0 |") == 2
 
 
 _spec = util.spec_from_file_location(

@@ -88,14 +88,14 @@ def _rate(m):
 	return f"{_num(m['value'], True)} [{_num(m['ci_lo'], True)}, {_num(m['ci_hi'], True)}] ({m['k']}/{m['n']})"
 
 
-def mechanism_table(rows: list[dict]) -> dict[str, dict[str, int]]:
-	"""Failed (root_cause != none) episodes counted by symptom x mechanism; ``(none)`` = no precursor explains it."""
+def mechanism_table(rows: list[dict], field: str = "mechanism") -> dict[str, dict[str, int]]:
+	"""Count each scored symptom by its mechanism or upstream field."""
 	out: dict[str, dict[str, int]] = {}
 	for r in rows:
 		if r.get("root_cause") in (None, "none"):
 			continue
 		cell = out.setdefault(r["root_cause"], {})
-		key = r.get("mechanism") or "(none)"
+		key = r.get(field) or "(none)"
 		cell[key] = cell.get(key, 0) + 1
 	return out
 
@@ -117,6 +117,7 @@ def build_summary(rows: list[dict], plans: dict, compare: tuple[str, str] | None
 		},
 		"coverage_only": {f"{e}/{g}": v for (e, g), v in cov.items() if (e, g) not in cells},
 		"mechanisms": mechanism_table(rows),
+		"upstreams": mechanism_table(rows, "upstream"),
 		"paired": {},
 	}
 	if compare:
@@ -178,12 +179,21 @@ def render_markdown(batch: str, summary: dict) -> str:
 		lines += ["| 引擎/组 | " + " | ".join(causes) + " |", "|---|" + "---:|" * len(causes)]
 		for name, cell in summary["cells"].items():
 			lines.append(f"| {name} | " + " | ".join(str(cell["root_causes"].get(c, 0)) for c in causes) + " |")
-	mechs = summary.get("mechanisms") or {}
-	if mechs:
-		cols = [*MECHANISMS, "(none)"]
-		lines += ["", "## 症状 × 机制（前兆，未经反事实证实）", ""]
+	for key, title, expected in (
+		("mechanisms", "症状 × 机制", MECHANISMS),
+		("upstreams", "症状 × 上游来源", ("calibration_drift",)),
+	):
+		table = summary.get(key) or {}
+		if not table:
+			continue
+		present = {label for counts in table.values() for label in counts}
+		cols = [label for label in expected if label in present or key == "upstreams"]
+		cols += sorted(present - set(cols) - {"(none)"}) + ["(none)"]
+		lines += ["", f"## {title}（前兆，未经反事实证实）", ""]
+		if key == "upstreams":
+			lines += ["上游来源单独计数。同一例可在机制表计入积木位姿误差，在本表计入标定漂移。", ""]
 		lines += ["| 症状 | " + " | ".join(cols) + " |", "|---|" + "---:|" * len(cols)]
-		for symptom, counts in sorted(mechs.items()):
+		for symptom, counts in sorted(table.items()):
 			lines.append(f"| {symptom} | " + " | ".join(str(counts.get(c, 0)) for c in cols) + " |")
 	if summary["paired"]:
 		lines += ["", "## 配对差异（B - A，按 case_id 配对，按布局聚类）", ""]
