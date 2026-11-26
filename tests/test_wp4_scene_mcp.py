@@ -126,11 +126,26 @@ def test_assert_sensor_only_catches_unfound_bowl_coordinate_leak(tmp_path):
 		con.close()
 
 
-def test_realistic_locate_bowls_no_truth_leak_on_seed_3000015(tmp_path):
+def _blind_white_bowls(monkeypatch, module):
+	"""Make ``module.locate_bowls`` miss every white bowl. Seeds 3000015/3000016 missed their white bowl under the old
+	white band (V >= 200); round 1 lowered it, so the missing-bowl paths below force the miss instead."""
+	original = module.locate_bowls
+
+	def blind(rgb, depth, k, cam, *, engine="mujoco", bands=None):
+		found = original(rgb, depth, k, cam, engine=engine, bands=bands)
+		return {slot: (None if bands and bands[slot][0] == -1 else est) for slot, est in found.items()}
+
+	monkeypatch.setattr(module, "locate_bowls", blind)
+
+
+def test_realistic_locate_bowls_no_truth_leak_on_seed_3000015(tmp_path, monkeypatch):
 	pytest.importorskip("mujoco")
 	pytest.importorskip("cv2")
 	pytest.importorskip("mcp")
 
+	from digital_twin_armigo.agent import twin_mujoco
+
+	_blind_white_bowls(monkeypatch, twin_mujoco)
 	case = [3000015, False, 5, {"scene": "v3", "split": "train"}]
 	lay = sample_case(*case)
 	truth_green = [round(float(lay.green[0]), 5), round(float(lay.green[1]), 5)]
@@ -395,10 +410,11 @@ def test_jittered_bowl_table_hue_separability_eliminates_violations():
 # ---------------------------------------------------------------------------
 
 
-def test_preflight_default_sensing_realistic_and_strict_perception_check():
+def test_preflight_default_sensing_realistic_and_strict_perception_check(monkeypatch):
 	pytest.importorskip("mujoco")
 	pytest.importorskip("cv2")
 	msv3 = _load_suite_v3()
+	_blind_white_bowls(monkeypatch, msv3.pc)
 
 	assert inspect.signature(msv3.build_suite_and_preflight).parameters["sensing"].default == "realistic"
 	assert inspect.signature(msv3.run_perception_check).parameters["sensing"].default == "realistic"

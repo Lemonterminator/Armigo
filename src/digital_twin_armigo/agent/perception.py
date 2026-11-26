@@ -57,6 +57,14 @@ BOWL_HSV = {"green": (45, 85, 70, 30), "pink": (150, 178, 40, 90)}
 # scene renders the pink bowl pastel (saturation ~20 against ~106 in MuJoCo), the green bowl passes unchanged.
 BOWL_HSV_BY_ENGINE: dict[str, dict[str, tuple[int, int, int, int]]] = {"isaac": {"pink": (150, 178, 12, 90)}}
 BOWL_MIN_PIXELS = 3000
+# Neutral (white/black) bowls match by brightness only. Round-0 clutter renders (seeds 4100101-4100130): white bowl walls
+# reach V 160-245 under the sampled lights (V >= 200 kept as little as 845 px), and often only the lit rim ring
+# (~1500 px) passes, so neutral components are tried from NEUTRAL_MIN_PIXELS. The height band keeps the table out.
+WHITE_V_MIN = 140
+NEUTRAL_MIN_PIXELS = 800
+# Bowl pixels lie under the rim (22 mm) plus resting bricks; higher pixels belong to the arm, which can share the bowl
+# colour (the yellow arm over a yellow bowl at the ready pose) and would merge with it.
+BOWL_MAX_HEIGHT_M = 0.035
 RIM_INLIER_M = 0.004
 FILL_GAP_M = 0.008  # a bowl pixel is filled when it came this much nearer the camera
 FILL_MIN_PIXELS = 500  # a 2x2 brick in a bowl shows about 1400; arm edges and noise up to about 300
@@ -363,7 +371,7 @@ def bands_for(
 			else:
 				raise NotImplementedError(f"Isaac HSV band not calibrated for slot {slot!r}; see Task 3b")
 		elif s < 0.15 and v > 0.70:
-			out[slot] = (-1, -1, 40, 200)
+			out[slot] = (-1, -1, 40, WHITE_V_MIN)
 		elif v < 0.25:
 			out[slot] = (-2, -2, 255, 50)
 		else:
@@ -416,18 +424,21 @@ def _locate_bowl_from_band(
 			h_mask = (hsv[..., 0] >= lo) | (hsv[..., 0] <= hi)
 		mask = h_mask & (hsv[..., 1] >= p3) & (hsv[..., 2] >= p4)
 	mask &= workspace
-	if lo < 0 and h2d is not None:
+	if h2d is not None:
 		if lo == -2:
 			mask &= np.isfinite(h2d) & (h2d > 0.004) & (h2d < 0.028)
-		else:
+		elif lo == -1:
 			mask &= np.isfinite(h2d) & (h2d > 0.002) & (h2d < 0.030)
+		else:
+			mask &= ~(h2d > BOWL_MAX_HEIGHT_M)  # unknown depth stays in, as before
+	min_pixels = NEUTRAL_MIN_PIXELS if lo < 0 else BOWL_MIN_PIXELS
 	n, labels, stats, _ = cv2.connectedComponentsWithStats(mask.astype(np.uint8), connectivity=8)
 	if n < 2:
 		return None
 	candidates = [
 		(int(stats[cid, cv2.CC_STAT_AREA]), cid)
 		for cid in range(1, n)
-		if int(stats[cid, cv2.CC_STAT_AREA]) >= BOWL_MIN_PIXELS
+		if int(stats[cid, cv2.CC_STAT_AREA]) >= min_pixels
 	]
 	candidates.sort(key=lambda item: item[0], reverse=True)
 	for area, cid in candidates:
@@ -439,11 +450,10 @@ def _locate_bowl_from_band(
 		rim = pts[edge[:, 1], edge[:, 0]]
 		if h2d is not None:
 			edge_h = h2d[edge[:, 1], edge[:, 0]]
-			if lo >= 0:
-				blob_top = float(np.percentile(h2d[comp], 95))
-				rim = rim[edge_h > 0.6 * blob_top]
-			else:
-				rim = rim[(edge_h > 0.004) & (edge_h < 0.028)]
+			blob_top = float(np.nanpercentile(h2d[comp], 95))
+			# The outer contour runs round the rim and down the wall to where the band starts (4 mm for black): keep
+			# the upper part, as for colours, so the fitted circle is the rim and not the narrower wall foot.
+			rim = rim[edge_h > 0.6 * blob_top]
 		rim = rim[np.isfinite(rim).all(axis=1)]
 		est = _fit_bowl_rim(rim, area)
 		if est is not None:
