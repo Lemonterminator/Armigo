@@ -1141,11 +1141,11 @@ class TwinMujoco:
 
 	def _clear_top_depth(self):
 		"""``(top depth with the arm at rest, "prepare" | "rest")``: the image ``prepare`` took at rest when no frame
-		has run since, else one taken on a rest-and-back move (a ``prepare`` segment, ``mode="clear_view"``).
-		``(None, None)`` when no image was taken (a student twin does not run expert generators)."""
+		has run since, else one taken after a move to rest (a ``prepare`` segment, ``mode="clear_view"``) before
+		returning to ready (a ``return_ready`` segment). ``(None, None)`` when a move fails."""
 		if self._rest_view is not None and self._rest_view[1] == self.total_frames:
 			return self._rest_view[0], "prepare"
-		ex, taken = self.expert, {}
+		ex = self.expert
 
 		def clear_view():
 			# Phase "approach" throughout, like the ready moves: "return" would mark the frames as a bowl release
@@ -1154,12 +1154,15 @@ class TwinMujoco:
 			q_rest[5] = ex.p.open_g
 			yield from ex._move(q_rest, ex._carry_secs(q_rest, ex.p.ready_move_s, 1.0), "approach")
 			yield from ex._hold(ex.p.final_hold_s, "approach")
-			taken["depth"] = self._top_depth()
-			yield from ex._go_ready()
 
-		if self._execute(clear_view()) or "depth" not in taken:
+		# The image is taken between the two motions, outside any generator, so a student twin (which replaces
+		# generators by policy segments) takes it at the same frame with the same noise draw.
+		if self._execute(clear_view()):
 			return None, None
-		return taken["depth"], "rest"
+		depth = self._top_depth()
+		if self._execute(ex._go_ready()):
+			return None, None
+		return depth, "rest"
 
 	def _perceive(self, est=None, source=None):
 		"""Locate the brick on the table through the calibrated top camera; None, or a failure code. ``est`` is a
@@ -1560,18 +1563,15 @@ class TwinMujoco:
 	def prepare(self):
 		def ready():
 			yield from self.expert._hold(self.expert.p.rest_s, "rest")
-			if self.realistic:  # the arm at rest hides none of the reach band from the top camera
-				rest_depth = self._top_depth()
 			yield from self.expert._go_ready()
-			if self.realistic:
-				self._rest_view = (rest_depth, None)
 
 		if self.scene_error:
 			return self.scene_error
-		self._rest_view = None
+		# The arm starts at rest, where it hides none of the reach band from the top camera. Taken outside the
+		# motion generator so expert and student twins draw the same depth noise.
+		rest_depth = self._top_depth() if self.realistic else None
 		error = self._execute(ready())
-		if self._rest_view is not None:
-			self._rest_view = (self._rest_view[0], self.total_frames)  # valid until the next frame runs
+		self._rest_view = None if rest_depth is None else (rest_depth, self.total_frames)  # valid until a frame runs
 		if not error:
 			if self.realistic:  # the arm hid other pixels at rest: keep the farther reading of each
 				self._baseline_depth = np.maximum(self._baseline_depth, self._top_depth())
