@@ -107,9 +107,6 @@ def test_paired_freeze_runs_both_sensing_modes_and_rejects_changed_configuration
 		"B",
 		"--real-cameras",
 		"fixed,drift",
-		"--localise",
-		"vote",
-		"--drift-alarm",
 	]
 	assert runner.main(["freeze-pair", *common, "--out", str(freeze)]) == 0
 	args = ["run-pair", *common, "--root", str(root), "--batch", "paired", "--case-limit", "1", "--freeze", str(freeze)]
@@ -117,19 +114,34 @@ def test_paired_freeze_runs_both_sensing_modes_and_rejects_changed_configuration
 	assert len(items_seen) == 3
 	configs, jobs = zip(*items_seen, strict=True)
 	assert [c["sensing"] for c in configs] == ["truth", "realistic", "realistic"]
-	assert "drift_alarm" not in configs[0]["agent_options"]
-	assert all(c["agent_options"]["drift_alarm"] for c in configs[1:])
+	assert [c["agent_options"]["drift_alarm"] for c in configs] == [False, False, True]
+	assert [j["experiment"]["localise"] for j in jobs] == ["top", "top", "vote"]
+	assert [j["experiment"]["drift_alarm"] for j in jobs] == [False, False, True]
 	assert all(j["experiment"]["sealed"] for j in jobs)
 	assert len({j["experiment"]["freeze_sha256"] for j in jobs}) == 1
 	assert [j["experiment"]["camera_condition"] for j in jobs] == ["fixed", "fixed", "drift"]
 	assert all(j["experiment"]["detector_checkpoint_sha256"] == runner._sha256(checkpoint) for j in jobs)
 
-	with pytest.raises(SystemExit, match=r"groups\.realistic-fixed-B-v7bot-loc-vote"):
-		runner.main([a for a in args if a != "--drift-alarm"])
+	with pytest.raises(SystemExit, match=r"groups\.realistic-drift-B-v7bot-loc-vote"):
+		runner.main([*args, "--no-drift-alarm"])
 	assert len(items_seen) == 3
 	checkpoint.write_bytes(b"different checkpoint")
 	with pytest.raises(SystemExit, match="detector_checkpoint_sha256"):
 		runner.main(args)
+
+
+def test_drift_alarm_ablation_leaves_vote_enabled_and_allows_oracle(monkeypatch):
+	items_seen = []
+	monkeypatch.setattr(runner, "cmd_run", lambda a: items_seen.append(runner._group_setup(a)) or 0)
+	args = ["run", "--sensing", "realistic", "--camera", "drift", "--suite", "smoke_600008", "--batch", "foo"]
+	for part in ("camera", "brick"):
+		with pytest.raises(SystemExit, match="requires.*measured brick and camera"):
+			runner.main([*args, "--oracle", part])
+		assert runner.main([*args, "--no-drift-alarm", "--oracle", part]) == 0
+	group, setup = items_seen[0]
+	assert group == "realistic-drift-A-v7bot-oracle-camera-loc-vote"
+	assert setup["agent_options"]["localise"] == "vote"
+	assert setup["agent_options"]["drift_alarm"] is False
 
 
 def test_dev_resume_refuses_a_different_commit(tmp_path, monkeypatch):

@@ -53,8 +53,8 @@ EXPERIMENT_FIELDS = (
 	"motion",  # MOTIONS
 	"evidence",  # EVIDENCE
 	"calib_offset_mm",  # float/int injected calibration offset in mm (0 = none)
-	"localise",
-	"drift_alarm",
+	"localise",  # effective mode: top or vote
+	"drift_alarm",  # effective bool, including False for ablations
 	"segmenter",  # SEGMENTERS
 	"suite",  # suite file name
 	"suite_sha256",

@@ -38,7 +38,7 @@ python -m digital_twin_armigo.experiments.runner freeze-pair --engine mujoco --s
 python -m digital_twin_armigo.experiments.runner run-pair --engine mujoco --suite p2_sealed --strategy B --detector-spec $armigoDetectorSpec --batch p2-sealed-mujoco-B --freeze $armigoFreezePath
 ```
 
-`--localise vote` 启用形状投票和腕环定位，`--drift-alarm` 再启用一次顶相机重校准。配对命令只在 realistic 侧应用这两个参数。对照组和告警组有独立的组名。执行封存实验时沿用对应的预注册配置。
+realistic drift 默认采用形状投票与腕环定位，并在告警时尝试一次顶相机重校准。用 `--no-drift-alarm` 做保持 vote 的消融，用 `--localise top --no-drift-alarm` 复现旧的 drift 配置。fixed 和 recal 保持原默认值。执行封存实验时沿用对应的预注册配置，freeze 和轨迹的 provenance 都记录实际选项。
 
 ## Agent 侧的新选项（`TwinMujoco`）
 

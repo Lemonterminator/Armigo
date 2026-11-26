@@ -318,8 +318,10 @@ def _group_setup(a) -> tuple[str, dict]:
 	evidence = str(getattr(a, "evidence", "hold") or "hold")
 	calib_offset_mm = float(getattr(a, "calib_offset_mm", 0) or 0)
 	segmenter = str(getattr(a, "segmenter", "lab") or "lab")
-	localise = getattr(a, "localise", "top")
-	drift_alarm = bool(getattr(a, "drift_alarm", False))
+	default_alarm = a.sensing == "realistic" and a.camera == "drift"
+	requested_alarm = getattr(a, "drift_alarm", None)
+	drift_alarm = default_alarm if requested_alarm is None else requested_alarm
+	localise = getattr(a, "localise", None) or ("vote" if default_alarm or drift_alarm else "top")
 	if motion not in MOTIONS:
 		raise SystemExit(f"unknown motion {motion!r}; expected one of {MOTIONS}")
 	if evidence not in EVIDENCE:
@@ -342,7 +344,12 @@ def _group_setup(a) -> tuple[str, dict]:
 		raise SystemExit("--drift-alarm requires --localise vote and measured brick and camera poses")
 
 	max_views = a.max_scored_views if a.max_scored_views is not None else (6 if a.sensing == "realistic" else None)
-	agent_options: dict = {"strategy": a.strategy, "max_scored_views": max_views}
+	agent_options: dict = {
+		"strategy": a.strategy,
+		"max_scored_views": max_views,
+		"localise": localise,
+		"drift_alarm": drift_alarm,
+	}
 	if a.sensing == "realistic":
 		agent_options["boundary"] = a.boundary
 	if motion != "open":
@@ -353,10 +360,6 @@ def _group_setup(a) -> tuple[str, dict]:
 		agent_options["segmenter"] = segmenter
 	if oracle:
 		agent_options["oracle"] = list(oracle)
-	if localise != "top":
-		agent_options["localise"] = localise
-	if drift_alarm:
-		agent_options["drift_alarm"] = True
 
 	from ..agent.twin_graph import Policy
 
@@ -446,7 +449,6 @@ def plan_group(a) -> tuple[dict, list[dict], Path]:
 		_validate_freeze(a, freeze, identity, group, setup)
 		freeze_sha = freeze_digest(freeze)
 	group_dir = root / "runs" / a.batch / a.engine / group
-	group_dir.mkdir(parents=True, exist_ok=True)
 	from ..agent.twin_mujoco import load_suite
 
 	cases = load_suite(suite_path)
@@ -461,6 +463,11 @@ def plan_group(a) -> tuple[dict, list[dict], Path]:
 		extra_opts["oracle"] = list(oracle)
 	if extra_opts:
 		cases = [(*c[:3], {**(c[3] if len(c) > 3 else {}), **extra_opts}) for c in cases]
+	if agent_options["drift_alarm"] and any(
+		len(c) > 3 and {"brick", "camera"}.intersection(_parse_oracle(c[3].get("oracle") or "")) for c in cases
+	):
+		raise SystemExit("--drift-alarm requires measured brick and camera poses in every suite case")
+	group_dir.mkdir(parents=True, exist_ok=True)
 	ids = [case_id(*c[:3]) for c in cases]
 	plan = {
 		"batch": a.batch,
@@ -750,9 +757,11 @@ def _common(p, *, include_sensing: bool = True):
 	p.add_argument("--evidence", choices=EVIDENCE, default="hold")
 	p.add_argument("--calib-offset-mm", type=float, default=0.0)
 	p.add_argument("--segmenter", choices=SEGMENTERS, default="lab")
-	p.add_argument("--localise", choices=("top", "vote"), default="top")
+	p.add_argument("--localise", choices=("top", "vote"), help="default: vote for drift, top otherwise")
 	p.add_argument(
-		"--drift-alarm", action="store_true", help="enable one top-camera recalibration with --localise vote"
+		"--drift-alarm",
+		action=argparse.BooleanOptionalAction,
+		help="enable one top-camera recalibration (default for realistic drift); --no-drift-alarm disables it",
 	)
 	p.add_argument("--review-llm-url")
 	p.add_argument("--review-model", default="qwen3.8-vllm")
