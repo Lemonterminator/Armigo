@@ -10,7 +10,19 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-MECHANISMS = ("calibration_drift", "brick_pose_error", "brick_yaw_error", "bowl_pose_error", "view_belief_error")
+import numpy as np
+
+MECHANISMS = (
+	"calibration_drift",
+	"brick_pose_error",
+	"brick_yaw_error",
+	"bowl_pose_error",
+	"view_belief_error",
+	"brick_toppled",
+)
+# Chosen on the open development calibration examples. The failed-grasp window excludes intentional carries.
+TOPPLE_TILT_DEG = 45.0
+TOPPLE_RISE_MM = 10.0
 POSE_MECHANISMS = ("brick_pose_error", "brick_yaw_error", "bowl_pose_error", "view_belief_error")
 DEFAULT_THRESHOLDS = {
 	"cam_pos_mm": 10.0,
@@ -51,6 +63,38 @@ def _hit(mechanism: str, event: dict, metric: str, value, threshold: float) -> d
 		"metric": metric,
 		"value": float(value),
 		"threshold": float(threshold),
+	}
+
+
+def brick_topple(track: np.ndarray | None, start: int, end: int) -> dict | None:
+	"""Detect overturning or a bounce during a failed grasp from a dense xyzw replay."""
+	if track is None or track.shape[1] < 7 or not 0 <= start < end <= len(track):
+		return None
+	# Replay index 0 is control frame 1. The frame at grasp start is the pre-contact reference.
+	window = track[max(start - 1, 0) : end]
+	q = window[:, 3:7]
+	lengths = np.linalg.norm(q, axis=1)
+	valid = np.isfinite(window[:, :7]).all(axis=1) & (lengths > 1e-8)
+	if not valid[0]:
+		return None
+	x, y, z, w = (q[valid] / lengths[valid, None]).T
+	# World up in brick coordinates, independent of the mesh's resting orientation and of yaw.
+	up = np.column_stack((2 * (x * z - y * w), 2 * (y * z + x * w), 1 - 2 * (x * x + y * y)))
+	tilt = np.degrees(np.arccos(np.clip(up @ up[0], -1, 1)))
+	rise = (window[valid, 2] - window[0, 2]) * 1000
+	hits = np.flatnonzero((tilt >= TOPPLE_TILT_DEG) | (rise >= TOPPLE_RISE_MM))
+	if not len(hits):
+		return None
+	first = int(hits[0])
+	return {
+		"mechanism": "brick_toppled",
+		"frame": max(start, 1) + int(np.flatnonzero(valid)[first]),
+		"grasp_start": start,
+		"grasp_end": end,
+		"max_tilt_change_deg": round(float(tilt.max()), 3),
+		"max_rise_mm": round(float(rise.max()), 3),
+		"tilt_threshold_deg": TOPPLE_TILT_DEG,
+		"rise_threshold_mm": TOPPLE_RISE_MM,
 	}
 
 

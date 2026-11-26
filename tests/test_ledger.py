@@ -6,6 +6,7 @@ import importlib.util
 import json
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from digital_twin_armigo.experiments.ledger import (
@@ -68,6 +69,15 @@ def _write_synth_episode(
 	if scene_layout is not None:
 		(ep_dir / "replay").mkdir(exist_ok=True)
 		(ep_dir / "replay" / "scene.json").write_text(json.dumps({"layout": scene_layout}), encoding="utf-8")
+
+
+def _write_landing(ep_dir: Path, xy) -> None:
+	path = ep_dir / "replay" / "scene.json"
+	scene = json.loads(path.read_text(encoding="utf-8"))
+	scene["layout"].update(green=[0.1, 0.1], pink=[0.1, -0.1])
+	scene["nodes"] = [{"name": "brick"}]
+	path.write_text(json.dumps(scene), encoding="utf-8")
+	np.savez(path.parent / "motion.npz", poses=np.array([[list(xy) + [0.02, 0, 0, 0, 1]]]))
 
 
 def test_build_ledger_clusters_counts_impact_share_and_sort():
@@ -241,18 +251,22 @@ def test_failure_ledger_cli_synthetic_batch(tmp_path):
 		experiment={"batch": batch, "engine": "mujoco", "group": group, "case_id": "L1-N", "attempt": 1},
 		scene_layout={"brick_size": [0.0318, 0.0318, 0.0192], "clutter": []},
 	)
+	_write_landing(group_dir / "L1-N", (0.1, 0.1))
 	for cid in ("L2-D0", "L3-D1"):
 		_write_synth_episode(
 			group_dir / cid,
 			case=[int(cid[1]), True, int(cid[-1]), {"cameras": "drift"}],
 			result={"verdict": "FAILED", "label": "defective"},
 			events=[
+				{"kind": "camera_calibrated", "actual_cam_pos_err_mm": 20.0, "frame": 0},
+				{"kind": "brick_perceived", "found": True, "error_xy_mm": 25.0, "frame": 80},
 				{"kind": "segment", "segment_kind": "grasp", "frame": 100},
 				{"kind": "failure", "code": "no_clamp", "frame": 200},
 			],
 			experiment={"batch": batch, "engine": "mujoco", "group": group, "case_id": cid, "attempt": 1},
 			scene_layout={"brick_size": [0.0318, 0.0318, 0.0192], "clutter": []},
 		)
+		_write_landing(group_dir / cid, (0.3, 0.0))
 
 	audit_db = root / "audit" / "reviews.sqlite"
 	audit.append(
@@ -321,7 +335,7 @@ def test_failure_ledger_smoke_p2_dev_r2(tmp_path):
 	ledger = json.loads((out_dir / "ledger.json").read_text(encoding="utf-8"))
 	assert ledger["total_episodes"] == 216
 	assert sum(c["n"] for c in ledger["clusters"]) == ledger["failure_episodes"]
-	assert ledger["ok_episodes"] + ledger["failure_episodes"] == 216
+	assert sum(ledger[k] for k in ("ok_episodes", "failure_episodes", "recovered_episodes", "unscored_episodes")) == 216
 
 	cluster_causes = {c["key"][2] for c in ledger["clusters"]}
 	assert "calibration_stale" in cluster_causes

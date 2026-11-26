@@ -81,6 +81,19 @@ def _brick_index(scene: dict, poses: np.ndarray, layout: dict) -> int:
 	return poses.shape[1] - 1
 
 
+def replay_brick_track(path: Path, scene: dict, layout: dict) -> np.ndarray | None:
+	"""Read the brick's dense xyz + xyzw replay track."""
+	try:
+		with np.load(path / "replay" / "motion.npz") as z:
+			poses = np.asarray(z["poses"], dtype=np.float64)
+	except (OSError, ValueError, KeyError):
+		return None
+	if poses.ndim != 3 or not poses.shape[0] or not poses.shape[1] or poses.shape[2] < 3:
+		return None
+	idx = _brick_index(scene, poses, layout)
+	return poses[:, idx].copy() if idx < poses.shape[1] else None
+
+
 def classify_pose(xyz, green, pink, bowl_r: float = BOWL_R) -> str:
 	"""Physical outcome of a final brick position: which bowl, table, lost or unknown (still in the air)."""
 	x, y, z = (float(v) for v in xyz)
@@ -94,7 +107,9 @@ def classify_pose(xyz, green, pink, bowl_r: float = BOWL_R) -> str:
 	return "unknown" if z > HELD_Z else "table"
 
 
-def physical_outcome(path: Path, result: dict, case, expected: str | None) -> dict:
+def physical_outcome(
+	path: Path, result: dict, case, expected: str | None, *, scene: dict | None = None, brick_track=None
+) -> dict:
 	"""``{"outcome", "source", "final_xyz", "moved_m", "dist_green", "dist_pink", "expected_bowl", "success"}``."""
 	path = Path(path)
 	expected_bowl = EXPECTED_BOWL.get(expected)
@@ -108,18 +123,12 @@ def physical_outcome(path: Path, result: dict, case, expected: str | None) -> di
 		"expected_bowl": expected_bowl,
 		"success": None,
 	}
-	scene = _json(path / "replay" / "scene.json")
-	motion = path / "replay" / "motion.npz"
-	if scene is not None and motion.is_file():
-		try:
-			with np.load(motion) as z:
-				poses = np.asarray(z["poses"], dtype=np.float64)
-		except (OSError, ValueError, KeyError):
-			poses = None
-		if poses is not None and poses.ndim == 3 and len(poses):
-			layout = _layout_geometry(scene, case)
-			idx = _brick_index(scene, poses, layout)
-			track = poses[:, idx, :3]
+	scene = _json(path / "replay" / "scene.json") if scene is None else scene
+	if scene is not None and (brick_track is not None or (path / "replay" / "motion.npz").is_file()):
+		layout = _layout_geometry(scene, case)
+		replay = replay_brick_track(path, scene, layout) if brick_track is None else brick_track
+		if replay is not None:
+			track = replay[:, :3]
 			finite = np.isfinite(track).all(axis=1)
 			if finite.any():
 				final = track[np.flatnonzero(finite)[-1]]

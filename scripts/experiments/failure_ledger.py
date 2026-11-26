@@ -28,12 +28,8 @@ def _format_round(value: str) -> str:
 def _load_reviews(audit_db: Path | None, traj_ids: list[str]) -> dict[str, dict]:
 	if audit_db is None or not Path(audit_db).is_file():
 		return {}
-	reviews: dict[str, dict] = {}
-	for tid in traj_ids:
-		rev = audit.latest(audit_db, tid)
-		if rev is not None:
-			reviews[tid] = rev
-	return reviews
+	latest = audit.latest_all(audit_db)
+	return {tid: latest[tid] for tid in traj_ids if tid in latest}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -73,7 +69,8 @@ def main(argv: list[str] | None = None) -> int:
 		encoding="utf-8",
 	)
 	print(
-		f"{out_dir}: {ledger['failure_episodes']}/{ledger['total_episodes']} failures, {len(ledger['clusters'])} clusters"
+		f"{out_dir}: {ledger['failure_episodes']}/{ledger['total_episodes']} failures, "
+		f"{ledger['recovered_episodes']} recovered, {len(ledger['clusters'])} clusters"
 	)
 	return 0
 

@@ -24,7 +24,8 @@ from .attribution import (
 	active_views,
 	collect_views,
 )
-from .scoring import _events, _json
+from .precursors import brick_topple, precursors
+from .scoring import _events, _json, _layout_geometry, physical_outcome, replay_brick_track
 
 YAW_ERR_THRESHOLD_DEG = 10.0
 FILL_MIN_PIXELS = 500
@@ -51,12 +52,12 @@ ROOT_CAUSE_TO_MECHANISM_COMPAT: Mapping[str, tuple[str, ...]] = MappingProxyType
 	{
 		# v3 added root causes
 		"perception_pose_error": ("brick_yaw_error", "brick_pose_error", "view_belief_error"),
-		"calibration_stale": ("calibration_drift",),
+		"calibration_stale": ("calibration_drift", "brick_pose_error"),
 		"bowl_localization": ("bowl_pose_error",),
 		"wrong_bowl_carry": ("bowl_pose_error", "calibration_drift"),
 		"tool_contract": (),
 		# Legacy attribution root causes
-		"grasp_or_path_failure": ("brick_pose_error", "brick_yaw_error", "calibration_drift"),
+		"grasp_or_path_failure": ("brick_pose_error", "brick_yaw_error", "calibration_drift", "brick_toppled"),
 		"recovery_failure": ("brick_pose_error", "brick_yaw_error", "calibration_drift"),
 		"placement_failure": ("bowl_pose_error", "brick_pose_error"),
 		"evidence_insufficient": ("brick_yaw_error", "view_belief_error", "brick_pose_error"),
@@ -93,6 +94,9 @@ class TriageRow:
 	root_cause: str
 	evidence: dict
 	rule: str
+	status: str | None = None
+	mechanism: str | None = None
+	physical_success: bool | None = None
 
 	def to_dict(self) -> dict:
 		return asdict(self)
@@ -303,17 +307,51 @@ def _is_drift_camera(events: list[dict], result: dict) -> bool:
 	return False
 
 
-def _rule_r3(events: list[dict], result: dict) -> dict | None:
-	if not _is_drift_camera(events, result):
+def _failed_grasps(events: list[dict]):
+	"""Yield matching grasp start and no-clamp events in recording order, per branch."""
+	starts: dict[int | None, int] = {}
+	for i, e in enumerate(events):
+		branch = e.get("branch")
+		if e.get("kind") == "segment":
+			if e.get("segment_kind") == "grasp":
+				starts[branch] = i
+			else:
+				starts.pop(branch, None)
+		elif e.get("kind") == "failure" and e.get("code") == "no_clamp" and branch in starts:
+			yield starts.pop(branch), i
+
+
+def _drift_grasp_evidence(events: list[dict], start: int) -> dict | None:
+	grasp = events[start]
+	camera, brick = None, None
+	for e in reversed(events[:start]):
+		if e.get("kind") in ("camera_calibrated", "camera_recalibrated"):
+			camera = e
+			break
+		if brick is None and e.get("kind") == "brick_perceived" and e.get("branch") == grasp.get("branch"):
+			brick = e
+	if camera is None or brick is None:
 		return None
-	for rec in _failure_records(events, result):
-		if rec["code"] == "no_clamp" and rec["stage"] == "grasp":
-			return {
-				"camera_condition": "drift",
-				"code": "no_clamp",
-				"stage": "grasp",
-				"frame": rec["frame"],
-			}
+	camera_hits = precursors([camera])
+	brick_hit = next((h for h in precursors([brick]) if h["mechanism"] == "brick_pose_error"), None)
+	if not camera_hits or brick_hit is None:
+		return None
+	return {"upstream": "calibration_drift", "calibration_evidence": camera_hits[0], "pose_evidence": brick_hit}
+
+
+def _rule_r3(events: list[dict], result: dict) -> dict | None:
+	if _is_drift_camera(events, result):
+		for start, fail in _failed_grasps(events):
+			chain = _drift_grasp_evidence(events, start)
+			if chain is not None:
+				return {
+					**chain,
+					"camera_condition": "drift",
+					"code": "no_clamp",
+					"stage": "grasp",
+					"frame": events[fail].get("frame"),
+					"mechanism": "brick_pose_error",
+				}
 	return None
 
 
@@ -434,9 +472,16 @@ def _is_r6_code(code: str | None) -> bool:
 
 
 def _rule_r6(events: list[dict], result: dict) -> dict | None:
-	for rec in _failure_records(events, result):
+	# A no-clamp code alone describes a symptom. Without the drift evidence chain, leave it unclassified.
+	records = _failure_records(events, result)
+	unexplained_drift = _is_drift_camera(events, result) and any(
+		r["code"] == "no_clamp" and r["stage"] == "grasp" for r in records
+	)
+	for rec in records:
 		code = rec["code"]
 		stage = rec["stage"]
+		if unexplained_drift and code == "no_clamp" and stage == "grasp":
+			continue
 		if _is_r6_code(code) and (stage is None or stage in _GRASP_CARRY_STAGES):
 			out_stage = "grasp" if stage == "grasp" or code == "no_clamp" else "carry"
 			return {"code": code, "stage": out_stage, "frame": rec["frame"]}
@@ -444,7 +489,7 @@ def _rule_r6(events: list[dict], result: dict) -> dict | None:
 	for ev in events:
 		if ev.get("kind") == "segment_end":
 			reason = ev.get("reason")
-			if _is_r6_code(reason):
+			if _is_r6_code(reason) and not (unexplained_drift and reason == "no_clamp"):
 				return {"code": reason, "stage": "carry", "frame": ev.get("frame")}
 
 	health = result.get("health") or {}
@@ -453,11 +498,11 @@ def _rule_r6(events: list[dict], result: dict) -> dict | None:
 	cycle = health.get("final_cycle") if isinstance(health.get("final_cycle"), dict) else {}
 	for src in (cycle, health):
 		for code in src.get("reason_codes") or []:
-			if _is_r6_code(code):
+			if _is_r6_code(code) and not (unexplained_drift and code == "no_clamp"):
 				out_stage = "grasp" if code in ("pick_miss", "no_clamp") else "carry"
 				return {"code": code, "stage": out_stage, "frame": None}
 		fm = src.get("failure_mode")
-		if _is_r6_code(fm):
+		if _is_r6_code(fm) and not (unexplained_drift and fm == "no_clamp"):
 			out_stage = "grasp" if fm in ("pick_miss", "no_clamp") else "carry"
 			return {"code": fm, "stage": out_stage, "frame": None}
 		if (src.get("unintended_collision_count") or 0) > 0 or src.get("unintended_collision_frames"):
@@ -631,7 +676,7 @@ def _stage_and_code_for_rule(rule_id: str, ev: dict, events: list[dict], result:
 
 
 def triage_episode(ep_dir: Path, *, traj_id: str | None = None) -> TriageRow:
-	"""Triage one episode directory (read-only) using rules R1-R8."""
+	"""Classify the replay outcome and diagnose any failure, without relying on the agent's verdict."""
 	ep_dir = Path(ep_dir)
 	episode = _json(ep_dir / "episode.json") or {}
 	result = dict(episode.get("result") or {})
@@ -665,17 +710,55 @@ def triage_episode(ep_dir: Path, *, traj_id: str | None = None) -> TriageRow:
 	if "run_state" not in result and run_status.get("state"):
 		result["run_state"] = run_status["state"]
 
-	verdict = result.get("verdict_final_cycle") or result.get("verdict")
-	if verdict == "SUCCESS" and result.get("label_correct") is not False and _rule_r5(events, result) is None:
+	layout = _layout_geometry(scene, case) if (ep_dir / "replay" / "motion.npz").is_file() else {}
+	track = replay_brick_track(ep_dir, scene, layout) if layout else None
+	expected = _expected_label(result)
+	physical = physical_outcome(ep_dir, result, case, expected, scene=scene, brick_track=track)
+	label_correct = result.get("label") == expected if expected in LABELS else result.get("label_correct")
+	success = physical["success"]
+	if label_correct is False or run_status.get("state") in ("infra_failed", "interrupted"):
+		success = False
+	elif label_correct is not True:
+		success = None if success is not False else False
+
+	topple = None
+	if track is not None and any(n.get("name") == "brick" for n in scene.get("nodes") or []):
+		for start, fail in _failed_grasps(events):
+			begin, end = events[start].get("frame"), events[fail].get("frame")
+			if isinstance(begin, int) and isinstance(end, int):
+				topple = brick_topple(track, begin, end)
+				if topple is not None:
+					topple.update(_drift_grasp_evidence(events, start) or {})
+					break
+
+	if success is True:
+		stage, code = _default_stage_and_code(events, result)
+		recovered = bool(_failure_records(events, result)) or code is not None
 		return TriageRow(
 			traj_id=resolved_traj_id,
-			stage="ok",
-			code=None,
+			stage=stage if recovered else "ok",
+			code=code if recovered else None,
 			root_cause="none",
-			evidence={},
-			rule="none",
+			evidence=topple or {},
+			rule="recovered" if recovered else "none",
+			status="recovered" if recovered else "ok",
+			mechanism=topple["mechanism"] if topple else None,
+			physical_success=True,
 		)
 
+	status = "failure" if success is False else "unscored"
+	if topple is not None:
+		return TriageRow(
+			resolved_traj_id,
+			"grasp",
+			"no_clamp",
+			"grasp_or_path_failure",
+			topple,
+			"brick_toppled",
+			status=status,
+			mechanism="brick_toppled",
+			physical_success=success,
+		)
 	for rule in RULES:
 		matched = rule.matcher(events, result)
 		if matched is None:
@@ -690,6 +773,9 @@ def triage_episode(ep_dir: Path, *, traj_id: str | None = None) -> TriageRow:
 			root_cause=root_cause,
 			evidence=evidence,
 			rule=rule.id,
+			status=status,
+			mechanism=evidence.get("mechanism"),
+			physical_success=success,
 		)
 
 	stage, code = _default_stage_and_code(events, result)
@@ -700,4 +786,6 @@ def triage_episode(ep_dir: Path, *, traj_id: str | None = None) -> TriageRow:
 		root_cause="unclassified",
 		evidence={},
 		rule="unclassified",
+		status=status,
+		physical_success=success,
 	)

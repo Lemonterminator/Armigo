@@ -70,6 +70,9 @@ def _coerce_row(item: TriageRow | dict) -> TriageRow:
 		root_cause=str(item.get("root_cause") or "unclassified"),
 		evidence=dict(item.get("evidence") or {}),
 		rule=str(item.get("rule") or "unclassified"),
+		status=item.get("status"),
+		mechanism=item.get("mechanism"),
+		physical_success=item.get("physical_success"),
 	)
 
 
@@ -127,6 +130,8 @@ def build_ledger(
 
 	groups: dict[tuple[str, str | None, str], dict] = {}
 	ok_episodes = 0
+	recovered_rows = []
+	unscored_rows = []
 	total_reviewed = 0
 	total_agreed = 0
 
@@ -140,9 +145,19 @@ def build_ledger(
 			if agreed:
 				total_agreed += 1
 
-		if effective_cause == "none":
+		if row.status == "recovered":
+			recovered_rows.append(
+				{"traj_id": row.traj_id, "stage": row.stage, "code": row.code, "mechanism": row.mechanism}
+			)
+			continue
+		if row.status == "unscored":
+			unscored_rows.append(row.traj_id)
+			continue
+		if row.status == "ok" or (row.status is None and effective_cause == "none"):
 			ok_episodes += 1
 			continue
+		if effective_cause == "none":
+			effective_cause = row.root_cause
 
 		key = (row.stage, row.code, effective_cause)
 		grp = groups.get(key)
@@ -154,10 +169,13 @@ def build_ledger(
 				"examples": [],
 				"reviewed": 0,
 				"agreed": 0,
+				"mechanisms": Counter(),
 			}
 			groups[key] = grp
 
 		grp["n"] += 1
+		if row.mechanism:
+			grp["mechanisms"][row.mechanism] += 1
 		grp["impact"] += episode_loss(row, rev, ep_fac, effective_cause=effective_cause)
 		if len(grp["examples"]) < MAX_EXAMPLES:
 			grp["examples"].append(row.traj_id)
@@ -194,6 +212,7 @@ def build_ledger(
 				"share": freq_share,  # backwards-compatible alias of freq_share; stopping criteria use impact_share
 				"factors": factor_dist,
 				"examples": grp["examples"],
+				"mechanisms": dict(sorted(grp["mechanisms"].items())),
 				"review_agreement": round(grp["agreed"] / grp["reviewed"], 6) if grp["reviewed"] else None,
 			}
 		)
@@ -203,6 +222,10 @@ def build_ledger(
 	return {
 		"total_episodes": len(coerced),
 		"ok_episodes": ok_episodes,
+		"recovered_episodes": len(recovered_rows),
+		"recovered": recovered_rows,
+		"unscored_episodes": len(unscored_rows),
+		"unscored": unscored_rows,
 		"failure_episodes": total_failures,
 		"total_impact": round(total_impact, 6),
 		"reviewed_episodes": total_reviewed,
@@ -446,6 +469,8 @@ def render_ledger_md(
 		"",
 		f"- Total episodes: {ledger['total_episodes']}",
 		f"- Clean (ok/none): {ledger['ok_episodes']}",
+		f"- Recovered (physically successful): {ledger.get('recovered_episodes', 0)}",
+		f"- Unscored (outcome unavailable): {ledger.get('unscored_episodes', 0)}",
 		f"- Failure episodes: {ledger['failure_episodes']}",
 		f"- Total impact: {ledger['total_impact']:.2f}",
 		f"- Review agreement: {_fmt_pct(ledger.get('review_agreement'))} ({ledger.get('reviewed_episodes', 0)} reviewed)",
@@ -484,10 +509,20 @@ def render_ledger_md(
 			for fname, dist in c["factors"].items():
 				dist_str = ", ".join(f"{val}={cnt}" for val, cnt in dist.items())
 				lines.append(f"  - `{fname}`: {dist_str}")
+		if c.get("mechanisms"):
+			counts = ", ".join(f"`{name}`={n}" for name, n in c["mechanisms"].items())
+			lines.append(f"- Mechanisms: {counts}")
 		if c["examples"]:
 			lines.append("- Examples:")
 			for tid in c["examples"]:
 				url = VIEWER_TRAJ_URL + quote(tid, safe="/")
 				lines.append(f"  - [{tid}]({url}) (`{url}`)")
+
+	if ledger.get("recovered"):
+		lines += ["", "## Recovered episodes", "", "| Trajectory | Stage | Code | Mechanism |", "|---|---|---|---|"]
+		for row in ledger["recovered"]:
+			tid = row["traj_id"]
+			url = VIEWER_TRAJ_URL + quote(tid, safe="/")
+			lines.append(f"| [{tid}]({url}) | {row['stage']} | {row['code'] or '-'} | {row['mechanism'] or '-'} |")
 
 	return "\n".join(lines) + "\n"

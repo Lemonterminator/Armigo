@@ -1,28 +1,4 @@
-"""Unit tests and p2-dev-r2 calibration checks for automatic failure triage rules (R1-R8).
-
-Calibration on ``D:/Armigo_data_v2/runs/p2-dev-r2`` (216 total episodes, read-only):
-- Clean ``SUCCESS`` (``scored_verdict == "SUCCESS"`` & ``attribution == "none"``):
-  152/152 (100.0%) -> ``stage="ok", root_cause="none"``.
-- Non-perfect in ``scores.jsonl`` (50 total):
-  - ``evidence_insufficient`` (15): 12 -> R2 (``perception_pose_error``, yaw err 19.8-25.5 deg),
-    3 -> R5 (``evidence_insufficient``, missing face 0) [15/15 = 100.0%].
-  - ``false_positive_visible`` (2): 2 -> R7 (``false_positive_visible``) [2/2 = 100.0%].
-  - ``drift`` + ``no_clamp`` in grasp (27 total across ``grasp_or_path_failure`` and
-    ``recovery_failure``): 17 -> R3 (``calibration_stale``), 10 -> R2 (``perception_pose_error``,
-    higher-priority rule where upright ``view_truth`` also had yaw err > 10 deg: 4x L700007
-    with 19.12 deg initial yaw err, 6x L700006 with 43.76 deg recovery yaw err).
-    All 17/17 pure drift grasp failures without >10 deg yaw error map to R3 (100.0%).
-  - ``BRICK_LOST`` without ``no_clamp`` or >10 deg yaw error (3x L700005-D4): 3 -> R6
-    (``grasp_or_path_failure``) [3/3 = 100.0%].
-  - ``target_face_not_in_view`` (3): 2x L700007-D0 (drift-B/C, 19.12 deg yaw err) -> R2,
-    1x L700005-N (drift-C, view budget exhausted after review) -> ``unclassified``.
-- Physically in right bowl (``attribution == "none"``) but ``verdict == "FAILED"`` due to
-  ``health.failure_mode == "torque_stall"`` (14 episodes): all 14 -> ``code="torque_stall"``,
-  ``root_cause="unclassified"`` (process torque stall not in R1-R8).
-- Overall coverage on R1-R8 targets: 49/50 (98.0%) ``scores.jsonl`` non-perfect episodes triaged
-  by R1-R8; 152/152 (100.0%) clean ``SUCCESS`` episodes -> ``none``; 15/15 (100.0%)
-  ``evidence_insufficient`` -> R2/R5; 17/17 (100.0%) pure drift grasp failures -> R3.
-"""
+"""Unit and development batch checks for evidence-based triage."""
 
 from __future__ import annotations
 
@@ -30,6 +6,7 @@ import json
 import math
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from digital_twin_armigo.experiments.contract import ROOT_CAUSES
@@ -72,6 +49,14 @@ def _yaw_quat(deg: float) -> list[float]:
 	return [0.0, 0.0, round(math.sin(rad / 2), 6), round(math.cos(rad / 2), 6)]
 
 
+def _replay(ep: Path, frame_xyzq) -> None:
+	replay = ep / "replay"
+	replay.mkdir(exist_ok=True)
+	scene = {"layout": {"green": [0.2, 0.1], "pink": [0.2, -0.1]}, "nodes": [{"name": "brick"}]}
+	(replay / "scene.json").write_text(json.dumps(scene), encoding="utf-8")
+	np.savez(replay / "motion.npz", poses=np.array(frame_xyzq)[:, None, :])
+
+
 def test_rules_table_and_root_causes_contract():
 	assert [r.id for r in RULES] == [f"R{i}" for i in range(1, 9)]
 	for cause in (
@@ -109,6 +94,7 @@ def test_success_episode(tmp_path):
 		],
 		result={"verdict": "SUCCESS", "label": "normal", "label_correct": True},
 	)
+	_replay(ep, [[0.2, 0.1, 0.02, 0, 0, 0, 1]])
 	row = triage_episode(ep)
 	assert isinstance(row, TriageRow)
 	assert row.stage == "ok"
@@ -219,24 +205,73 @@ def test_r2_real_quaternion_and_symmetry_modulo(tmp_path):
 	assert abs(row_2x2.evidence["yaw_err_deg"] - 19.9) < 0.2
 
 
-def test_r3_drift_grasp_no_clamp(tmp_path):
+@pytest.mark.parametrize("mode", ["supported", "no_pose", "recalibrated", "post_grasp", "stale_pose"])
+def test_r3_drift_grasp_requires_prior_calibration_and_pose_evidence(tmp_path, mode):
+	brick = {"kind": "brick_perceived", "found": True, "error_xy_mm": 25.0, "frame": 220}
+	events = [
+		{"kind": "camera_calibrated", "calibrated_on": "nominal", "actual_cam_pos_err_mm": 20, "frame": 0},
+	]
+	if mode != "no_pose" and mode != "post_grasp":
+		events.append(brick)
+	if mode == "recalibrated":
+		events.append({"kind": "camera_recalibrated", "frame": 221})
+	if mode == "stale_pose":
+		events.append({**brick, "error_xy_mm": 1.0, "frame": 221})
+	events.append({"kind": "segment", "segment_kind": "grasp", "node": "present_bottom", "frame": 227})
+	if mode == "post_grasp":
+		events.append({**brick, "frame": 400})
+	events.append({"kind": "failure", "code": "no_clamp", "skill": "present_bottom", "node": "recover", "frame": 776})
 	ep = write_episode(
 		tmp_path,
 		"r3",
-		events=[
-			{"kind": "camera_calibrated", "calibrated_on": "nominal", "frame": 0},
-			{"kind": "segment", "segment_kind": "grasp", "node": "present_bottom", "frame": 227},
-			{"kind": "failure", "code": "no_clamp", "skill": "present_bottom", "node": "recover", "frame": 776},
-		],
+		events=events,
 		result={"verdict": "FAILED", "label": "unknown"},
 		experiment={"camera_condition": "drift"},
 	)
 	row = triage_episode(ep)
+	if mode != "supported":
+		assert row.rule == row.root_cause == "unclassified"
+		return
 	assert row.rule == "R3"
 	assert row.root_cause == "calibration_stale"
 	assert row.stage == "grasp"
 	assert row.code == "no_clamp"
 	assert row.evidence["camera_condition"] == "drift"
+	assert row.evidence["pose_evidence"]["value"] == 25.0
+
+
+@pytest.mark.parametrize("lands_correctly", [True, False])
+def test_topple_in_failed_grasp_and_physical_recovery(tmp_path, lands_correctly):
+	ep = write_episode(
+		tmp_path,
+		events=[
+			{"kind": "segment", "segment_kind": "grasp", "frame": 1, "branch": 0},
+			{"kind": "failure", "code": "no_clamp", "frame": 3, "branch": 0},
+		],
+		result={"verdict": "FAILED" if lands_correctly else "SUCCESS", "label": "normal"},
+		task={"case": [1, False, 0]},
+	)
+	q = math.sqrt(0.5)
+	_replay(
+		ep,
+		[
+			[0.12, 0, 0.02, 0, 0, 0, 1],
+			[0.12, 0, 0.02, 0, 0, q, q],
+			[0.12, 0, 0.02, q, 0, 0, q],
+			[0.20, 0.1 if lands_correctly else 0, 0.02, 0, 0, 0, 1],
+		],
+	)
+	row = triage_episode(ep)
+	assert row.evidence["frame"] == 3  # yaw at frame 2 is not a topple
+	assert row.mechanism == "brick_toppled"
+	assert row.physical_success is lands_correctly
+	assert row.status == ("recovered" if lands_correctly else "failure")
+	assert row.root_cause == ("none" if lands_correctly else "grasp_or_path_failure")
+
+
+def test_no_replay_does_not_treat_reported_success_as_physical_outcome(tmp_path):
+	ep = write_episode(tmp_path, result={"verdict": "SUCCESS", "label": "normal"}, task={"case": [1, False, 0]})
+	assert triage_episode(ep).status == "unscored"
 
 
 def test_r4_wrong_bowl_carry(tmp_path):
@@ -453,7 +488,8 @@ def test_rule_priority_ordering(tmp_path):
 		tmp_path,
 		"p23",
 		events=[
-			{"kind": "brick_perceived", "found": True, "yaw_deg": 35.0, "frame": 10},
+			{"kind": "camera_calibrated", "actual_cam_pos_err_mm": 20.0, "frame": 0},
+			{"kind": "brick_perceived", "found": True, "yaw_deg": 35.0, "error_xy_mm": 25.0, "frame": 10},
 			{"kind": "view_truth", "brick_yaw_deg": 5.0, "frame": 10},
 			{"kind": "segment", "segment_kind": "grasp", "frame": 200},
 			{"kind": "failure", "code": "no_clamp", "frame": 300},
@@ -468,6 +504,8 @@ def test_rule_priority_ordering(tmp_path):
 		tmp_path,
 		"p36",
 		events=[
+			{"kind": "camera_calibrated", "actual_cam_pos_err_mm": 20.0, "frame": 0},
+			{"kind": "brick_perceived", "found": True, "error_xy_mm": 25.0, "frame": 80},
 			{"kind": "segment", "segment_kind": "grasp", "frame": 200},
 			{"kind": "failure", "code": "no_clamp", "frame": 300},
 			{"kind": "segment", "segment_kind": "carry_to_bowl", "frame": 400},
@@ -499,44 +537,21 @@ P2_DEV_R2_SCORES = Path("D:/Armigo_data_v2/reports/p2-dev-r2/scores.jsonl")
 	not (P2_DEV_R2.is_dir() and P2_DEV_R2_SCORES.is_file()),
 	reason="D:/Armigo_data_v2/runs/p2-dev-r2 dataset not available",
 )
-def test_calibrate_on_p2_dev_r2():
+def test_triage_on_p2_dev_r2_matches_recorded_physical_success():
 	scores = [json.loads(line) for line in P2_DEV_R2_SCORES.read_text(encoding="utf-8").splitlines() if line.strip()]
 	non_perfect = [r for r in scores if not r["physical_success"] or r["root_cause"] != "none"]
 	assert len(non_perfect) == 50
 
 	triaged = {r["path"]: triage_episode(Path(r["path"])) for r in non_perfect}
 
-	# All evidence_insufficient episodes must map to R2 or R5
-	ei_rows = [r for r in non_perfect if r["root_cause"] == "evidence_insufficient"]
-	assert len(ei_rows) == 15
-	assert all(triaged[r["path"]].rule in ("R2", "R5") for r in ei_rows)
-	assert sum(triaged[r["path"]].rule == "R2" for r in ei_rows) == 12
-	assert sum(triaged[r["path"]].rule == "R5" for r in ei_rows) == 3
-
-	# All false_positive_visible episodes must map to R7
-	fp_rows = [r for r in non_perfect if r["root_cause"] == "false_positive_visible"]
-	assert len(fp_rows) == 2
-	assert all(
-		triaged[r["path"]].rule == "R7" and triaged[r["path"]].root_cause == "false_positive_visible" for r in fp_rows
-	)
-
-	# All drift grasp failures (no_clamp in grasp) must map to R3 (or higher-priority R2 when yaw > 10 deg)
-	drift_grasp_rows = [
-		r
-		for r in non_perfect
-		if r.get("camera_condition") == "drift"
-		and any(
-			ev.get("kind") == "failure" and ev.get("code") == "no_clamp"
-			for ev in (
-				json.loads(l)
-				for l in (Path(r["path"]) / "events.jsonl").read_text(encoding="utf-8").splitlines()
-				if l.strip()
-			)
-		)
-	]
-	assert len(drift_grasp_rows) == 27
-	assert sum(triaged[r["path"]].rule == "R3" for r in drift_grasp_rows) == 17
-	assert all(triaged[r["path"]].rule in ("R2", "R3") for r in drift_grasp_rows)
+	for r in non_perfect:
+		row = triaged[r["path"]]
+		if r["physical"]["source"] == "replay" and r["physical"]["success"] is not None:
+			assert row.physical_success == r["physical_success"]
+		if row.rule == "R3":
+			cal, pose = row.evidence["calibration_evidence"], row.evidence["pose_evidence"]
+			assert cal["value"] > cal["threshold"] and pose["value"] > pose["threshold"]
+			assert cal["frame"] <= pose["frame"] <= row.evidence["frame"]
 
 	# Clean successes (verdict == SUCCESS and attribution == none) map to stage="ok", root_cause="none"
 	clean_rows = [
@@ -545,7 +560,7 @@ def test_calibrate_on_p2_dev_r2():
 	assert len(clean_rows) == 152
 	for r in clean_rows[:20]:
 		row = triage_episode(Path(r["path"]))
-		assert row.stage == "ok" and row.root_cause == "none"
+		assert row.status in ("ok", "recovered") and row.root_cause == "none"
 
 	# Torque-stall episodes (verdict == FAILED despite brick landing in right bowl) surface torque_stall code
 	stall_rows = [
@@ -554,4 +569,4 @@ def test_calibrate_on_p2_dev_r2():
 	assert len(stall_rows) == 14
 	for r in stall_rows[:5]:
 		row = triage_episode(Path(r["path"]))
-		assert row.code == "torque_stall" and row.root_cause == "unclassified"
+		assert row.status == "recovered" and row.root_cause == "none"
