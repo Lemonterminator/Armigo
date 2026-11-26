@@ -46,6 +46,18 @@
       "cases": 96,
       "layouts": 48,
       "sealed": false
+    },
+    "loop_02_400": {
+      "sha256": "2d040a09cb724e94fb10303c535f18e641169f18a04486c67ea09667c7a2004f",
+      "cases": 400,
+      "layouts": 200,
+      "sealed": false
+    },
+    "probe_clutter_12": {
+      "sha256": "6f206a6451dd5ac4b5a104e64aba2104d3558054a0371895e013a9ecb65a209a",
+      "cases": 12,
+      "layouts": 6,
+      "sealed": false
     }
   }
 }

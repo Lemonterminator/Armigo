@@ -12,6 +12,8 @@ face index, as dev_suite_700001 does):
 - ``p2_dev12``: 12 layouts of dev_suite_700001, two per face (phase-2 development).
 - ``p2_sealed``: 24 new layouts (seeds 720001-720024), four per face; disjoint from p1_sealed.
 - ``loop_01_96``: 48 loop-01 layouts (seeds 3600001-3600048), eight per face (Stage 4 confirmation).
+- ``loop_02_400``: 200 new seed pairs from 3601001 for drift fix acceptance.
+- ``probe_clutter_12``: six independent layouts with the existing v3 appearance and clutter sampler.
 
 Seeds of the sealed suites are checked against every suite under config/ so a sealed layout never appeared before.
 """
@@ -70,6 +72,11 @@ def build() -> dict[str, list]:
 		"p2_dev12": dev12,
 		"p2_sealed": _paired(list(range(720001, 720025))),
 		"loop_01_96": _paired(list(range(3_600_001, 3_600_049))),
+		"loop_02_400": _paired(list(range(3_601_001, 3_601_201))),
+		"probe_clutter_12": [
+			[*case, {"scene": "v3", "cameras": "fixed", "split": "train"}]
+			for case in _paired(list(range(4_100_001, 4_100_007)))
+		],
 	}
 	loop_seeds = {c[0] for c in suites["loop_01_96"]}
 	assert len(loop_seeds) == 48
@@ -80,6 +87,13 @@ def build() -> dict[str, list]:
 		clash = loop_seeds & {c[0] for c in cases}
 		assert not clash, f"loop_01_96 overlaps {name}: {sorted(clash)[:5]}"
 	used = _existing_seeds()
+	for name, expected_split in (("loop_02_400", "loop-02"), ("probe_clutter_12", "unknown")):
+		seeds = {c[0] for c in suites[name]}
+		assert all(split_of(seed) == expected_split for seed in seeds), f"{name}: unexpected governance split"
+		for other, cases in suites.items():
+			if name != other:
+				assert seeds.isdisjoint(c[0] for c in cases), f"{name} overlaps {other}"
+		assert seeds.isdisjoint(used), f"{name} overlaps an existing config suite"
 	for name in ("p1_sealed", "p2_sealed"):
 		clash = {c[0] for c in suites[name]} & used
 		if clash:
