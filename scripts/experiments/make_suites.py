@@ -15,6 +15,8 @@ face index, as dev_suite_700001 does):
 - ``loop_02_400``: 200 new seed pairs from 3601001 for drift fix acceptance.
 - ``probe_clutter_12``: six independent layouts with the existing v3 appearance and clutter sampler.
 - ``round_00_clutter_60``: 30 new layouts (4100101–4100130) for the clutter baseline.
+- ``round_00_clutter_audited_60``: the effective baseline, replacing the clipped 4100116 with 4100142.
+- ``round_00_clutter_replacement_2``: the two new cases needed to patch the original baseline.
 
 Seeds of the sealed suites are checked against every suite under config/ so a sealed layout never appeared before.
 """
@@ -106,7 +108,24 @@ def build() -> dict[str, list]:
 		if clash:
 			raise SystemExit(f"{name}: seeds already used elsewhere: {sorted(clash)[:5]}")
 	assert not {c[0] for c in suites["p1_sealed"]} & {c[0] for c in suites["p2_sealed"]}
-	for name in ("p1_sealed", "p2_sealed", "p2_dev12", "dev_suite_700001", "loop_01_96", "round_00_clutter_60"):
+	# The effective suite intentionally reuses the 29 accepted layouts. Match the removed layout's defect face.
+	replacement_seed = 4_100_142
+	assert split_of(replacement_seed) == "unknown" and replacement_seed not in used
+	assert not any(c[0] == replacement_seed for cases in suites.values() for c in cases)
+	original = suites["round_00_clutter_60"]
+	replacement = [[replacement_seed, *c[1:]] for c in original if c[0] == 4_100_116]
+	assert len(replacement) == 2
+	suites["round_00_clutter_audited_60"] = [c for c in original if c[0] != 4_100_116] + replacement
+	suites["round_00_clutter_replacement_2"] = replacement
+	for name in (
+		"p1_sealed",
+		"p2_sealed",
+		"p2_dev12",
+		"dev_suite_700001",
+		"loop_01_96",
+		"round_00_clutter_60",
+		"round_00_clutter_audited_60",
+	):
 		faces = [c[2] for c in suites[name] if c[1]]
 		assert len({faces.count(f) for f in range(6)}) == 1, f"{name} is not face-balanced"
 	return suites
