@@ -17,6 +17,7 @@ face index, as dev_suite_700001 does):
 - ``round_00_clutter_60``: 30 new layouts (4100101–4100130) for the clutter baseline.
 - ``round_00_clutter_audited_60``: the effective baseline, replacing the clipped 4100116 with 4100142.
 - ``round_00_clutter_replacement_2``: the two new cases needed to patch the original baseline.
+- ``round_01_fresh_192``: 96 new clutter layouts (4100201–4100296), face-balanced, for the round-1 fresh-seed gate.
 
 Seeds of the sealed suites are checked against every suite under config/ so a sealed layout never appeared before.
 """
@@ -82,6 +83,7 @@ def build() -> dict[str, list]:
 		"loop_02_400": _paired(list(range(3_601_001, 3_601_201))),
 		"probe_clutter_12": _clutter_cases(list(range(4_100_001, 4_100_007))),
 		"round_00_clutter_60": _clutter_cases(list(range(4_100_101, 4_100_131))),
+		"round_01_fresh_192": _clutter_cases(list(range(4_100_201, 4_100_297))),
 	}
 	loop_seeds = {c[0] for c in suites["loop_01_96"]}
 	assert len(loop_seeds) == 48
@@ -96,6 +98,7 @@ def build() -> dict[str, list]:
 		("loop_02_400", "loop-02"),
 		("probe_clutter_12", "unknown"),
 		("round_00_clutter_60", "unknown"),
+		("round_01_fresh_192", "unknown"),
 	):
 		seeds = {c[0] for c in suites[name]}
 		assert all(split_of(seed) == expected_split for seed in seeds), f"{name}: unexpected governance split"
@@ -125,6 +128,7 @@ def build() -> dict[str, list]:
 		"loop_01_96",
 		"round_00_clutter_60",
 		"round_00_clutter_audited_60",
+		"round_01_fresh_192",
 	):
 		faces = [c[2] for c in suites[name] if c[1]]
 		assert len({faces.count(f) for f in range(6)}) == 1, f"{name} is not face-balanced"

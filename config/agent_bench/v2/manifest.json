@@ -65,6 +65,12 @@
       "layouts": 30,
       "sealed": false
     },
+    "round_01_fresh_192": {
+      "sha256": "57abc3512eef771504082e88777805a63e5bfb29a88a9c59a19d35bbc80e5a13",
+      "cases": 192,
+      "layouts": 96,
+      "sealed": false
+    },
     "round_00_clutter_audited_60": {
       "sha256": "c346110a717cbbfa7748a03a33c44a3b5770903d7b016f51980490de89713e1a",
       "cases": 60,
