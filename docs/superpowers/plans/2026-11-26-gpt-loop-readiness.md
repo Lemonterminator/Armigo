@@ -62,6 +62,31 @@ recal 加 drift 告警之后，现有条件基本没有失败，闭环判据"新
 - 报告每个条件的失败率及区间、第一处错误分布，以及台账能不能聚出簇。
 - **不修任何东西。** 结果交给用户选闭环的学习条件。
 
+### T8 台账分诊改用物理结果（用户人工审计发现，优先做）
+
+用户在 8767 前端审计了 1 号簇（`grasp / no_clamp / calibration_stale`）的 8 例，发现：
+
+- `realistic-drift-B-v7bot/L3600001-D0` 和 `L3600001-N`：第一次 `no_clamp` 之后恢复成功，积木进了正确的碗。`scores.jsonl` 里 `physical_success=True`，但 `episode.json` 的 `result.verdict` 是 `FAILED`。原因是 `triage.py` 读的是 `verdict_final_cycle / verdict`，而 `_rule_r3` 只要见到 drift 加任意一次 grasp 的 `no_clamp` 就判 `calibration_stale`。所以台账的"失败 16 例"里混进了物理上成功的回合。
+- `_rule_r3` 是同义反复：判据只看相机条件和故障码，不看证据。
+
+要求：
+
+- 分诊和台账的"失败"以评分的 `physical_success`（加上标签是否正确）为准，不再看 agent 自报的 verdict。中途出过故障但恢复成功的回合，单列为 `recovered`，不进失败簇。
+- R3 必须有证据才归因，例如 precursors 里 `calibration_drift` 超阈值，并且有 `brick_pose_error` 一类的下游；否则判 `unclassified`。
+- 重新生成 `drift-dev-20261126-7be6abd/round-02-retriage/` 下的台账，旧的 `round-01` 不动。报告新旧簇的计数差。
+- 测试：用 L3600001-D0 这类"FAILED 但物理成功"的回合做夹具。
+
+**补充给 T4 和机制表的人工观察**（用户裁定）：
+
+- `L3600003-N`（loc-vote）：第一次抓取，爪子戳在积木顶面靠侧边的位置，积木弹起后侧翻 90° 落在桌上，第二次抓取失败。
+- `L3600003-D2`：情况类似，没有第二次抓取。
+- `L3600005-D4` 和 `L3600005-N`：直接没夹住。这两例的 `brick_xy` 误差约 31 mm，是本批最大的。
+
+由此：
+
+- "接触后积木翻倒，恢复流程不处理翻倒的积木"是现有 `MECHANISMS` 里没有的机制。请评估是否新增一个机制，例如 `brick_toppled`：积木的倾角或高度在接触后发生突变。阈值只在 dev 上定。
+- 检查恢复流程在积木翻倒后有没有重新估计姿态。
+
 ## 报告格式
 
 用中文简短报告，每个任务一段：
