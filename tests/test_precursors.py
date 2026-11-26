@@ -2,6 +2,8 @@ import json
 from importlib import util
 from pathlib import Path
 
+import pytest
+
 from digital_twin_armigo.experiments.attribution import first_error
 from digital_twin_armigo.experiments.precursors import (
 	DEFAULT_THRESHOLDS,
@@ -16,6 +18,7 @@ CALIB_DRIFT = {
 	"seq": 0,
 	"kind": "camera_calibrated",
 	"frame": 0,
+	"calibrated_on": "nominal",
 	"actual_cam_pos_err_mm": 21.4,
 	"actual_cam_axis_err_deg": 0.75,
 }
@@ -69,6 +72,42 @@ def test_precursor_rules_and_thresholds(tmp_path, monkeypatch):
 	assert [p["mechanism"] for p in found] == ["calibration_drift", "brick_pose_error", "bowl_pose_error"]
 	assert found[1]["value"] == 21.0 and found[1]["threshold"] == DEFAULT_THRESHOLDS["brick_xy_mm"]
 	assert precursors([CALIB_OK, brick(1, 2.0, 1.0)]) == []
+
+
+@pytest.mark.parametrize("camera", ["fixed", "recal", "drift"])
+def test_bowl_not_found_precedes_unknown_label_and_respects_camera_condition(tmp_path, camera):
+	(tmp_path / "episode.json").write_text(
+		json.dumps(
+			{
+				"provenance": {"experiment": {"camera_condition": camera}},
+				"result": {"label": "unknown", "verdict": "FAILED", "views": 0},
+			}
+		),
+		encoding="utf-8",
+	)
+	(tmp_path / "task.json").write_text(json.dumps({"case": [7, False, 5]}), encoding="utf-8")
+	events = [
+		CALIB_DRIFT,  # high measured error and nominal marker; explicit condition takes precedence
+		{
+			"kind": "bowls_perceived",
+			"seq": 1,
+			"frame": 0,
+			"branch": 0,
+			"positions_m": {"pink": [0.2, 0.1], "green": None},
+		},
+		{"kind": "failure", "seq": 4, "frame": 0, "branch": 0, "code": "BOWL_NOT_FOUND", "skill": "prepare"},
+	]
+	(tmp_path / "events.jsonl").write_text("".join(json.dumps(event) + "\n" for event in events), encoding="utf-8")
+	row = score_episode(tmp_path)
+	assert row["root_cause"] == "bowl_localization"
+	assert row["first_error"]["frame"] == 0 and "green" in row["first_error"]["detail"]
+	assert row["upstream"] is None
+	mechs = {p["mechanism"] for p in row["first_error"]["precursors"]}
+	assert mechs == ({"calibration_drift"} if camera == "drift" else set())
+
+
+def test_camera_error_without_drift_metadata_is_not_a_drift_precursor():
+	assert precursors([{**CALIB_DRIFT, "calibrated_on": "actual"}]) == []
 
 
 def test_drift_grasp_failure_gets_pose_mechanism_and_calibration_upstream():

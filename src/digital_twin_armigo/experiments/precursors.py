@@ -98,12 +98,19 @@ def brick_topple(track: np.ndarray | None, start: int, end: int) -> dict | None:
 	}
 
 
-def precursors(events: list[dict], thresholds: dict | None = None) -> list[dict]:
+def precursors(
+	events: list[dict], thresholds: dict | None = None, *, camera_condition: str | None = None
+) -> list[dict]:
+	"""Collect threshold crossings. Calibration drift requires a drift condition or legacy nominal-rig evidence."""
 	t = thresholds or load_thresholds()
 	out: list[dict] = []
 	for e in events:
 		kind = e.get("kind")
 		if kind == "camera_calibrated":
+			condition = camera_condition or e.get("camera_condition")
+			is_drift = condition == "drift" if condition else e.get("calibrated_on") == "nominal"
+			if not is_drift:
+				continue
 			pos, axis = e.get("actual_cam_pos_err_mm"), e.get("actual_cam_axis_err_deg")
 			if pos is not None and pos > t["cam_pos_mm"]:
 				out.append(_hit("calibration_drift", e, "cam_pos_mm", pos, t["cam_pos_mm"]))
@@ -130,6 +137,6 @@ def explain(symptom: str, symptom_seq: int, found: list[dict]) -> dict:
 	relevant = RELEVANT.get(symptom, ())
 	cands = [p for p in found if p["mechanism"] in relevant and p["seq"] <= symptom_seq]
 	best = min(cands, key=lambda p: (p["seq"], relevant.index(p["mechanism"]))) if cands else None
-	drift = any(p["mechanism"] == "calibration_drift" for p in found)
+	drift = best and any(p["mechanism"] == "calibration_drift" and p["seq"] <= best["seq"] for p in found)
 	upstream = "calibration_drift" if best and drift and best["mechanism"] in POSE_MECHANISMS else None
 	return {"mechanism": best["mechanism"] if best else None, "mechanism_evidence": best, "upstream": upstream}

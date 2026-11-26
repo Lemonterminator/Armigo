@@ -10,6 +10,8 @@ Rules
 -----
 * ``infra_failure``: no ``episode.json``/result, ``run_status`` state ``infra_failed``, a ``detector_error`` event or a
   failure code in ``INFRA_CODES`` (``DETECTOR_UNAVAILABLE``...) on an episode that did not end in SUCCESS.
+* ``bowl_localization``: a failed episode with ``BOWL_NOT_FOUND``. This identifies the sensing failure before
+  the resulting unknown label or unused inspection budget.
 * Label cases (``wrong_label`` and ``no_label`` precede every physical cause):
   - defective brick labelled normal: the first active view whose crop truly held the cross
     (``true_cross_px_crop_native >= CROSS_MIN_PX``) with ``score < threshold`` is ``false_negative_visible``. Else the
@@ -319,6 +321,27 @@ def _physical_failure(result: dict, events, physical: dict, expected_bowl: str |
 	return _finding(cause, f"outcome={outcome}, codes={list(dict.fromkeys(codes))[:6]}", event=last)
 
 
+def _bowl_localization_failure(events: list[dict], result: dict) -> dict | None:
+	last_sense = {}
+	for event in events:
+		kind = event.get("kind")
+		if kind == "bowls_perceived":
+			last_sense[event.get("branch")] = event
+		elif kind == "failure" and event.get("code") == "BOWL_NOT_FOUND":
+			sensed = last_sense.get(event.get("branch"), {})
+			missing = sorted(slot for slot, pos in (sensed.get("positions_m") or {}).items() if pos is None)
+			detail = "BOWL_NOT_FOUND"
+			if missing:
+				detail += f"; missing bowl slots: {', '.join(missing)}"
+			return _finding("bowl_localization", detail, event=event)
+	for failure in result.get("failures") or []:
+		if failure.get("code") == "BOWL_NOT_FOUND":
+			return _finding("bowl_localization", "BOWL_NOT_FOUND", event=failure)
+	if "BOWL_NOT_FOUND" in (result.get("code"), result.get("execution_error"), result.get("error")):
+		return _finding("bowl_localization", "BOWL_NOT_FOUND")
+	return None
+
+
 def first_error(
 	episode: dict | None,
 	events: list[dict],
@@ -329,11 +352,19 @@ def first_error(
 	thresholds: dict | None = None,
 ) -> dict:
 	result = (episode or {}).get("result") or {}
+	exp = ((episode or {}).get("provenance") or {}).get("experiment") or {}
+	case = (task or {}).get("case") or []
+	options = case[3] if len(case) >= 4 and isinstance(case[3], dict) else {}
+	camera_condition = (
+		exp.get("camera_condition")
+		or ((run_status or {}).get("experiment") or {}).get("camera_condition")
+		or result.get("camera_condition")
+		or options.get("cameras")
+	)
 	findings = _infra(events, episode, result, run_status)
 	if not episode or not result:
-		return _with_mechanism(min(findings, key=lambda f: f["seq"]), events, thresholds)
+		return _with_mechanism(min(findings, key=lambda f: f["seq"]), events, thresholds, camera_condition)
 
-	case = (task or {}).get("case") or []
 	expected = (audit or {}).get("true_label") or (("defective" if case[1] else "normal") if len(case) > 1 else None)
 	face = (audit or {}).get("true_face")
 	if face is None and len(case) > 2 and len(case) > 1 and case[1]:
@@ -343,6 +374,13 @@ def first_error(
 	verdict = result.get("verdict_final_cycle") or result.get("verdict")
 	expected_bowl = {"normal": "green_bowl", "defective": "pink_bowl"}.get(expected)
 	note = f"; scored views {len(views)}"
+	physical_ok = (physical or {}).get("success")
+	if physical_ok is None:  # no replay: fall back to the engine verdict
+		physical_ok = verdict == "SUCCESS"
+	if label not in LABELS or (expected in LABELS and label != expected) or not physical_ok:
+		bowl_failure = _bowl_localization_failure(events, result)
+		if bowl_failure is not None:
+			findings.append(bowl_failure)
 
 	if label not in LABELS:
 		findings.append(_unknown_label(views, result, task, events))
@@ -351,9 +389,6 @@ def first_error(
 			_wrong_label_defective(views, face, note) if expected == "defective" else _wrong_label_normal(views, result)
 		)
 	else:
-		physical_ok = (physical or {}).get("success")
-		if physical_ok is None:  # no replay: fall back to the engine verdict
-			physical_ok = verdict == "SUCCESS"
 		if not physical_ok:
 			findings.append(_physical_failure(result, events, physical or {}, expected_bowl))
 		else:
@@ -372,14 +407,15 @@ def first_error(
 			},
 			events,
 			thresholds,
+			camera_condition,
 		)
-	return _with_mechanism(min(findings, key=lambda f: f["seq"]), events, thresholds)
+	return _with_mechanism(min(findings, key=lambda f: f["seq"]), events, thresholds, camera_condition)
 
 
-def _with_mechanism(finding: dict, events: list[dict], thresholds) -> dict:
+def _with_mechanism(finding: dict, events: list[dict], thresholds, camera_condition: str | None) -> dict:
 	from .precursors import explain, precursors
 
-	found = precursors(events, thresholds)
+	found = precursors(events, thresholds, camera_condition=camera_condition)
 	seq = finding.get("seq", 10**9)
 	return {**_strip(finding), **explain(finding["root_cause"], seq, found), "precursors": found}
 

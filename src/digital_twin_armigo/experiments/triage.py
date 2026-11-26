@@ -297,8 +297,8 @@ def _rule_r2(events: list[dict], result: dict) -> dict | None:
 
 
 def _is_drift_camera(events: list[dict], result: dict) -> bool:
-	if result.get("camera_condition") == "drift":
-		return True
+	if result.get("camera_condition"):
+		return result["camera_condition"] == "drift"
 	for ev in events:
 		if ev.get("kind") == "camera_calibrated" and (
 			ev.get("camera_condition") == "drift" or ev.get("calibrated_on") == "nominal"
@@ -321,7 +321,7 @@ def _failed_grasps(events: list[dict]):
 			yield starts.pop(branch), i
 
 
-def _drift_grasp_evidence(events: list[dict], start: int) -> dict | None:
+def _drift_grasp_evidence(events: list[dict], start: int, camera_condition: str | None) -> dict | None:
 	grasp = events[start]
 	camera, brick = None, None
 	for e in reversed(events[:start]):
@@ -332,7 +332,7 @@ def _drift_grasp_evidence(events: list[dict], start: int) -> dict | None:
 			brick = e
 	if camera is None or brick is None:
 		return None
-	camera_hits = precursors([camera])
+	camera_hits = precursors([camera], camera_condition=camera_condition)
 	brick_hit = next((h for h in precursors([brick]) if h["mechanism"] == "brick_pose_error"), None)
 	if not camera_hits or brick_hit is None:
 		return None
@@ -342,7 +342,7 @@ def _drift_grasp_evidence(events: list[dict], start: int) -> dict | None:
 def _rule_r3(events: list[dict], result: dict) -> dict | None:
 	if _is_drift_camera(events, result):
 		for start, fail in _failed_grasps(events):
-			chain = _drift_grasp_evidence(events, start)
+			chain = _drift_grasp_evidence(events, start, result.get("camera_condition"))
 			if chain is not None:
 				return {
 					**chain,
@@ -728,7 +728,7 @@ def triage_episode(ep_dir: Path, *, traj_id: str | None = None) -> TriageRow:
 			if isinstance(begin, int) and isinstance(end, int):
 				topple = brick_topple(track, begin, end)
 				if topple is not None:
-					topple.update(_drift_grasp_evidence(events, start) or {})
+					topple.update(_drift_grasp_evidence(events, start, result.get("camera_condition")) or {})
 					break
 
 	if success is True:
