@@ -756,6 +756,7 @@ class TwinMujoco:
 		self.drift_alarm = bool(drift_alarm)
 		self._recalibration_attempted = False
 		self.perception_llm = perception_llm
+		self._rest_view = None  # (top depth taken at rest in prepare, frame it stays valid at)
 		self._brick_hint = None
 		self._brick_net = None
 		self.fuse_cfg = FuseCfg()
@@ -1108,28 +1109,77 @@ class TwinMujoco:
 		sigma = self.perception.depth_noise_m * (depth / 0.5) ** 2
 		return depth + self._depth_rng.normal(0.0, 1.0, depth.shape) * sigma
 
+	def _locate_top(self, depth, bowls):
+		"""``(brick estimate or None, source)`` from one top depth image: with ``localise="vote"`` the pinned brick
+		(``_brick_hint``) first, else the shape rule; otherwise the largest raised blob."""
+		if self.localise != "vote":
+			return locate_brick(depth, self._cam_k, self._cam_est, bowls), None
+		from .brick_vote import candidates, shape_pick
+		from .perception import brick_blobs
+
+		est = source = None
+		if self._brick_hint is not None:
+			est = self._hinted_brick(depth, bowls)
+			source = "pinned" if est is not None else None
+		if est is None:
+			cands = candidates(brick_blobs(depth, self._cam_k, self._cam_est, bowls))
+			i = shape_pick(cands)
+			source = "shape"
+			if i is not None:
+				est = locate_brick(depth, self._cam_k, self._cam_est, bowls, label=cands[i].label)
+		return est, source
+
+	def _arm_occludes(self, depth, bowls, est) -> bool:
+		"""The blob under ``est`` borders arm-high pixels in the top image (``perception.arm_occludes_blob``)."""
+		from .perception import arm_occludes_blob, brick_blobs
+
+		blobs = brick_blobs(depth, self._cam_k, self._cam_est, bowls)
+		if not blobs:
+			return False
+		blob = min(blobs, key=lambda b: float(np.linalg.norm(b.xy - est.pos[:2])))
+		return arm_occludes_blob(depth, self._cam_k, self._cam_est, bowls, label=blob.label)
+
+	def _clear_top_depth(self):
+		"""``(top depth with the arm at rest, "prepare" | "rest")``: the image ``prepare`` took at rest when no frame
+		has run since, else one taken on a rest-and-back move (a ``prepare`` segment, ``mode="clear_view"``).
+		``(None, None)`` when no image was taken (a student twin does not run expert generators)."""
+		if self._rest_view is not None and self._rest_view[1] == self.total_frames:
+			return self._rest_view[0], "prepare"
+		ex, taken = self.expert, {}
+
+		def clear_view():
+			# Phase "approach" throughout, like the ready moves: "return" would mark the frames as a bowl release
+			# for the motion-health evaluator.
+			q_rest = ex.q_start.copy()
+			q_rest[5] = ex.p.open_g
+			yield from ex._move(q_rest, ex._carry_secs(q_rest, ex.p.ready_move_s, 1.0), "approach")
+			yield from ex._hold(ex.p.final_hold_s, "approach")
+			taken["depth"] = self._top_depth()
+			yield from ex._go_ready()
+
+		if self._execute(clear_view()) or "depth" not in taken:
+			return None, None
+		return taken["depth"], "rest"
+
 	def _perceive(self, est=None, source=None):
 		"""Locate the brick on the table through the calibrated top camera; None, or a failure code. ``est`` is a
 		brick already located (``localise_brick``); with ``localise="vote"`` a pinned brick (``_brick_hint``) is
 		looked up first, and otherwise the shape rule picks the blob."""
 		if self.perception is None:
 			return None
-		if est is None and self.localise == "vote":
-			from .brick_vote import candidates, shape_pick
-			from .perception import brick_blobs
-
-			depth, bowls = self._top_depth(), list(self.bowls.values())
-			if self._brick_hint is not None:
-				est = self._hinted_brick(depth, bowls)
-				source = "pinned" if est is not None else None
-			if est is None:
-				cands = candidates(brick_blobs(depth, self._cam_k, self._cam_est, bowls))
-				i = shape_pick(cands)
-				source = "shape"
-				if i is not None:
-					est = locate_brick(depth, self._cam_k, self._cam_est, bowls, label=cands[i].label)
-		elif est is None:
-			est = locate_brick(self._top_depth(), self._cam_k, self._cam_est, list(self.bowls.values()))
+		if est is None:
+			bowls = list(self.bowls.values())
+			hint = self._brick_hint
+			depth = self._top_depth()
+			est, source = self._locate_top(depth, bowls)
+			if self.realistic and (est is None or self._arm_occludes(depth, bowls, est)):
+				# The arm at the ready pose stands between the top camera and the brick: read the top face from a
+				# depth image taken with the arm at rest instead (the one of ``prepare`` when nothing has moved since).
+				clear, how = self._clear_top_depth()
+				if clear is not None:
+					self._brick_hint = hint
+					est, source = self._locate_top(clear, bowls)
+					self.event("clear_view", source=how, found=est is not None)
 		if "brick" in self.oracle:
 			rot = self.cell.data.xmat[self.cell.brick_body].reshape(3, 3)
 			true_yaw = math.atan2(rot[1, 0], rot[0, 0])
@@ -1510,11 +1560,18 @@ class TwinMujoco:
 	def prepare(self):
 		def ready():
 			yield from self.expert._hold(self.expert.p.rest_s, "rest")
+			if self.realistic:  # the arm at rest hides none of the reach band from the top camera
+				rest_depth = self._top_depth()
 			yield from self.expert._go_ready()
+			if self.realistic:
+				self._rest_view = (rest_depth, None)
 
 		if self.scene_error:
 			return self.scene_error
+		self._rest_view = None
 		error = self._execute(ready())
+		if self._rest_view is not None:
+			self._rest_view = (self._rest_view[0], self.total_frames)  # valid until the next frame runs
 		if not error:
 			if self.realistic:  # the arm hid other pixels at rest: keep the farther reading of each
 				self._baseline_depth = np.maximum(self._baseline_depth, self._top_depth())

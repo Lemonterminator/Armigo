@@ -51,6 +51,13 @@ DRIFT_CORRECTION_MM = 6.5
 DRIFT_TABLE_OFFSET_MM = 3.0
 MIN_DEFICIT_M = 0.003  # a fitted side this much shorter than the brick is checked for occlusion
 OCCLUDER_GAP_M = 0.01  # a pixel is covered when its depth is this much nearer than the hidden top face
+# The arm hides part of the brick from the top camera when, in the image, a raised blob borders pixels this high
+# above the table (the arm at the ready pose is 0.15-0.18 m up there; table objects stay under 0.07 m). Round-1 runs
+# (seeds 4100101-4100296, 4200001-4200102): every ready-pose top fit off by > 8 mm / 10 deg or of the wrong size
+# class in fixed and recal borders such pixels; at the rest pose none does and none of these fits is off.
+ARM_OCCLUDER_HEIGHT_M = 0.10
+ARM_OCCLUDER_PX = 4
+ARM_OCCLUDER_MIN_PX = 5
 # Bowl colours as OpenCV HSV bounds (H 0-180): hue low, hue high, minimum saturation, minimum value.
 BOWL_HSV = {"green": (45, 85, 70, 30), "pink": (150, 178, 40, 90)}
 # Engine-specific colour bands, calibrated on development renders only (plan 2026-11-24, section 四): the Isaac RTX
@@ -184,6 +191,31 @@ def _raised_blobs(depth: np.ndarray, k: np.ndarray, world_from_cam: np.ndarray, 
 	if n < 2:
 		return None
 	return plane, p, idx, labels[cells[:, 1], cells[:, 0]], stats
+
+
+def arm_occludes_blob(depth: np.ndarray, k: np.ndarray, world_from_cam: np.ndarray, bowls, label: int | None = None) -> bool:
+	"""True when the raised blob ``locate_brick`` fits (the largest, or ``label`` of :func:`brick_blobs`) borders,
+	within ``ARM_OCCLUDER_PX`` image pixels, at least ``ARM_OCCLUDER_MIN_PX`` pixels higher than
+	``ARM_OCCLUDER_HEIGHT_M`` above the table: something tall (the arm) stands between the top camera and the blob,
+	so its top-face fit may be cut short."""
+	import cv2
+
+	seg = _raised_blobs(depth, k, world_from_cam, bowls)
+	if seg is None:
+		return False
+	plane, _, idx, lab, stats = seg
+	best = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA])) if label is None else int(label)
+	mask = np.zeros(depth.size, np.uint8)
+	mask[idx[lab == best]] = 1
+	mask = mask.reshape(depth.shape)
+	n = 2 * ARM_OCCLUDER_PX + 1
+	ring = (cv2.dilate(mask, np.ones((n, n), np.uint8)) > 0) & (mask == 0)
+	p = depth_points(depth, k, world_from_cam)[ring]
+	p = p[np.isfinite(p).all(axis=1)]
+	if len(p) == 0:
+		return False
+	height = p[:, 2] - (p[:, :2] @ plane[:2] + plane[2])
+	return int(np.count_nonzero(height > ARM_OCCLUDER_HEIGHT_M)) >= ARM_OCCLUDER_MIN_PX
 
 
 @dataclass

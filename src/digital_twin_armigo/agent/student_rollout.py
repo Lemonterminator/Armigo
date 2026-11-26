@@ -233,6 +233,8 @@ class _SegmentMixin:
 			return "simple", Segment("prepare", variant=v)
 		if name == "_go_ready":
 			return "simple", Segment("return_ready", variant=v)
+		if name == "clear_view":  # TwinMujoco._clear_top_depth: to rest for an unoccluded top image, then ready
+			return "simple", Segment("prepare", {"mode": "clear_view"}, variant=v)
 		if name == "let_go":
 			return "simple", Segment("let_go", variant=v)
 		# TwinMujoco._review_once: re-views of a detector alarm reuse the student's fixed segment vocabulary
