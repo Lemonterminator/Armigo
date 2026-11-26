@@ -160,6 +160,8 @@ def _cf_composite_key(row: dict) -> tuple[str, ...]:
 		str(row.get("strategy") or parsed.get("strategy") or "A"),
 		str(row.get("motion") or parsed.get("motion") or "open"),
 		str(row.get("evidence") or parsed.get("evidence") or "hold"),
+		str(row.get("segmenter") or "lab"),
+		_CF_ORACLE_RE.sub("", str(row.get("group") or "")),
 		str(row["case_id"]),
 	)
 
@@ -176,12 +178,16 @@ def _attribution_coverage(score_rows: list[dict], counterfactual_path: Path | No
 		cf_rows = _read_jsonl(counterfactual_path)
 		cf_by_traj = {r["traj_id"]: r for r in cf_rows if r.get("traj_id")}
 		cf_by_path = {_norm_path(r["path"]): r for r in cf_rows if r.get("path")}
-		cf_by_composite = {_cf_composite_key(r): r for r in cf_rows if r.get("case_id") and _cf_has_context(r)}
+		# An explicit trajectory identity never falls back to another arm that reused the case.
+		without_identity = [r for r in cf_rows if r.get("case_id") and not (r.get("traj_id") or r.get("path"))]
+		cf_by_composite = {_cf_composite_key(r): r for r in without_identity if _cf_has_context(r)}
 		cf_case_counts = Counter(r["case_id"] for r in cf_rows if r.get("case_id"))
+		score_case_counts = Counter(r["case_id"] for r in score_rows if r.get("case_id"))
+		score_key_counts = Counter(_cf_composite_key(r) for r in score_rows if r.get("case_id"))
 		cf_unique_fallback = {
 			r["case_id"]: r
-			for r in cf_rows
-			if r.get("case_id") and cf_case_counts[r["case_id"]] == 1 and not _cf_has_context(r)
+			for r in without_identity
+			if cf_case_counts[r["case_id"]] == score_case_counts[r["case_id"]] == 1 and not _cf_has_context(r)
 		}
 		cf_n = 0
 		for r in failed:
@@ -191,7 +197,9 @@ def _attribution_coverage(score_rows: list[dict], counterfactual_path: Path | No
 			if cf_row is None and r.get("path"):
 				cf_row = cf_by_path.get(_norm_path(r["path"]))
 			if cf_row is None and r.get("case_id") and _cf_has_context(r):
-				cf_row = cf_by_composite.get(_cf_composite_key(r))
+				key = _cf_composite_key(r)
+				if score_key_counts[key] == 1:
+					cf_row = cf_by_composite.get(key)
 			if cf_row is None and r.get("case_id"):
 				cf_row = cf_unique_fallback.get(r["case_id"])
 			if cf_row and cf_row.get("verdict") == "confirmed":

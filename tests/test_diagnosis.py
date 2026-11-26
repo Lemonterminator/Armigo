@@ -169,6 +169,21 @@ def _find_ids_for_split(target_split: str, count: int) -> list[str]:
 	return found
 
 
+def test_round_metrics_counterfactual_does_not_leak_across_drift_arms(tmp_path):
+	base = {
+		"case_id": "L7-N",
+		"root_cause": "recovery_failure",
+		"group": "realistic-drift-B-v7bot",
+		"path": str(tmp_path / "top"),
+	}
+	vote = {**base, "group": "realistic-drift-B-v7bot-loc-vote", "path": str(tmp_path / "vote")}
+	path = tmp_path / "counterfactual.jsonl"
+	path.write_text(json.dumps({**vote, "verdict": "confirmed"}) + "\n", encoding="utf-8")
+	coverage = round_metrics._attribution_coverage([base, vote], path)
+	assert coverage["counterfactual_confirmed_n"] == 1
+	assert coverage["counterfactual_confirmed_rate"] == 0.5
+
+
 def test_round_metrics_computes_all_six_groups_and_appends_rounds_md(tmp_path):
 	calib_ids = _find_ids_for_split("calib", 2)
 	heldout_ids = _find_ids_for_split("heldout", 2)
