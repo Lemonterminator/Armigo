@@ -183,8 +183,8 @@ def test_render_ledger_md_contains_viewer_links_and_details():
 	ledger = build_ledger(rows, reviews=reviews, factors=factors)
 	md = render_ledger_md(ledger, batch="b", round_name="round-01")
 
-	assert "http://127.0.0.1:8767/?traj=b/mujoco/g/L1-N" in md
-	assert "http://127.0.0.1:8767/?traj=b/mujoco/g/L2-D0" in md
+	assert "http://127.0.0.1:8767/#b/mujoco/g/L1-N" in md
+	assert "http://127.0.0.1:8767/#b/mujoco/g/L2-D0" in md
 	assert "calibration_stale" in md
 	assert "perception_pose_error" in md
 	assert "camera_condition" in md
@@ -285,7 +285,7 @@ def test_failure_ledger_cli_synthetic_batch(tmp_path):
 	assert ("grasp", "no_clamp", "perception_pose_error") in causes
 
 	md = (out_dir / "ledger.md").read_text(encoding="utf-8")
-	assert f"http://127.0.0.1:8767/?traj={batch}/mujoco/{group}/L2-D0" in md
+	assert f"http://127.0.0.1:8767/#{batch}/mujoco/{group}/L2-D0" in md
 
 
 P2_DEV_R2_ROOT = Path("D:/Armigo_data_v2")
@@ -330,4 +330,4 @@ def test_failure_ledger_smoke_p2_dev_r2(tmp_path):
 	assert any(k[2] == "calibration_stale" and k[1] == "no_clamp" for k in top_keys)
 
 	md = (out_dir / "ledger.md").read_text(encoding="utf-8")
-	assert "http://127.0.0.1:8767/?traj=p2-dev-r2/" in md
+	assert "http://127.0.0.1:8767/#p2-dev-r2/" in md

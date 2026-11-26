@@ -18,12 +18,13 @@ import os
 import re
 from collections import Counter, defaultdict
 from pathlib import Path
+from urllib.parse import quote
 
 from .contract import case_id as make_case_id
 from .scoring import _json
 from .triage import TriageRow, triage_episode
 
-VIEWER_TRAJ_URL = "http://127.0.0.1:8767/?traj="
+VIEWER_TRAJ_URL = "http://127.0.0.1:8767/#"
 MAX_EXAMPLES = 10
 
 _SKIP_DIRS = frozenset(
@@ -486,7 +487,7 @@ def render_ledger_md(
 		if c["examples"]:
 			lines.append("- Examples:")
 			for tid in c["examples"]:
-				url = f"{VIEWER_TRAJ_URL}{tid}"
+				url = VIEWER_TRAJ_URL + quote(tid, safe="/")
 				lines.append(f"  - [{tid}]({url}) (`{url}`)")
 
 	return "\n".join(lines) + "\n"
