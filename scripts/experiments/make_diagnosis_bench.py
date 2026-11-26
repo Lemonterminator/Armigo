@@ -55,23 +55,52 @@ def _read_episode_file(ep_path: Path, name: str) -> dict | None:
 		return None
 
 
-def build_benchmark(audit_path: Path, inventory_dir: Path) -> list[dict]:
-	"""Extract human-confirmed latest verdicts, attach episode paths, exclude sealed batches and sealed seeds."""
+def _path_from_runs(runs_root: Path | None, tid: str) -> Path | None:
+	if runs_root is None:
+		return None
+	root = runs_root.resolve()
+	parts = Path(tid).parts
+	if len(parts) != 4 or any(part in (".", "..") for part in parts):
+		return None
+	candidate = (root / tid).resolve()
+	return candidate if candidate.is_relative_to(root) and candidate.is_dir() else None
+
+
+def build_benchmark(
+	audit_path: Path,
+	inventory_dir: Path,
+	*,
+	runs_root: Path | None = None,
+	review_ids: list[int] | None = None,
+) -> list[dict]:
+	"""Use confirmed reviews by default, or an explicitly selected snapshot of human adjudications."""
 	audit_path = Path(audit_path)
 	inventory_dir = Path(inventory_dir)
 	if not audit_path.is_file():
 		raise FileNotFoundError(f"audit database not found: {audit_path}")
 
-	latest_by_tid = audit.latest_all(audit_path)
+	if review_ids is None:
+		reviews = list(audit.latest_all(audit_path).values())
+	else:
+		reviews = audit.reviews_by_ids(audit_path, review_ids)
+		missing = set(review_ids) - {rev["id"] for rev in reviews}
+		if missing:
+			raise ValueError(f"unknown audit review IDs: {sorted(missing)}")
+		if len({rev["traj_id"] for rev in reviews}) != len(reviews):
+			raise ValueError("select at most one review per trajectory")
 
 	entries: list[dict] = []
-	for tid, rev in sorted(latest_by_tid.items()):
-		if rev is None or rev.get("state") != "confirmed" or not rev.get("root_cause"):
+	states = {"confirmed"} if review_ids is None else {"confirmed", "disputed"}
+	for rev in reviews:
+		if rev.get("state") not in states or not rev.get("root_cause"):
 			continue
-		ep_path = query.agent_episode_path(inventory_dir, tid)
+		tid = rev["traj_id"]
+		ep_path = query.agent_episode_path(inventory_dir, tid) or _path_from_runs(runs_root, tid)
 		if ep_path is None:
 			continue
 		batch = _batch_from_path(ep_path)
+		if is_sealed(seed_of_path_or_case(ep_path), batch=batch):
+			continue
 		task = _read_episode_file(ep_path, "task.json")
 		episode = _read_episode_file(ep_path, "episode.json") or {}
 		if ((episode.get("provenance") or {}).get("experiment") or {}).get("sealed") is True:
@@ -92,6 +121,7 @@ def build_benchmark(audit_path: Path, inventory_dir: Path) -> list[dict]:
 				"root_cause": rev["root_cause"],
 				"mechanism": rev.get("mechanism"),
 				"split": split_of(tid),
+				**({"review_id": rev["id"], "review_state": rev["state"]} if review_ids is not None else {}),
 			}
 		)
 
@@ -103,13 +133,22 @@ def _build_parser() -> argparse.ArgumentParser:
 	p = argparse.ArgumentParser(description=__doc__.splitlines()[0])
 	p.add_argument("--audit", required=True, help="Path to audit reviews.sqlite")
 	p.add_argument("--inventory", required=True, help="Path to inventory directory containing inventory.sqlite")
+	p.add_argument("--runs-root", type=Path, help="Fallback root for batch/engine/group/episode trajectory IDs")
+	p.add_argument(
+		"--review-ids",
+		type=int,
+		nargs="+",
+		help="Explicit human adjudications, including disputes of an automatic label",
+	)
 	p.add_argument("--out", required=True, help="Output diagnosis benchmark JSON path")
 	return p
 
 
 def main(argv: list[str] | None = None) -> int:
 	args = _build_parser().parse_args(argv)
-	entries = build_benchmark(Path(args.audit), Path(args.inventory))
+	entries = build_benchmark(
+		Path(args.audit), Path(args.inventory), runs_root=args.runs_root, review_ids=args.review_ids
+	)
 	out_path = Path(args.out)
 	out_path.parent.mkdir(parents=True, exist_ok=True)
 	out_path.write_text(json.dumps(entries, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
@@ -119,7 +158,7 @@ def main(argv: list[str] | None = None) -> int:
 	print(f"{out_path}: {len(entries)} entries (calib={n_calib}, heldout={n_heldout})")
 	if len(entries) < 40:
 		print(
-			f"WARNING: only {len(entries)} confirmed entries (< 40); collect more human audits before drawing conclusions.",
+			f"WARNING: only {len(entries)} human adjudications (< 40); collect more before drawing conclusions.",
 			file=sys.stderr,
 		)
 	return 0

@@ -89,6 +89,10 @@ def _load_bench(path: Path) -> list[dict]:
 def _task_metrics(score_rows: list[dict]) -> dict:
 	sr = metric_with_ci(score_rows, "success_rate")
 	cm = cell_metrics(score_rows)
+	groups = defaultdict(list)
+	for row in score_rows:
+		if row.get("group"):
+			groups[row["group"]].append(row)
 	return _json_safe(
 		{
 			"n": sr["n"],
@@ -98,6 +102,7 @@ def _task_metrics(score_rows: list[dict]) -> dict:
 			"ci_hi": sr["ci_hi"],
 			"n_clusters": sr["n_clusters"],
 			"cell_metrics": cm,
+			"by_group": {group: cell_metrics(rows) for group, rows in sorted(groups.items())},
 		}
 	)
 
@@ -389,11 +394,14 @@ def compute_round_metrics(
 	verify_dir: Path | None = None,
 	counterfactual_path: Path | None = None,
 	diag_log_path: Path | None = None,
+	triage_path: Path | None = None,
 ) -> dict:
 	round_dir = Path(round_dir)
 	bench = _load_bench(bench_path)
 	score_rows = _read_jsonl(scores_path)
 	auto_by_tid = _build_auto_map(bench, score_rows, inventory_dir)
+	if triage_path is not None:
+		auto_by_tid.update({r["traj_id"]: r for r in _read_jsonl(triage_path)})
 	fix_yield, regressions = _fix_and_regressions(verify_dir or round_dir)
 
 	return {
@@ -404,6 +412,7 @@ def compute_round_metrics(
 		"task": _task_metrics(score_rows),
 		"attribution_coverage": _attribution_coverage(score_rows, counterfactual_path),
 		"attribution_accuracy": _attribution_accuracy(bench, auto_by_tid),
+		**({"triage_path": str(triage_path)} if triage_path is not None else {}),
 		"fix_yield": fix_yield,
 		"regressions": regressions,
 		"diagnosis_cost": _diagnosis_cost(diag_log_path, bench),
@@ -415,6 +424,13 @@ def _append_rounds_md(rounds_md: Path, row: str) -> None:
 		rounds_md.write_text("# Harness Learning Rounds\n\n" + ROUNDS_HEADER + row, encoding="utf-8")
 		return
 	existing = rounds_md.read_text(encoding="utf-8")
+	key = row.split("|", 2)[1]
+	lines = existing.splitlines(keepends=True)
+	for idx, old in enumerate(lines):
+		if old.startswith(f"|{key}|"):
+			lines[idx] = row
+			rounds_md.write_text("".join(lines), encoding="utf-8")
+			return
 	prefix = "" if existing.endswith("\n") else "\n"
 	rounds_md.write_text(existing + prefix + row, encoding="utf-8")
 
@@ -428,6 +444,7 @@ def _build_parser() -> argparse.ArgumentParser:
 	p.add_argument("--verify-dir", help="Optional directory containing verify-*.json (default: --round-dir)")
 	p.add_argument("--counterfactual", help="Optional counterfactual.jsonl path")
 	p.add_argument("--diag-log", help="Optional diag_calls.jsonl path")
+	p.add_argument("--triage", type=Path, help="Automatic triage.jsonl for the audited cases, keyed by trajectory ID")
 	return p
 
 
@@ -444,6 +461,7 @@ def main(argv: list[str] | None = None) -> int:
 		verify_dir=Path(args.verify_dir) if args.verify_dir else None,
 		counterfactual_path=Path(args.counterfactual) if args.counterfactual else None,
 		diag_log_path=Path(args.diag_log) if args.diag_log else None,
+		triage_path=args.triage,
 	)
 
 	out_json = round_dir / "round_metrics.json"

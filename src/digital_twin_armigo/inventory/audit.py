@@ -208,6 +208,17 @@ def latest_all(path: Path) -> dict[str, dict]:
 	return {r["traj_id"]: _row(r) for r in rows}
 
 
+def reviews_by_ids(path: Path, ids: list[int]) -> list[dict]:
+	"""Read an explicit audit snapshot, including reviews superseded since those IDs were recorded."""
+	with connect_readonly(path) as con:
+		columns = _select_columns(con)
+		if columns is None or not ids:
+			return []
+		bindings = ", ".join("?" for _ in ids)
+		rows = con.execute(f"select {columns} from reviews where id in ({bindings}) order by id", ids)
+		return [_row(row) for row in rows]
+
+
 def append(path: Path, traj_id: str, body: dict, *, expected_latest_id: int | None, code_version: str | None) -> dict:
 	"""Add a review. ``expected_latest_id`` must be the id of the trajectory's current latest review (None if it has
 	none), else :class:`Conflict`; the new row ``replaces`` that one."""

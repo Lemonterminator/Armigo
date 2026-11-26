@@ -169,6 +169,36 @@ def _find_ids_for_split(target_split: str, count: int) -> list[str]:
 	return found
 
 
+def test_explicit_adjudication_snapshot_uses_safe_path_and_excludes_sealed(tmp_path):
+	root = tmp_path / "runs"
+	inventory = tmp_path / "inventory"
+	_create_inventory_db(inventory, [])
+	dev = "open/mujoco/g/L1-N"
+	sealed = "open/mujoco/g/L3900001-N"
+	hidden_sealed = "open/mujoco/g/L2-N"
+	for tid in (dev, sealed, hidden_sealed):
+		(root / tid).mkdir(parents=True)
+	(root / hidden_sealed / "episode.json").write_text(
+		json.dumps({"provenance": {"experiment": {"sealed": True}}}), encoding="utf-8"
+	)
+	db = tmp_path / "audit" / "reviews.sqlite"
+	_create_audit_db(
+		db,
+		[
+			{"traj_id": dev, "state": "disputed", "root_cause": "none"},
+			{"traj_id": dev, "state": "confirmed", "root_cause": "other"},
+			{"traj_id": sealed, "state": "confirmed", "root_cause": "other"},
+			{"traj_id": hidden_sealed, "state": "confirmed", "root_cause": "other"},
+		],
+	)
+	before = db.read_bytes()
+	bench = make_diagnosis_bench.build_benchmark(db, inventory, runs_root=root, review_ids=[1, 3, 4])
+	assert len(bench) == 1
+	assert bench[0]["review_id"] == 1 and bench[0]["review_state"] == "disputed"
+	assert bench[0]["root_cause"] == "none" and Path(bench[0]["path"]) == (root / dev).resolve()
+	assert db.read_bytes() == before
+
+
 def test_round_metrics_counterfactual_does_not_leak_across_drift_arms(tmp_path):
 	base = {
 		"case_id": "L7-N",
