@@ -58,6 +58,12 @@
       "cases": 12,
       "layouts": 6,
       "sealed": false
+    },
+    "round_00_clutter_60": {
+      "sha256": "b707d644bd9d0df5fd94405f53322c9c0386e2e4954870abdaa51ba2c417f72c",
+      "cases": 60,
+      "layouts": 30,
+      "sealed": false
     }
   }
 }

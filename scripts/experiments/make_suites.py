@@ -14,6 +14,7 @@ face index, as dev_suite_700001 does):
 - ``loop_01_96``: 48 loop-01 layouts (seeds 3600001-3600048), eight per face (Stage 4 confirmation).
 - ``loop_02_400``: 200 new seed pairs from 3601001 for drift fix acceptance.
 - ``probe_clutter_12``: six independent layouts with the existing v3 appearance and clutter sampler.
+- ``round_00_clutter_60``: 30 new layouts (4100101–4100130) for the clutter baseline.
 
 Seeds of the sealed suites are checked against every suite under config/ so a sealed layout never appeared before.
 """
@@ -55,6 +56,10 @@ def _existing_seeds() -> set[int]:
 	return seeds
 
 
+def _clutter_cases(seeds: list[int]) -> list[list]:
+	return [[*case, {"scene": "v3", "cameras": "fixed", "split": "train"}] for case in _paired(seeds)]
+
+
 def build() -> dict[str, list]:
 	bench16 = json.loads((ROOT / "config/agent_bench/bench16.json").read_text(encoding="utf-8"))
 	dev = json.loads((ROOT / "config/agent_bench/dev_suite_700001.json").read_text(encoding="utf-8"))
@@ -73,10 +78,8 @@ def build() -> dict[str, list]:
 		"p2_sealed": _paired(list(range(720001, 720025))),
 		"loop_01_96": _paired(list(range(3_600_001, 3_600_049))),
 		"loop_02_400": _paired(list(range(3_601_001, 3_601_201))),
-		"probe_clutter_12": [
-			[*case, {"scene": "v3", "cameras": "fixed", "split": "train"}]
-			for case in _paired(list(range(4_100_001, 4_100_007)))
-		],
+		"probe_clutter_12": _clutter_cases(list(range(4_100_001, 4_100_007))),
+		"round_00_clutter_60": _clutter_cases(list(range(4_100_101, 4_100_131))),
 	}
 	loop_seeds = {c[0] for c in suites["loop_01_96"]}
 	assert len(loop_seeds) == 48
@@ -87,7 +90,11 @@ def build() -> dict[str, list]:
 		clash = loop_seeds & {c[0] for c in cases}
 		assert not clash, f"loop_01_96 overlaps {name}: {sorted(clash)[:5]}"
 	used = _existing_seeds()
-	for name, expected_split in (("loop_02_400", "loop-02"), ("probe_clutter_12", "unknown")):
+	for name, expected_split in (
+		("loop_02_400", "loop-02"),
+		("probe_clutter_12", "unknown"),
+		("round_00_clutter_60", "unknown"),
+	):
 		seeds = {c[0] for c in suites[name]}
 		assert all(split_of(seed) == expected_split for seed in seeds), f"{name}: unexpected governance split"
 		for other, cases in suites.items():
@@ -99,7 +106,7 @@ def build() -> dict[str, list]:
 		if clash:
 			raise SystemExit(f"{name}: seeds already used elsewhere: {sorted(clash)[:5]}")
 	assert not {c[0] for c in suites["p1_sealed"]} & {c[0] for c in suites["p2_sealed"]}
-	for name in ("p1_sealed", "p2_sealed", "p2_dev12", "dev_suite_700001", "loop_01_96"):
+	for name in ("p1_sealed", "p2_sealed", "p2_dev12", "dev_suite_700001", "loop_01_96", "round_00_clutter_60"):
 		faces = [c[2] for c in suites[name] if c[1]]
 		assert len({faces.count(f) for f in range(6)}) == 1, f"{name} is not face-balanced"
 	return suites
