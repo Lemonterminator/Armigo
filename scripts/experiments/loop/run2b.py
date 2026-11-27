@@ -6,7 +6,7 @@
 
 Each arm is its own process (driver2b.py) on its own checkout. The split is proportional to the work each arm
 reports after planning, so both finish together; an arm that finishes early hands its workers to the other
-(driver2b re-reads OUT/workers-<arm>.txt). Logs: run2b-<arm>.log, gates2b.log, run2b.log (this script).
+(driver2b re-reads OUT/workers-<arm>.txt). Logs: run2b-<arm>.log, gates.log, run2b.log (this script).
 Rerunning resumes: done episodes are skipped.
 """
 
@@ -23,8 +23,8 @@ import importlib
 
 cfg_mod = importlib.import_module(os.environ.get("LOOP_CONFIG", "round2b_config"))  # see driver2b.py
 HERE, LOG_SUFFIX, OUT, PYTHON, pythonpath = cfg_mod.HERE, cfg_mod.LOG_SUFFIX, cfg_mod.OUT, cfg_mod.PYTHON, cfg_mod.pythonpath
-GATES = getattr(cfg_mod, "GATES", "gates2b.py")
-ROUND_SPEC = getattr(cfg_mod, "ROUND_SPEC", None)  # gates.py reads the round spec; gates2b.py takes no arguments
+GATES = getattr(cfg_mod, "GATES", "gates.py")
+ROUND_SPEC = getattr(cfg_mod, "ROUND_SPEC", None)  # gates.py reads the round spec
 LOG_DIR = getattr(cfg_mod, "LOG_DIR", HERE)
 
 

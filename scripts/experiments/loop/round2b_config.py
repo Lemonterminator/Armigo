@@ -1,4 +1,4 @@
-"""Shared constants for driver2b.py / run2b.py / gates2b.py (no heavy imports: the launcher reads it too)."""
+"""Shared constants for driver2b.py / run2b.py / gates.py (no heavy imports: the launcher reads it too)."""
 
 import os
 from pathlib import Path
@@ -25,3 +25,6 @@ CHECKOUTS = {
 def pythonpath(arm: str) -> str:
 	co = CHECKOUTS[arm]
 	return ";".join(str(p) for p in (co / "src", co / "scripts" / "experiments"))
+
+GATES = "gates.py"
+ROUND_SPEC = HERE.parents[2] / "config" / "experiments" / "loop" / "round_02b.json"  # bank, criteria, batches

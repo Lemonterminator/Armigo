@@ -1,4 +1,4 @@
-"""Round 3 (drift alarm on ring rejection, 5f36960): constants for driver2b.py / run2b.py / gates3.py.
+"""Round 3 (drift alarm on ring rejection, 5f36960): constants for driver2b.py / run2b.py / gates.py.
 
 	LOOP_CONFIG=round3_config python run2b.py
 
