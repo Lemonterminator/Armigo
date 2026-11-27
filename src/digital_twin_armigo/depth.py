@@ -47,11 +47,34 @@ def _ray_world_z_grid(
 ) -> np.ndarray:
 	"""Compute world Z component of camera viewing rays per pixel using full-frame principal point.
 
-	``full_shape`` is (height, width), as a NumPy image shape; note that ``TOP_FULL`` is (width, height)."""
+	``full_shape`` is (height, width), as a NumPy image shape; note that ``TOP_FULL`` is (width, height).
+
+	The grid depends only on the camera's orientation, focal length and the pixel window, which stay fixed for a whole
+	episode, so it is cached (read-only). Only the Z component is formed; it is the same floating-point expression as
+	``(x * right + (-y) * up + forward)[..., 2]``, so the result is bit-identical."""
 	right, up, forward = pose.frame()
+	key = (
+		right[2].item(),
+		up[2].item(),
+		forward[2].item(),
+		float(pose.focal_px),
+		tuple(int(s) for s in full_shape),
+		None if crop is None else tuple(int(c) for c in crop),
+	)
+	hit = _RAY_Z_CACHE.get(key)
+	if hit is not None:
+		return hit
 	x, y = _pixel_grid(full_shape, crop, pose.focal_px)
-	ray = x[..., None] * right + (-y)[..., None] * up + forward
-	return ray[..., 2]
+	ray_z = x * right[2] + (-y) * up[2] + forward[2]
+	ray_z.flags.writeable = False
+	if len(_RAY_Z_CACHE) >= _RAY_Z_CACHE_SIZE:
+		_RAY_Z_CACHE.pop(next(iter(_RAY_Z_CACHE)))
+	_RAY_Z_CACHE[key] = ray_z
+	return ray_z
+
+
+_RAY_Z_CACHE: dict[tuple, np.ndarray] = {}
+_RAY_Z_CACHE_SIZE = 32
 
 
 def depth_plane_to_height(

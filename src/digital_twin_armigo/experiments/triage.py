@@ -675,8 +675,10 @@ def _stage_and_code_for_rule(rule_id: str, ev: dict, events: list[dict], result:
 	return default_stage, default_code
 
 
-def triage_episode(ep_dir: Path, *, traj_id: str | None = None) -> TriageRow:
-	"""Classify the replay outcome and diagnose any failure, without relying on the agent's verdict."""
+def triage_episode(ep_dir: Path, *, traj_id: str | None = None, scene: dict | None = None) -> TriageRow:
+	"""Classify the replay outcome and diagnose any failure, without relying on the agent's verdict.
+
+	``scene`` is the parsed ``replay/scene.json`` when the caller already has it (it can be tens of MB); it is only read."""
 	ep_dir = Path(ep_dir)
 	episode = _json(ep_dir / "episode.json") or {}
 	result = dict(episode.get("result") or {})
@@ -684,7 +686,8 @@ def triage_episode(ep_dir: Path, *, traj_id: str | None = None) -> TriageRow:
 	task = _json(ep_dir / "task.json") or {}
 	audit_priv = _json(ep_dir / "audit.private.json") or {}
 	run_status = _json(ep_dir / "run_status.json") or {}
-	scene = _json(ep_dir / "replay" / "scene.json") or {}
+	if scene is None:
+		scene = _json(ep_dir / "replay" / "scene.json") or {}
 	events = _events(ep_dir / "events.jsonl")
 
 	resolved_traj_id = traj_id or _derive_traj_id(ep_dir, exp)

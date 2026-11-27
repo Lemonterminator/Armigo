@@ -48,6 +48,7 @@ armigo-sim = "digital_twin_armigo.mujoco_cell.cli:main"
 dev = [
 	"httpx>=0.28",
 	"pytest>=8.0",
+	"pytest-xdist>=3.6",
 	"ruff>=0.8",
 ]
 

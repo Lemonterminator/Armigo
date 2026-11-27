@@ -442,9 +442,10 @@ def triage_batch(root: Path, batch: str) -> tuple[list[TriageRow], dict[str, dic
 		exp = ((ep.get("provenance") or {}).get("experiment")) or {}
 		has_exp_id = all(exp.get(k) for k in ("batch", "engine", "group"))
 		fallback_id = ep_dir.relative_to(runs_dir).as_posix() if not has_exp_id else None
-		row = triage_episode(ep_dir, traj_id=fallback_id)
+		scene = _json(ep_dir / "replay" / "scene.json") or {}  # tens of MB: parse once for both readers
+		row = triage_episode(ep_dir, traj_id=fallback_id, scene=scene)
 		rows.append(row)
-		factors[row.traj_id] = extract_episode_factors(ep_dir, plan=plan, episode=ep, task=task)
+		factors[row.traj_id] = extract_episode_factors(ep_dir, plan=plan, episode=ep, task=task, scene=scene)
 	return rows, factors
 
 
