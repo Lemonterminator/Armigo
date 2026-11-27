@@ -1,0 +1,68 @@
+{
+ "tag": "round-02b-grasp-20261127-8902081",
+ "root": "E:/Armigo_data_v2_r2",
+ "conditions": [
+  "fixed",
+  "recal",
+  "drift"
+ ],
+ "base": [
+  {
+   "batch": "round-01-bowl-20261126-1a1ca84-fresh-candidate",
+   "root": "D:/Armigo_data_v2"
+  },
+  {
+   "batch": "round-01-bowl-20261126-1a1ca84-rerun",
+   "root": "D:/Armigo_data_v2"
+  }
+ ],
+ "rerun": [
+  "round-02b-grasp-20261127-8902081-rerun01",
+  "round-02b-grasp-20261127-8902081-rerun00"
+ ],
+ "fresh_base": "round-02b-grasp-20261127-8902081-fresh-base",
+ "fresh_candidate": "round-02b-grasp-20261127-8902081-fresh-candidate",
+ "bank": {
+  "root_causes": [
+   "grasp_or_path_failure",
+   "recovery_failure"
+  ]
+ },
+ "criteria": {
+  "cluster": "grasp_top_view_arm_occlusion",
+  "round": "2b",
+  "fix_commit": "8902081",
+  "candidate_run_commit": "c33c1f2 (src identical to 8902081)",
+  "control_commit": "aa9eb45 (round-1 candidate: round-01 rerun and fresh-candidate batches; fresh control arm rerun at aa9eb45)",
+  "bank_min_fix_rate": 0.7,
+  "bank_records": 22,
+  "bank_source": "rows with root_cause grasp_or_path_failure or recovery_failure in round-01-bowl-20261126-1a1ca84-fresh-candidate (16) and round-01-bowl-20261126-1a1ca84-rerun (6)",
+  "regression_max_net_regression": 1,
+  "regression_min_mcnemar_p": 0.2,
+  "regression_pairs": 723,
+  "regression_source": "all physical successes of the same two batches (556 + 167), rerun on the candidate",
+  "fresh_min_ci_lo": -0.02,
+  "fresh_suite": "round_02b_fresh_192 (seeds 4100401-4100496, 96 layouts)",
+  "fresh_pairs": 576,
+  "conditions": [
+   "fixed",
+   "recal",
+   "drift (alarm on, loc vote)"
+  ],
+  "pair_key": "<camera>/<case_id>, three conditions pooled; per-condition gates reported",
+  "bootstrap_b": 2000,
+  "seed": 0,
+  "metric": "success_rate",
+  "bootstrap_cluster": "layout",
+  "cost_note": "frames reported, not gated: the clear-view move adds frames when it fires",
+  "written_before_runs": "2026-11-27",
+  "fix_commits": [
+   "a886a28",
+   "28fed59",
+   "8902081"
+  ],
+  "previous_round": "round-02-grasp-20261127-a886a28: verdict reject (regression gate: 4 label flips in 723 pairs from the shared depth-noise stream; 8902081 gives rest images their own stream so untriggered episodes are bit-identical to aa9eb45)",
+  "rerun_pairs": 756
+ },
+ "out": "verify-grasp_arm_occlusion"
+}

@@ -1,0 +1,62 @@
+{
+ "tag": "round-03-drift-20261127-5f36960",
+ "root": "E:/Armigo_data_v2_r2",
+ "conditions": [
+  "drift"
+ ],
+ "base": [
+  "round-02b-grasp-20261127-8902081-rerun00",
+  "round-02b-grasp-20261127-8902081-rerun01",
+  "round-02b-grasp-20261127-8902081-fresh-candidate"
+ ],
+ "rerun": [
+  "round-03-drift-20261127-5f36960-rerun00",
+  "round-03-drift-20261127-5f36960-rerun01",
+  "round-03-drift-20261127-5f36960-rerun02b"
+ ],
+ "fresh_base": "round-03-drift-20261127-5f36960-fresh-base",
+ "fresh_candidate": "round-03-drift-20261127-5f36960-fresh-candidate",
+ "bank": {
+  "ids": [
+   "drift/L4100122-N",
+   "drift/L4100268-D1",
+   "drift/L4100268-N",
+   "drift/L4100288-D3",
+   "drift/L4100288-N",
+   "drift/L4100461-D0",
+   "drift/L4100461-N"
+  ]
+ },
+ "criteria": {
+  "cluster": "drift_missed_alarm",
+  "round": "3",
+  "fix_commit": "5f36960",
+  "candidate_run_commit": "8b13274 (src identical to 5f36960)",
+  "control_commit": "a57dab3 (src identical to 8902081, the round-2b candidate)",
+  "mechanism": "drift alarm only tested ring correction (when the ring was accepted) and table z; a rejected ring left drifts of 6-30 mm undetected. Round 2b candidate drift: 20/444 episodes without alarm, 9 failed; 8 had a rejected ring, 7 of them failed.",
+  "conditions": [
+   "drift (alarm on, loc vote)"
+  ],
+  "conditions_note": "fixed and recal run without drift_alarm, so the fix cannot reach them; not rerun",
+  "bank_min_fix_rate": 0.7,
+  "bank_records": 7,
+  "bank_source": "round-2b candidate drift failures with no camera recalibration, bowl_localization excluded (the alarm is never reached)",
+  "smoke_note": "an 8-episode smoke at 5f36960 on these layouts gave 6/7 bank successes (L4100268-N still fails, target_face_not_in_view); written before the gate runs",
+  "regression_max_net_regression": 1,
+  "regression_min_mcnemar_p": 0.2,
+  "regression_pairs": 428,
+  "regression_source": "all physical successes among the 444 drift rows of round-02b rerun00, rerun01 and fresh-candidate, rerun on the candidate",
+  "rerun_pairs": 444,
+  "fresh_min_ci_lo": -0.02,
+  "fresh_suite": "round_03_fresh_192 (seeds 4100501-4100596, 96 layouts), drift only",
+  "fresh_pairs": 192,
+  "pair_key": "<camera>/<case_id>",
+  "bootstrap_b": 2000,
+  "seed": 0,
+  "metric": "success_rate",
+  "bootstrap_cluster": "layout",
+  "cost_note": "frames reported, not gated: a recalibration adds frames when the alarm fires",
+  "written_before_runs": "2026-11-27"
+ },
+ "out": "verify-drift_missed_alarm"
+}

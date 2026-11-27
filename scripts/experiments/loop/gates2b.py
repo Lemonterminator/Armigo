@@ -1,4 +1,7 @@
-"""Round-2 three gates. Run with PYTHONPATH = fix checkout src + scripts/experiments (scores both arms with one scorer).
+"""Round-2 three gates (superseded by gates.py --round config/experiments/loop/round_02b.json; kept until that
+reproduces verify-grasp_arm_occlusion.json, which needs the round-1 rows on D:).
+
+Round-2 three gates. Run with PYTHONPATH = fix checkout src + scripts/experiments (scores both arms with one scorer).
 
 	python gates2b.py [--out verify-grasp_arm_occlusion.json] [--jobs N] [--dry]
 
