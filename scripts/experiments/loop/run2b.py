@@ -6,7 +6,7 @@
 
 Each arm is its own process (driver2b.py) on its own checkout. The split is proportional to the work each arm
 reports after planning, so both finish together; an arm that finishes early hands its workers to the other
-(driver2b re-reads OUT/workers-<arm>.txt). Logs: run2b-<arm>.log, gates2b.log, run2b.log (this script).
+(driver2b re-reads OUT/workers-<arm>.txt). Logs: run2b-<arm>.log, gates.log, run2b.log (this script).
 Rerunning resumes: done episodes are skipped.
 """
 
@@ -23,7 +23,8 @@ import importlib
 
 cfg_mod = importlib.import_module(os.environ.get("LOOP_CONFIG", "round2b_config"))  # see driver2b.py
 HERE, LOG_SUFFIX, OUT, PYTHON, pythonpath = cfg_mod.HERE, cfg_mod.LOG_SUFFIX, cfg_mod.OUT, cfg_mod.PYTHON, cfg_mod.pythonpath
-GATES = getattr(cfg_mod, "GATES", "gates2b.py")
+GATES = getattr(cfg_mod, "GATES", "gates.py")
+ROUND_SPEC = getattr(cfg_mod, "ROUND_SPEC", None)  # gates.py reads the round spec
 LOG_DIR = getattr(cfg_mod, "LOG_DIR", HERE)
 
 
@@ -108,7 +109,8 @@ def main() -> int:
 		return 0
 	log(f"both arms collected; running {GATES}")
 	with open(LOG_DIR / f"{GATES[:-3]}{LOG_SUFFIX}.log", "w", encoding="utf-8") as out:
-		code = subprocess.call([str(PYTHON), "-u", str(HERE / GATES)], cwd=HERE, stdout=out,
+		spec_args = ["--round", str(ROUND_SPEC), "--root", str(cfg_mod.ROOT)] if ROUND_SPEC else []
+		code = subprocess.call([str(PYTHON), "-u", str(HERE / GATES), *spec_args], cwd=HERE, stdout=out,
 			stderr=subprocess.STDOUT, env={**os.environ, "PYTHONPATH": pythonpath("candidate"), "PYTHONUTF8": "1"})
 	log(f"{GATES} exited {code}; see {GATES[:-3]}.log")
 	return code

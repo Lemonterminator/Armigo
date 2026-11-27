@@ -1,4 +1,4 @@
-"""Round 3 (drift alarm on ring rejection, 5f36960): constants for driver2b.py / run2b.py / gates3.py.
+"""Round 3 (drift alarm on ring rejection, 5f36960): constants for driver2b.py / run2b.py / gates.py.
 
 	LOOP_CONFIG=round3_config python run2b.py
 
@@ -20,7 +20,8 @@ HERE = Path(__file__).resolve().parent
 LOG_DIR = Path(os.environ.get("ROUND3_LOGS", "E:/scratch/armigo-round03-drift"))
 PYTHON = Path("E:/digital_twin_armigo/.venv/Scripts/python.exe")
 DRIVER_LIB = HERE
-GATES = "gates3.py"
+GATES = "gates.py"
+ROUND_SPEC = HERE.parents[2] / "config" / "experiments" / "loop" / "round_03.json"  # bank, criteria, batches
 SUITE_NAMES = ("round_00_clutter_60", "round_01_fresh_192", "round_02b_fresh_192", "round_03_fresh_192")
 RERUNS = {"rerun00": "round_00_clutter_60", "rerun01": "round_01_fresh_192", "rerun02b": "round_02b_fresh_192"}
 
