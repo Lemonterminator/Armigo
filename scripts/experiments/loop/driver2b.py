@@ -45,7 +45,12 @@ from multiprocessing.connection import wait  # noqa: E402
 from pathlib import Path  # noqa: E402
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from round2b_config import CAMERAS, DRIVER_LIB, OUT, ROOT, SUITES, TAG  # noqa: E402
+import importlib  # noqa: E402
+
+# LOOP_CONFIG names the round's config module (default round2b_config): paths, tag, suites and run batches.
+cfg_mod = importlib.import_module(os.environ.get("LOOP_CONFIG", "round2b_config"))
+CAMERAS, DRIVER_LIB, OUT, ROOT, SUITES, TAG = (cfg_mod.CAMERAS, cfg_mod.DRIVER_LIB, cfg_mod.OUT, cfg_mod.ROOT,
+	cfg_mod.SUITES, cfg_mod.TAG)
 
 sys.path.insert(0, str(DRIVER_LIB))
 import resume_loop as driver  # noqa: E402
@@ -56,7 +61,7 @@ GIB, MIB = 1024**3, 1024**2
 MIN_FREE_GIB = 12.0
 EST_MIB = 40.0  # per episode on disk; observed mean 24.5, max 36.1
 SPAWN_GAP_S = float(os.environ.get("SPAWN_GAP_S", "3"))
-SUITE_NAMES = ("round_00_clutter_60", "round_01_fresh_192", "round_02b_fresh_192")
+SUITE_NAMES = getattr(cfg_mod, "SUITE_NAMES", ("round_00_clutter_60", "round_01_fresh_192", "round_02b_fresh_192"))
 
 
 # ---- worker side ----
@@ -243,11 +248,14 @@ def plan_jobs(arm: str) -> tuple[list, list]:
 	saved = ROOT / "suites/manifest.json"
 	before = driver.read_json(saved) if saved.exists() else {"suites": {}}
 	planned, groups = [], []
-	batches = []
-	if arm == "candidate":
-		for cam in CAMERAS:
-			batches += [(f"{TAG}-rerun00", "round_00_clutter_60", cam), (f"{TAG}-rerun01", "round_01_fresh_192", cam)]
-	batches += [(f"{TAG}-fresh-{arm}", "round_02b_fresh_192", cam) for cam in CAMERAS]
+	if hasattr(cfg_mod, "batches"):
+		batches = cfg_mod.batches(arm)  # [(batch, suite, camera), ...]
+	else:
+		batches = []
+		if arm == "candidate":
+			for cam in CAMERAS:
+				batches += [(f"{TAG}-rerun00", "round_00_clutter_60", cam), (f"{TAG}-rerun01", "round_01_fresh_192", cam)]
+		batches += [(f"{TAG}-fresh-{arm}", "round_02b_fresh_192", cam) for cam in CAMERAS]
 	original = runner.cmd_run
 	try:
 		for batch, suite_name, cam in batches:

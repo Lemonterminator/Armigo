@@ -19,7 +19,12 @@ import subprocess
 import sys
 import time
 
-from round2b_config import HERE, LOG_SUFFIX, OUT, PYTHON, pythonpath
+import importlib
+
+cfg_mod = importlib.import_module(os.environ.get("LOOP_CONFIG", "round2b_config"))  # see driver2b.py
+HERE, LOG_SUFFIX, OUT, PYTHON, pythonpath = cfg_mod.HERE, cfg_mod.LOG_SUFFIX, cfg_mod.OUT, cfg_mod.PYTHON, cfg_mod.pythonpath
+GATES = getattr(cfg_mod, "GATES", "gates2b.py")
+LOG_DIR = getattr(cfg_mod, "LOG_DIR", HERE)
 
 
 def log(msg: str) -> None:
@@ -40,7 +45,7 @@ def state(arm: str) -> dict:
 
 def start(arm: str) -> subprocess.Popen:
 	env = {**os.environ, "PYTHONPATH": pythonpath(arm), "PYTHONUTF8": "1"}
-	out = open(HERE / f"run2b-{arm}{LOG_SUFFIX}.log", "a", encoding="utf-8")  # noqa: SIM115 - lives as long as the child
+	out = open(LOG_DIR / f"run2b-{arm}{LOG_SUFFIX}.log", "a", encoding="utf-8")  # noqa: SIM115 - lives as long as the child
 	out.write(f"\n===== {time.strftime('%Y-%m-%d %H:%M:%S')} start {arm}\n")
 	out.flush()
 	return subprocess.Popen([str(PYTHON), "-u", str(HERE / "driver2b.py"), arm], env=env, stdout=out,
@@ -101,11 +106,11 @@ def main() -> int:
 		return 1
 	if a.no_gates:
 		return 0
-	log("both arms collected; running gates2b.py")
-	with open(HERE / f"gates2b{LOG_SUFFIX}.log", "w", encoding="utf-8") as out:
-		code = subprocess.call([str(PYTHON), "-u", str(HERE / "gates2b.py")], cwd=HERE, stdout=out,
+	log(f"both arms collected; running {GATES}")
+	with open(LOG_DIR / f"{GATES[:-3]}{LOG_SUFFIX}.log", "w", encoding="utf-8") as out:
+		code = subprocess.call([str(PYTHON), "-u", str(HERE / GATES)], cwd=HERE, stdout=out,
 			stderr=subprocess.STDOUT, env={**os.environ, "PYTHONPATH": pythonpath("candidate"), "PYTHONUTF8": "1"})
-	log(f"gates2b.py exited {code}; see gates2b.log")
+	log(f"{GATES} exited {code}; see {GATES[:-3]}.log")
 	return code
 
 
