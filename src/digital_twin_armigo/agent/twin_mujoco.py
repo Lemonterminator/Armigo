@@ -911,6 +911,9 @@ class TwinMujoco:
 			cosang = float(np.clip(np.dot(self._cam_est[:3, 2], forward / np.linalg.norm(forward)), -1.0, 1.0))
 			info["actual_cam_axis_err_deg"] = round(math.degrees(math.acos(cosang)), 4)
 			self._depth_rng = np.random.default_rng(seed + 30_000)
+			# Clear-view (rest) top images draw their noise from their own stream, so an episode where the arm never
+			# hides the brick keeps every other depth image, and so its whole run, identical to one without them.
+			self._rest_depth_rng = np.random.default_rng(seed + 50_000)
 			self.event("camera_calibrated", **info)
 			if "camera" in self.oracle:
 				self._cam_est = true_world_from_cam(layout.top)
@@ -1104,10 +1107,10 @@ class TwinMujoco:
 		tf[:3, 3] = est.pos
 		return tf
 
-	def _top_depth(self):
+	def _top_depth(self, rng=None):
 		depth = self.cell.depth("top")  # MuJoCo render, or Isaac RTX through the mirror cell
 		sigma = self.perception.depth_noise_m * (depth / 0.5) ** 2
-		return depth + self._depth_rng.normal(0.0, 1.0, depth.shape) * sigma
+		return depth + (self._depth_rng if rng is None else rng).normal(0.0, 1.0, depth.shape) * sigma
 
 	def _locate_top(self, depth, bowls):
 		"""``(brick estimate or None, source)`` from one top depth image: with ``localise="vote"`` the pinned brick
@@ -1159,7 +1162,7 @@ class TwinMujoco:
 		# generators by policy segments) takes it at the same frame with the same noise draw.
 		if self._execute(clear_view()):
 			return None, None
-		depth = self._top_depth()
+		depth = self._top_depth(self._rest_depth_rng)
 		if self._execute(ex._go_ready()):
 			return None, None
 		return depth, "rest"
@@ -1499,6 +1502,7 @@ class TwinMujoco:
 			agent["recalibration_attempted"] = self._recalibration_attempted
 		if self.perception is not None:
 			agent["depth_rng"] = self._depth_rng.bit_generator.state
+			agent["rest_depth_rng"] = self._rest_depth_rng.bit_generator.state
 			agent["camera"] = {"k": np.asarray(self._cam_k).tolist(), "world_from_cam": self._cam_est.tolist()}
 		if self.realistic:
 			agent["top_depth_rng"] = self._top_depth_rng.bit_generator.state
@@ -1569,7 +1573,7 @@ class TwinMujoco:
 			return self.scene_error
 		# The arm starts at rest, where it hides none of the reach band from the top camera. Taken outside the
 		# motion generator so expert and student twins draw the same depth noise.
-		rest_depth = self._top_depth() if self.realistic else None
+		rest_depth = self._top_depth(self._rest_depth_rng) if self.realistic else None
 		error = self._execute(ready())
 		self._rest_view = None if rest_depth is None else (rest_depth, self.total_frames)  # valid until a frame runs
 		if not error:
@@ -2812,6 +2816,8 @@ class TwinMujoco:
 			self._park_xy = np.array(agent["park_xy"])
 		if agent.get("depth_rng") is not None and self.perception is not None:
 			self._depth_rng.bit_generator.state = copy.deepcopy(agent["depth_rng"])
+			if agent.get("rest_depth_rng") is not None:
+				self._rest_depth_rng.bit_generator.state = copy.deepcopy(agent["rest_depth_rng"])
 		if agent.get("top_depth_rng") is not None and self.realistic:
 			self._top_depth_rng.bit_generator.state = copy.deepcopy(agent["top_depth_rng"])
 		if agent.get("bowls") is not None:
