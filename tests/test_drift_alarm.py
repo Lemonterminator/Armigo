@@ -160,3 +160,30 @@ def test_drift_alarm_end_to_end_and_default_equivalence(tmp_path, monkeypatch):
 	assert sum(event["kind"] == "camera_recalibrated" for event in missing_events) == 1
 	assert all(event["kind"] != "recalibration_needed" for event in missing_events)
 	assert missing["lifted"] and missing["error"] is None
+
+
+def test_rejected_ring_requests_one_recalibration(tmp_path, monkeypatch):
+	"""Round 3: a rejected ring leaves the drift unmeasured, so the alarm recalibrates (once) instead of trusting
+	the top view."""
+	pytest.importorskip("mujoco")
+	from digital_twin_armigo.agent.act_grasp import grasp_trial
+	from digital_twin_armigo.agent.twin_mujoco import TwinMujoco
+
+	seed = 3001205
+	case = [seed, True, seed % 6, {"scene": "v3", "split": "train", "cameras": "drift", "oracle": "bowls"}]
+	original = TwinMujoco._ring_localise
+
+	def reject(self):
+		error, _ = original(self)
+		return error, False
+
+	monkeypatch.setattr(TwinMujoco, "_ring_localise", reject)
+	out = tmp_path / "rejected"
+	result = grasp_trial(case, out, localise="vote", drift_alarm=True, expert_overrides={"descend_close_ratio": 1.3})
+	events = [json.loads(line) for line in (out / "events.jsonl").read_text(encoding="utf-8").splitlines()]
+	alarms = [e for e in events if e["kind"] == "recalibration_needed"]
+	assert alarms and alarms[0]["reason"] in ("drift", "ring_rejected") and alarms[0]["already_attempted"] is False
+	assert all(e["reason"] == "ring_rejected" for e in alarms[1:])  # the forced rejection after recalibration
+	assert [e["already_attempted"] for e in alarms] == [False, True]
+	assert sum(e["kind"] == "camera_recalibrated" for e in events) == 1
+	assert result["error"] is None

@@ -2393,9 +2393,14 @@ class TwinMujoco:
 		)
 		if self.drift_alarm:
 			table_z_mm = float(est.pos[2] - (est.size[2] / 2 + RESTING_BRICK_CLEARANCE_M)) * 1000
-			if top_camera_drift(correction_mm, ring_accepted, table_z_mm):
+			drift = top_camera_drift(correction_mm, ring_accepted, table_z_mm)
+			# A rejected ring leaves the correction unmeasured: the wrist found no brick of the believed size near the
+			# top-view position (BAD_FIT / CLIPPED / OUTSIDE_GATE, or a median beyond the gate). Under a drifted camera
+			# that is the usual cause, and the table check alone misses drifts up to 30 mm (round 3), so recalibrate.
+			if drift or not ring_accepted:
 				self.event(
 					"recalibration_needed",
+					reason="drift" if drift else "ring_rejected",
 					correction_mm=correction_mm,
 					ring_accepted=ring_accepted,
 					brick_height_mm=round(float(est.pos[2]) * 1000, 3),
