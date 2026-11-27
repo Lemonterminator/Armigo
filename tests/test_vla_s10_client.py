@@ -287,6 +287,60 @@ def test_queue_reset_on_start_and_k_hat_zero_immediate_stop():
 	policy.close()
 
 
+def test_temporal_ensemble_weights_overlapping_chunks_and_resets_per_segment():
+	model = _DummyChunkModel(horizon=10, family="act")
+	local = LocalChunkPredictor(model)
+	policy = ChunkClientPolicy(local, mode="sync", replan_interval=2, temporal_ensemble=1.0)
+
+	seg0 = policy_inputs(Segment("prepare"))
+	policy.start(seg0, 0)
+	model.next_action_value = 0.25
+	t0 = policy.act(_make_obs(seg0, segment_id=0, segment_frame=0)).target
+	t1 = policy.act(_make_obs(seg0, segment_id=0, segment_frame=1)).target
+	assert len(model.calls) == 1
+	assert t0[1] == pytest.approx(0.25) and t1[0] == pytest.approx(0.26)
+
+	model.next_action_value = 0.45
+	t2 = policy.act(_make_obs(seg0, segment_id=0, segment_frame=2)).target
+	assert len(model.calls) == 2
+	w = np.array([1.0, np.exp(-1.0)])  # oldest chunk first
+	assert t2[1] == pytest.approx((w[0] * 0.25 + w[1] * 0.45) / w.sum())
+	assert t2[0] == pytest.approx((w[0] * 0.27 + w[1] * 0.45) / w.sum())
+
+	# A new segment must not blend in chunks from the previous one.
+	seg1 = policy_inputs(Segment("prepare"))
+	policy.start(seg1, 1)
+	model.next_action_value = 0.65
+	t_new = policy.act(_make_obs(seg1, segment_id=1, segment_frame=0)).target
+	assert t_new[1] == pytest.approx(0.65)
+	policy.close()
+
+
+def _stop_sequence(stop_policy: str) -> list[int | None]:
+	model = _DummyChunkModel(horizon=10, family="act")
+	policy = ChunkClientPolicy(LocalChunkPredictor(model), mode="sync", replan_interval=2, stop_policy=stop_policy)
+	seg = policy_inputs(Segment("prepare"))
+	policy.start(seg, 0)
+	seen = []
+	# frame 0: stop 8; frame 2: H+1 (no end in this chunk); frame 4: 4+9=13 (later); frame 6: 6+1=7 (earlier)
+	for frame, k in ((0, 8), (2, 11), (4, 9), (6, 1)):
+		model.next_k_hat = k
+		policy.act(_make_obs(seg, segment_id=0, segment_frame=frame))
+		seen.append(policy.planned_stop_step)
+	policy.start(seg, 1)
+	assert policy.planned_stop_step is None
+	policy.close()
+	return seen
+
+
+def test_stop_policy_latest_keep_earliest():
+	assert _stop_sequence("latest") == [8, None, 13, 7]
+	assert _stop_sequence("keep") == [8, 8, 13, 7]
+	assert _stop_sequence("earliest") == [8, 8, 8, 7]
+	with pytest.raises(ValueError):
+		ChunkClientPolicy(LocalChunkPredictor(_DummyChunkModel()), stop_policy="bogus")
+
+
 def test_k_hat_stop_at_base_frame_plus_k_without_extra_call_and_threshold():
 	model = _DummyChunkModel(horizon=8, family="act")
 	local = LocalChunkPredictor(model)
@@ -628,6 +682,30 @@ def test_paired_bootstrap_ci_and_collisions_over_all_attempts(tmp_path):
 	assert sum_clean["student_sort_rate"] == 0.75
 	assert sum_clean["collisions"]["total_collisions"] == 0
 	assert sum_clean["pilot_gate"]["pilot_gate_pass"] is True
+	assert sum_clean["teacher_pairing"]["complete"] is True
+
+	# Partial teacher coverage: rates would be over different layouts -> no gate (audit 2026-11-20 #3).
+	partial = {k: v for k, v in teacher_by_seed.items() if k != 104}
+	sum_partial = eval_closed_loop.summarize_closed_loop(
+		records_clean, grades=grades_clean, teacher_by_seed=partial, n_boot=200
+	)
+	assert sum_partial["teacher_pairing"] == {
+		"students": 4,
+		"paired": 3,
+		"unpaired_seeds": [104],
+		"case_mismatch_seeds": [],
+		"complete": False,
+	}
+	assert sum_partial["pilot_gate"]["pilot_gate_pass"] is None
+	assert sum_partial["pilot_gate"]["sort_rate_gate_pass"] is None
+
+	# A teacher row for the same seed but a different case is not a pair.
+	wrong_case = {**teacher_by_seed, 102: {**teacher_by_seed[102], "case": [102, False, 5]}}
+	sum_wrong = eval_closed_loop.summarize_closed_loop(
+		records_clean, grades=grades_clean, teacher_by_seed=wrong_case, n_boot=200
+	)
+	assert sum_wrong["teacher_pairing"]["case_mismatch_seeds"] == [102]
+	assert sum_wrong["pilot_gate"]["pilot_gate_pass"] is None
 
 
 class _ConstantScorer:
@@ -758,3 +836,24 @@ def test_episode_record_detects_s5_perturbations_incl_nudge(tmp_path: Path) -> N
 	_write_episode(tmp_path / "d", [{"kind": "failure", "frame": 10}])
 	rec = eval_closed_loop._episode_record_from_dir(tmp_path / "d", (4, True, 1))
 	assert not rec["has_perturbation"] and not rec["perturbation_detected"]
+
+
+def test_clamp_wait_is_the_eval_default():
+	"""Clamp-wait with the closed-empty exit is on by default (protocol v3 verdict); --no-clamp-wait restores the
+	pre-2026-11-23 evaluation, --clamp-wait-empty 0 the v1 rule."""
+	parser = eval_closed_loop.build_parser()
+
+	def resolved(*argv):
+		a = eval_closed_loop.resolve_clamp_wait_args(parser.parse_args(["--ckpt", "x", "--out", "y", *argv]))
+		return a.clamp_wait, a.clamp_wait_empty, a.protocol
+
+	default = eval_closed_loop.CLAMP_WAIT_EMPTY_DEFAULT_RAD
+	assert default == 0.03
+	assert resolved() == (True, default, None)
+	assert resolved("--no-clamp-wait") == (False, None, None)
+	assert resolved("--clamp-wait-empty", "0") == (True, None, None)
+	assert resolved("--grasp-tail-mode", "act") == (True, default, "grasp-tail-r3")
+	assert resolved("--grasp-tail-mode", "act-wait", "--no-clamp-wait") == (False, None, "grasp-tail-r3")
+	for bad in (("--no-clamp-wait", "--clamp-wait-empty", "0.03"), ("--grasp-tail-mode", "act-wait")):
+		with pytest.raises(ValueError):
+			resolved(*bad)

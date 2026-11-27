@@ -1,0 +1,105 @@
+{
+  "plan": "docs/superpowers/plans/2026-11-24-dual-engine-six-face-agent-audit.md",
+  "detectors": {
+    "v6": "results/agent-bench/sup-local.json",
+    "v7bot": "results/anomaly/models-sup/sup-v7bot.json"
+  },
+  "suites": {
+    "smoke_600008": {
+      "sha256": "f3eb8c8b1e3c2ec4f979b2f31cbdcc14b5aaf4c6074595f56527f63f0820a2e6",
+      "cases": 2,
+      "layouts": 1,
+      "sealed": false
+    },
+    "bench16": {
+      "sha256": "5b8c26a5a56a4514921c6102889aae688a94e04e7a48c3c3ef3fa6648fe417ab",
+      "cases": 16,
+      "layouts": 8,
+      "sealed": false
+    },
+    "dev_suite_700001": {
+      "sha256": "5f7108e75150be42e635ccf2535087d2e5cc383f056191d9bfaf6cc4f5158ae7",
+      "cases": 48,
+      "layouts": 24,
+      "sealed": false
+    },
+    "p1_sealed": {
+      "sha256": "c0b1242ac496ab2587b3ddf30b656dbfc4ebdb347e89ab2812d073918937da43",
+      "cases": 48,
+      "layouts": 24,
+      "sealed": true
+    },
+    "p2_dev12": {
+      "sha256": "9e1242c1d430e72d98553831617a00947e208512fbb264e283b2a2f9e9b9d726",
+      "cases": 24,
+      "layouts": 12,
+      "sealed": false
+    },
+    "p2_sealed": {
+      "sha256": "00e77837ce39cd37af154a08a9f0ea575bf7f020994a197f828c850f474dbde8",
+      "cases": 48,
+      "layouts": 24,
+      "sealed": true
+    },
+    "loop_01_96": {
+      "sha256": "972680c0c65269e6ebb35bef10a28500d239292438240cb1c4f2439ea49b766f",
+      "cases": 96,
+      "layouts": 48,
+      "sealed": false
+    },
+    "loop_02_400": {
+      "sha256": "2d040a09cb724e94fb10303c535f18e641169f18a04486c67ea09667c7a2004f",
+      "cases": 400,
+      "layouts": 200,
+      "sealed": false
+    },
+    "probe_clutter_12": {
+      "sha256": "6f206a6451dd5ac4b5a104e64aba2104d3558054a0371895e013a9ecb65a209a",
+      "cases": 12,
+      "layouts": 6,
+      "sealed": false
+    },
+    "round_00_clutter_60": {
+      "sha256": "b707d644bd9d0df5fd94405f53322c9c0386e2e4954870abdaa51ba2c417f72c",
+      "cases": 60,
+      "layouts": 30,
+      "sealed": false
+    },
+    "round_01_fresh_192": {
+      "sha256": "57abc3512eef771504082e88777805a63e5bfb29a88a9c59a19d35bbc80e5a13",
+      "cases": 192,
+      "layouts": 96,
+      "sealed": false
+    },
+    "round_02_fresh_192": {
+      "sha256": "a5379ec5519950ee3bbbbc57c6bbbc6aba362b0805dbd94edb23843f5c9061b7",
+      "cases": 192,
+      "layouts": 96,
+      "sealed": false
+    },
+    "round_02b_fresh_192": {
+      "sha256": "914ba22b36ab6dd39bf9ec376e3703c82fad13c52e354092fc02e3a2b97eb034",
+      "cases": 192,
+      "layouts": 96,
+      "sealed": false
+    },
+    "round_03_fresh_192": {
+      "sha256": "551389dbac494471605cfe86d585c3022a2ae205de1dd0b7ac651ba5f95bd66b",
+      "cases": 192,
+      "layouts": 96,
+      "sealed": false
+    },
+    "round_00_clutter_audited_60": {
+      "sha256": "c346110a717cbbfa7748a03a33c44a3b5770903d7b016f51980490de89713e1a",
+      "cases": 60,
+      "layouts": 30,
+      "sealed": false
+    },
+    "round_00_clutter_replacement_2": {
+      "sha256": "9f4d340b95b8a21e49bdc85396f8d4a163379dab69f4ac9487ecf8c3ad63e0b5",
+      "cases": 2,
+      "layouts": 1,
+      "sealed": false
+    }
+  }
+}

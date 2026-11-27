@@ -31,6 +31,7 @@ from digital_twin_armigo.constants import REST_U
 from digital_twin_armigo.joints import normalized_to_rad
 from digital_twin_armigo.metrics import EVALUATOR_VERSION
 from digital_twin_armigo.physics import load_physics_spec
+from digital_twin_armigo.tracking.runs import tracked_run
 
 DEFAULT_OUT_DIR = ROOT / "results" / "physics-expert-v2"
 
@@ -191,6 +192,9 @@ def main(argv: list[str] | None = None) -> int:
 	parser.add_argument("--layouts", type=int, default=0, help="Layout mode: run N sample_layout layouts instead.")
 	parser.add_argument("--layout-seed", type=int, default=7, help="Generator seed for layout mode.")
 	parser.add_argument("--out", type=Path, default=None, help="Output JSON path.")
+	parser.add_argument("--mlflow", action="store_true", help="Record this benchmark in MLflow")
+	parser.add_argument("--mlflow-experiment", default="physics-expert-bench")
+	parser.add_argument("--run-name", default=None, help="MLflow run name (default: output file stem)")
 	args = parser.parse_args(argv)
 
 	spec = load_physics_spec()
@@ -228,6 +232,24 @@ def main(argv: list[str] | None = None) -> int:
 	out.parent.mkdir(parents=True, exist_ok=True)
 	out.write_text(json.dumps(_jsonable(report), indent=1), encoding="utf-8")
 	print(f"wrote {out}")
+	with tracked_run(
+		args.mlflow_experiment,
+		args.run_name or out.stem,
+		enabled=args.mlflow,
+		params={
+			"mode": report["mode"],
+			"evaluator_version": EVALUATOR_VERSION,
+			"mujoco_version": report["mujoco_version"],
+			"seeds": args.seeds,
+			"seed_start": args.seed_start,
+			"layouts": args.layouts,
+			"layout_seed": args.layout_seed,
+		},
+		tags={"task": "physics_expert_bench"},
+	) as run:
+		run.log_report({k: v for k, v in _jsonable(report).items() if k != "params"})
+		run.log_dict(_jsonable(report)["params"], "expert_params.json")
+		run.log_artifact(out)
 	return 0
 
 

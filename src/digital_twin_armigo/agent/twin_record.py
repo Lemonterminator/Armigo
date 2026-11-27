@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import sys
 import time
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
@@ -17,6 +18,7 @@ from ..constants import FPS, REST_U, STATE_NAMES, TOP_CROP, TOP_FULL
 from ..depth import layered_height_image
 from ..joints import joint_normalization, normalized_to_rad
 from ..sensor_noise import DEFAULT_D415_NOISE, degrade_depth_height
+from ..vla.contract import format_instruction
 from .twin_graph import EDGES, NODES, TASK
 
 CAMERAS = ("front", "wrist", "top_rgb", "top_depth")
@@ -59,11 +61,16 @@ class Video:
 class EpisodeTrace:
 	def __init__(self, path, *, video):
 		self.path = Path(path)
-		self.path.mkdir(parents=True, exist_ok=False)
+		# A fresh directory; the experiment runner may have put only its run_status.json there already.
+		if not (self.path.is_dir() and {p.name for p in self.path.iterdir()} <= {"run_status.json"}):
+			self.path.mkdir(parents=True, exist_ok=False)
 		self.video = video
 		self.events = []
 		self.branch = 0
 		self.branches = [{"id": 0, "start_frame": 0}]
+		# Scene facts the simulator fills in that the case alone does not give (e.g. ``cell_markers``); written to
+		# ``episode.json`` so re-renders rebuild the same scene.
+		self.scene: dict = {}
 		self.streams = {}
 		self.rows = []
 		# Additive per-frame columns (agent/student_rollout.py): the motion segment of each command, set by whoever
@@ -75,6 +82,7 @@ class EpisodeTrace:
 		self._is_blind: list[bool] = []
 		self._is_takeover: list[bool] = []
 		self._supervise_action: list[bool] = []
+		self.noisy: list[bool] = []
 		self.top_depth_rng: np.random.Generator | None = None
 		self.images = None
 		self.started = time.perf_counter()
@@ -83,9 +91,30 @@ class EpisodeTrace:
 		self.checkpoints = self.path / "checkpoints"
 		self.checkpoints.mkdir()
 		self.event_log = (self.path / "events.jsonl").open("w", encoding="utf-8")
+		self.live = None  # viewer.live.LiveStream when ARMIGO_RERUN is set (see docs/VIEWER.md)
+
+	def _live(self, call, *args):
+		"""Run a live-viewer hook; a failure turns the stream off instead of interrupting the episode."""
+		if self.live is None:
+			return
+		try:
+			call(*args)
+		except Exception as exc:  # noqa: BLE001 - optional streaming must never stop an episode
+			print(f"armigo: live Rerun stream stopped ({exc})", file=sys.stderr)
+			self.live = None
+
+	def _end_live(self):
+		live, self.live = self.live, None
+		if live is not None:
+			try:
+				live.finish(self.events)
+			except Exception as exc:  # noqa: BLE001 - optional streaming must never stop an episode
+				print(f"armigo: live Rerun stream not finalised ({exc})", file=sys.stderr)
 
 	def start(self, cell):
-		write_json(self.path / "graph.json", {"nodes": NODES, "edges": EDGES})
+		self.graph_nodes = NODES if self.scene.get("drift_alarm") else tuple(n for n in NODES if n != "recalibrate")
+		graph_edges = [edge for edge in EDGES if all(node in self.graph_nodes for node in edge)]
+		write_json(self.path / "graph.json", {"nodes": self.graph_nodes, "edges": graph_edges})
 		# Scoring only (S6 grader): per-frame contact peaks over the frame's physics substeps, stored next to the
 		# actions of every branch, so collisions can be counted over all attempts. The evaluator's own measure
 		# excludes the jaws; ``contact_jaw_env_n`` is the jaws against the table, bowls and clutter.
@@ -104,9 +133,14 @@ class EpisodeTrace:
 			if prior_frame is not None:
 				prior_frame(episode)
 			self._frame_contact(episode)
+			if self.live is not None:
+				self._live(self.live.on_frame, episode)
 
 		cell.substep_observer = substep
 		cell.frame_observer = frame
+		from digital_twin_armigo.viewer import live
+
+		self.live = live.maybe_start(cell, self.path, started=self.started)
 
 	def _substep_contact(self, cell):
 		from ..mujoco_cell.episode import jaw_env_contact_force
@@ -158,6 +192,7 @@ class EpisodeTrace:
 		is_blind=False,
 		is_takeover=False,
 		supervise_action=True,
+		noisy=False,
 	):
 		self.rows.append((state.copy(), target.copy(), phase))
 		self.exact.append(
@@ -170,22 +205,24 @@ class EpisodeTrace:
 		self._is_blind.append(bool(is_blind))
 		self._is_takeover.append(bool(is_takeover))
 		self._supervise_action.append(bool(supervise_action))
+		self.noisy.append(bool(noisy))
 
-	def set_row_masks(self, *, is_blind=None, is_takeover=None, supervise_action=None):
+	def set_row_masks(self, *, is_blind=None, is_takeover=None, supervise_action=None, noisy=None):
 		"""Overwrite the per-row mask columns of the rows recorded so far (the active branch). Each argument is a bool
 		sequence of length ``len(self.rows)`` (or None to keep it); rows appended later use ``command``'s flags.
 		Hook for callers that only know a mask after the fact (S11 takeover onset, S5 detection frame)."""
-		for name, values in (
-			("_is_blind", is_blind),
-			("_is_takeover", is_takeover),
-			("_supervise_action", supervise_action),
+		for attr, label, values in (
+			("_is_blind", "is_blind", is_blind),
+			("_is_takeover", "is_takeover", is_takeover),
+			("_supervise_action", "supervise_action", supervise_action),
+			("noisy", "noisy", noisy),
 		):
 			if values is None:
 				continue
 			values = [bool(v) for v in values]
 			if len(values) != len(self.rows):
-				raise ValueError(f"{name[1:]} has {len(values)} entries for {len(self.rows)} rows")
-			setattr(self, name, values)
+				raise ValueError(f"{label} has {len(values)} entries for {len(self.rows)} rows")
+			setattr(self, attr, values)
 
 	def step(self, cell, node):
 		if self.video:
@@ -271,11 +308,18 @@ class EpisodeTrace:
 		}.items():
 			canvas[y : y + h, x : x + w] = cv2.resize(self.images[name], (w, h), interpolation=cv2.INTER_AREA)
 			cv2.putText(canvas, title, (x, y - 12), cv2.FONT_HERSHEY_SIMPLEX, 0.55, (207, 219, 225), 1, cv2.LINE_AA)
-		for i, name in enumerate(NODES):
-			x, y = 12 + i * 144, 653
+		margin, gap, padding = 12, 8, 8
+		nodes = getattr(self, "graph_nodes", NODES)  # set by start(); a bare trace draws every node
+		step = (canvas.shape[1] - 2 * margin + gap) // len(nodes)
+		box_width = step - gap
+		font, max_scale = cv2.FONT_HERSHEY_SIMPLEX, 0.53
+		for i, name in enumerate(nodes):
+			x, y = margin + i * step, 653
 			active = name == node
-			cv2.rectangle(canvas, (x, y), (x + 136, y + 44), (44, 164, 112) if active else (39, 53, 64), -1)
-			cv2.putText(canvas, name, (x + 8, y + 27), cv2.FONT_HERSHEY_SIMPLEX, 0.53, (239, 248, 252), 1, cv2.LINE_AA)
+			cv2.rectangle(canvas, (x, y), (x + box_width - 1, y + 44), (44, 164, 112) if active else (39, 53, 64), -1)
+			label_width = cv2.getTextSize(name, font, max_scale, 1)[0][0]
+			scale = min(max_scale, max_scale * (box_width - 2 * padding) / label_width)
+			cv2.putText(canvas, name, (x + padding, y + 27), font, scale, (239, 248, 252), 1, cv2.LINE_AA)
 		branch = self.branches[-1]["id"]
 		if frame is None:
 			frame = self.branches[-1]["start_frame"] + len(self.rows)
@@ -324,6 +368,8 @@ class EpisodeTrace:
 				extra["is_takeover"] = np.array(self._is_takeover, dtype=bool)
 			if len(self._supervise_action) == len(self.rows):
 				extra["supervise_action"] = np.array(self._supervise_action, dtype=bool)
+			if len(self.noisy) == len(self.rows) and any(self.noisy):
+				extra["noisy"] = np.array(self.noisy, dtype=bool)
 			state64, action64, segment = zip(*self.exact, strict=True)
 			np.savez_compressed(
 				path / "actions.npz",
@@ -349,8 +395,14 @@ class EpisodeTrace:
 		self._is_blind = []
 		self._is_takeover = []
 		self._supervise_action = []
+		self.noisy = []
 
 	def finish(self, result, provenance):
+		from digital_twin_armigo.inventory.taxonomy import classify_provenance
+
+		# Freeze who drove this episode (see inventory.taxonomy) so later rule changes never relabel written data.
+		actor = classify_provenance(provenance, result)
+		provenance = {**provenance, "actor": {k: v for k, v in actor.items() if k != "basis"}}
 		self._finish_branch()
 		if self.video and self.images is not None:
 			branch = self.branches[-1]
@@ -365,12 +417,16 @@ class EpisodeTrace:
 			"provenance": provenance,
 			"result": result,
 		}
+		if self.scene:
+			manifest["scene"] = dict(self.scene)
 		write_json(self.path / "episode.json", manifest)
 		self.event_log.close()
+		self._end_live()
 
 	def close(self):
 		self._finish_branch()
 		self.event_log.close()
+		self._end_live()
 
 
 # kind -> (instruction template, held: the brick is carried (lost-brick monitor on), default phase, frame budget)
@@ -418,7 +474,13 @@ SEGMENT_KINDS: dict[str, tuple[str, bool, str, int]] = {
 # Segment params a policy may read: exactly the fields the instruction texts are formatted from (a test checks
 # this). The other params (``mode``, ``faces``, ``target_q``, ``via_poses``, ``bottom_px``, ``xy``) are planner
 # outputs: a real-rig student under the D1 default (docs/vla/STUDENT_INPUTS.md) gets the instruction, not the plan.
-POLICY_PARAMS: tuple[str, ...] = ("view", "views", "bowl")
+#
+# ``roll_deg`` is the wrist roll the controller chose for the segment: for ``grasp`` the candidate whose pinched faces
+# suit the detector's cleared / suspect faces (``choose_grasp``), for ``scan_view`` / ``present_bottom`` the planned
+# view pose's roll. These are segment-level decisions (R3): the student cannot infer them from its observation, so
+# without them the target is multimodal (S10 ACT baseline 02: 0/60, every episode failing its first grasp).
+POLICY_PARAMS: tuple[str, ...] = ("view", "views", "bowl", "roll_deg")
+ROLL_SUFFIX = " Use a wrist roll of {roll_deg} degrees."
 # Keys of policy_inputs(): the one definition shared by the online policy and the offline training export.
 POLICY_FIELDS: tuple[str, ...] = ("kind", "instruction", *POLICY_PARAMS)
 
@@ -427,6 +489,7 @@ POLICY_FIELDS: tuple[str, ...] = ("kind", "instruction", *POLICY_PARAMS)
 class Segment:
 	kind: str
 	params: dict[str, Any] = field(default_factory=dict)
+	variant: int = 0
 
 	def __post_init__(self):
 		if self.kind not in SEGMENT_KINDS:
@@ -435,7 +498,7 @@ class Segment:
 
 	@property
 	def instruction(self) -> str:
-		return SEGMENT_KINDS[self.kind][0].format(**self.params)
+		return format_instruction(self.kind, self.params, variant=self.variant)
 
 	@property
 	def held(self) -> bool:
@@ -456,7 +519,10 @@ class Segment:
 
 	def key(self) -> str:
 		"""Canonical identity used to match a student's segment with a recorded one (includes the diagnostics)."""
-		return json.dumps({"kind": self.kind, "params": self.params}, sort_keys=True, allow_nan=False)
+		d = {"kind": self.kind, "params": self.params}
+		if self.variant != 0:
+			d["variant"] = self.variant
+		return json.dumps(d, sort_keys=True, allow_nan=False)
 
 
 def policy_inputs(segment: Segment) -> dict[str, Any]:
@@ -489,6 +555,7 @@ SEGMENT_FEATURES = {
 	"mask.is_blind": {"dtype": "bool", "shape": (1,), "names": None},
 	"mask.is_takeover": {"dtype": "bool", "shape": (1,), "names": None},
 	"mask.supervise_action": {"dtype": "bool", "shape": (1,), "names": None},
+	"mask.noisy": {"dtype": "bool", "shape": (1,), "names": None},
 }
 SEGMENT_DONE_CONVENTION = (
 	"segment.done is True on row r when the segment before it ended at observation r with segment_done (end reason"
@@ -544,7 +611,8 @@ def segment_labels(episode: Path) -> dict:
 		if not (ids[first:last] == sid).all():
 			raise SegmentLabelError(f"{episode.name}: frames of segment {sid} carry another segment id")
 		# Pull policy-visible conditioning strictly from policy_inputs(Segment(kind, params)), never diagnostics.
-		pi = policy_inputs(Segment(start["segment_kind"], start["params"]))
+		variant = int(start.get("variant", 0))
+		pi = policy_inputs(Segment(start["segment_kind"], start["params"], variant=variant))
 		policy_by_id[sid] = {
 			"bowl": "" if pi["bowl"] is None else str(pi["bowl"]),
 			"view": 0 if pi["view"] is None else int(pi["view"]),
@@ -556,6 +624,7 @@ def segment_labels(episode: Path) -> dict:
 				"kind": start["segment_kind"],
 				"instruction": start["instruction"],
 				"params": start["params"],
+				**({"variant": variant} if variant else {}),
 				"start": first,
 				"end": last,
 				"reason": end["reason"],
@@ -585,11 +654,24 @@ def segment_labels(episode: Path) -> dict:
 	}
 
 
-def student_frames(episode: Path):
+def student_frames(
+	episode: Path,
+	start_frame: int = 0,
+	student_cameras_only: bool = False,
+	*,
+	include_noisy_mask: bool | None = None,
+	video_dir: Path | None = None,
+):
 	"""Yield only contiguous, successful unrewound samples for the LeRobot exporter. In-place retries are allowed
 	(one continuous branch: a recovery demonstration); a physics rewind is not. Joints are in radians. Each frame
 	carries its segment and mask columns (SEGMENT_FEATURES), D1 input vectors (INPUT_FEATURES) and the segment
-	instruction as ``task``; an episode with frames outside any segment is rejected (:class:`SegmentLabelError`)."""
+	instruction as ``task``; an episode with frames outside any segment is rejected (:class:`SegmentLabelError`).
+	Rows before ``start_frame`` are checked and decoded but not yielded (see :func:`unsupervised_prefix_end`).
+
+	``include_noisy_mask`` defaults to ``True`` when ``student_cameras_only=True`` (canonical v3 3-camera export)
+	and ``False`` when ``student_cameras_only=False`` (legacy 5-camera export without ``mask.noisy`` for merge
+	compatibility). When ``video_dir`` is provided, ``.mkv`` streams are verified against ``rerender_manifest.json``
+	and read from ``video_dir`` even if the bronze episode was recorded with ``video=False``."""
 	from contextlib import ExitStack
 
 	episode = Path(episode)
@@ -597,7 +679,6 @@ def student_frames(episode: Path):
 	result = manifest["result"]
 	if (
 		manifest["schema"] != "armigo-agent-episode/v1"
-		or not manifest["video"]
 		or result["verdict"] != "SUCCESS"
 		or not result["student_eligible"]
 		or len(manifest["branches"]) != 1
@@ -607,25 +688,42 @@ def student_frames(episode: Path):
 		or manifest["fps"] != FPS
 	):
 		raise ValueError("episode is not eligible for VLA export")
+	if video_dir is None and not manifest["video"]:
+		raise ValueError(
+			f"{episode.name}: episode has no recorded video (video=False); "
+			"deferred rerender is required (pass verified video_dir or --rerender-video)"
+		)
+	use_noisy_mask = bool(student_cameras_only) if include_noisy_mask is None else bool(include_noisy_mask)
 	root = episode / "branch-0"
 	labels = segment_labels(episode)
+	active_cameras = [c for c in CAMERAS if not (student_cameras_only and c in ("front", "top_full"))]
+	if video_dir is not None:
+		from .deferred_video import verify_rerender_dir
+
+		mkv_root = Path(video_dir)
+		verify_rerender_dir(episode, mkv_root, required_cameras=active_cameras)
+	else:
+		mkv_root = root
 	with ExitStack() as stack:
 		rows = stack.enter_context(np.load(root / "actions.npz", allow_pickle=False))
 		gripper_cmds = rows["gripper_cmd"] if "gripper_cmd" in rows.files else None
 		is_blind_col = rows["is_blind"] if "is_blind" in rows.files else None
 		is_takeover_col = rows["is_takeover"] if "is_takeover" in rows.files else None
 		supervise_col = rows["supervise_action"] if "supervise_action" in rows.files else None
+		noisy_col = rows["noisy"] if "noisy" in rows.files else None
 		actions = rows["action"]
 		states = rows["state"]
 		for col_name, arr in (
 			("is_blind", is_blind_col),
 			("is_takeover", is_takeover_col),
 			("supervise_action", supervise_col),
+			("noisy", noisy_col),
 		):
 			if arr is not None and len(arr) != len(actions):
 				raise ValueError(f"{col_name} length {len(arr)} != actions length {len(actions)}")
 		readers = {
-			name: iter(stack.enter_context(av.open(str(root / f"{name}.mkv"))).decode(video=0)) for name in CAMERAS
+			name: iter(stack.enter_context(av.open(str(mkv_root / f"{name}.mkv"))).decode(video=0))
+			for name in active_cameras
 		}
 		for row_index, (state, action) in enumerate(zip(states, actions, strict=True)):
 			prev_action = INITIAL_Q if row_index == 0 else actions[row_index - 1]
@@ -655,6 +753,10 @@ def student_frames(episode: Path):
 					[bool(supervise_col[row_index]) if supervise_col is not None else True], dtype=bool
 				),
 			}
+			if use_noisy_mask:
+				frame["mask.noisy"] = np.array(
+					[bool(noisy_col[row_index]) if noisy_col is not None else False], dtype=bool
+				)
 			for name, reader in readers.items():
 				pixels = next(reader, None)
 				if pixels is None or pixels.time is None or abs(pixels.time - row_index / FPS) > 0.001:
@@ -662,32 +764,91 @@ def student_frames(episode: Path):
 				image = pixels.to_ndarray(format="rgb24")
 				key = name
 				if name == "top_rgb":
-					frame["observation.images.top_full"] = image
+					if not student_cameras_only:
+						frame["observation.images.top_full"] = image
 					x, y, w, h = TOP_CROP
 					image = image[y : y + h, x : x + w].copy()
 					key = "top_rgb_v2"
 				elif name == "top_depth":
 					key = "top_depth_v2"
 				frame[f"observation.images.{key}"] = image
-			yield frame
+			if row_index >= start_frame:
+				yield frame
 		if any(next(reader, None) is not None for reader in readers.values()):
 			raise ValueError("camera stream has frames with no matching action")
 
 
-def export_lerobot(episodes: list[Path], out: Path, repo_id: str):
+def unsupervised_prefix_end(episode: Path) -> int:
+	"""First row worth exporting when only the supervised part of an episode is wanted: one row before the first
+	``supervise_action`` row (that row's previous state is still in the data), 0 without the column or such rows."""
+	with np.load(Path(episode) / "branch-0" / "actions.npz", allow_pickle=False) as rows:
+		if "supervise_action" not in rows.files:
+			return 0
+		sup = np.flatnonzero(rows["supervise_action"])
+	return max(int(sup[0]) - 1, 0) if sup.size else 0
+
+
+def _trimmed_segments(segments: list[dict], start: int) -> list[dict]:
+	"""Segments re-based to an export that starts at row ``start``; segments wholly before it are dropped."""
+	out = []
+	for seg in segments:
+		if seg["end"] > start or (seg["start"] == seg["end"] and seg["start"] >= start):
+			out.append({**seg, "start": max(seg["start"] - start, 0), "end": seg["end"] - start})
+	return out
+
+
+def _resolve_video_dir(video_dirs: Any, idx: int, path: Path) -> Path | None:
+	if video_dirs is None:
+		return None
+	if isinstance(video_dirs, dict):
+		for key in (path, str(path), path.resolve(), str(path.resolve())):
+			if key in video_dirs and video_dirs[key] is not None:
+				return Path(video_dirs[key])
+		return None
+	val = video_dirs[idx]
+	return None if val is None else Path(val)
+
+
+def export_lerobot(
+	episodes: list[Path],
+	out: Path,
+	repo_id: str,
+	trim_unsupervised_prefix: bool = False,
+	student_cameras_only: bool = False,
+	*,
+	include_noisy_mask: bool | None = None,
+	video_dirs: Any = None,
+):
+	"""Export ``episodes`` as a LeRobot dataset. With ``trim_unsupervised_prefix`` each episode starts at
+	:func:`unsupervised_prefix_end` (paired carry episodes: the shared prefix carries no supervision)."""
 	from lerobot.datasets.lerobot_dataset import LeRobotDataset
 
 	from ..constants import CAMERA_SHAPES
 	from ..lerobot_export import lerobot_features
 
+	use_noisy_mask = bool(student_cameras_only) if include_noisy_mask is None else bool(include_noisy_mask)
+	resolved_vdirs = [_resolve_video_dir(video_dirs, i, Path(p)) for i, p in enumerate(episodes)]
+
 	# Fail before creating output if an episode ended on a branch with privileged failure context or lacks segment
 	# labels (student_frames checks both on its first frame).
-	for path in episodes:
-		frames = student_frames(path)
+	for path, vdir in zip(episodes, resolved_vdirs, strict=True):
+		frames = student_frames(
+			path,
+			student_cameras_only=student_cameras_only,
+			include_noisy_mask=use_noisy_mask,
+			video_dir=vdir,
+		)
 		try:
 			next(frames)
 		finally:
 			frames.close()
+	cam_shapes = dict(CAMERA_SHAPES)
+	if student_cameras_only:
+		cam_shapes.pop("front", None)
+	else:
+		cam_shapes["top_full"] = [TOP_FULL[1], TOP_FULL[0], 3]
+
+	seg_features = {key: dict(spec) for key, spec in SEGMENT_FEATURES.items() if use_noisy_mask or key != "mask.noisy"}
 	dataset = LeRobotDataset.create(
 		repo_id=repo_id,
 		fps=FPS,
@@ -697,16 +858,23 @@ def export_lerobot(episodes: list[Path], out: Path, repo_id: str):
 		features=lerobot_features(
 			{
 				"state_names": STATE_NAMES,
-				"cameras": {**CAMERA_SHAPES, "top_full": [TOP_FULL[1], TOP_FULL[0], 3]},
+				"cameras": cam_shapes,
 			},
 			video=True,
 		)
 		| {key: dict(spec) for key, spec in INPUT_FEATURES.items()}
-		| {key: dict(spec) for key, spec in SEGMENT_FEATURES.items()},
+		| seg_features,
 	)
+	starts = [unsupervised_prefix_end(p) if trim_unsupervised_prefix else 0 for p in episodes]
 	try:
-		for path in episodes:
-			for frame in student_frames(path):
+		for path, start, vdir in zip(episodes, starts, resolved_vdirs, strict=True):
+			for frame in student_frames(
+				path,
+				start,
+				student_cameras_only=student_cameras_only,
+				include_noisy_mask=use_noisy_mask,
+				video_dir=vdir,
+			):
 				dataset.add_frame(frame)
 			dataset.save_episode()
 	finally:
@@ -715,7 +883,10 @@ def export_lerobot(episodes: list[Path], out: Path, repo_id: str):
 		out / "meta/source.json",
 		{
 			"schema": "armigo-student-provenance/v1",
-			"episodes": [{"episode_index": i, "source": path.name} for i, path in enumerate(episodes)],
+			"episodes": [
+				{"episode_index": i, "source": path.name, **({"start_frame": st} if st else {})}
+				for i, (path, st) in enumerate(zip(episodes, starts, strict=True))
+			],
 			"sampling": "pre-action RGB and proprioception; next policy command; joint angles in radians",
 			"joint_units": joint_normalization(STATE_NAMES),
 			"decision_camera": "top_full or wrist at recorded frame index",
@@ -723,17 +894,49 @@ def export_lerobot(episodes: list[Path], out: Path, repo_id: str):
 			"goal_task": TASK,
 		},
 	)
+	episodes_meta = []
+	for i, (path, st) in enumerate(zip(episodes, starts, strict=True)):
+		ep_json_path = path / "episode.json"
+		ep_variant = 0
+		ep_scene = None
+		if ep_json_path.exists():
+			ep_manifest = json.loads(ep_json_path.read_text(encoding="utf-8"))
+			prov = ep_manifest.get("provenance") or {}
+			res = ep_manifest.get("result") or {}
+			case = prov.get("case") or []
+			case_opts = case[3] if len(case) == 4 and isinstance(case[3], dict) else {}
+			if prov.get("scene") == "v3" or res.get("scene") == "v3" or case_opts.get("scene") == "v3":
+				ep_scene = "v3"
+			if "variant" in prov:
+				ep_variant = int(prov["variant"])
+			elif "variant" in res:
+				ep_variant = int(res["variant"])
+		# Also check segments for any variant
+		segs_list = _trimmed_segments(segment_labels(path)["segments"], st)
+		for s_item in segs_list:
+			if s_item.get("variant", 0) != 0:
+				ep_variant = int(s_item["variant"])
+		ep_dict: dict[str, Any] = {
+			"episode_index": i,
+			"source": str(path),
+			"segments": segs_list,
+		}
+		if ep_scene == "v3":
+			ep_dict["scene"] = "v3"
+		if ep_variant != 0:
+			ep_dict["variant"] = ep_variant
+		if st:
+			ep_dict["start_frame"] = st
+		episodes_meta.append(ep_dict)
+
 	write_json(
 		out / "meta/segments.json",
 		{
 			"schema": "armigo-student-segments/v1",
-			"features": sorted(SEGMENT_FEATURES),
+			"features": sorted(seg_features),
 			"segment_done": SEGMENT_DONE_CONVENTION,
 			"chunk_valid_len": CHUNK_VALID_LEN_CONVENTION,
-			"episodes": [
-				{"episode_index": i, "source": str(path), "segments": segment_labels(path)["segments"]}
-				for i, path in enumerate(episodes)
-			],
+			"episodes": episodes_meta,
 		},
 	)
 
@@ -971,7 +1174,7 @@ def stitch_perturbation_episode(
 
 	mask_defaults = {"is_blind": False, "is_takeover": False, "supervise_action": True}
 	stitched_arrays: dict[str, np.ndarray] = {"segment": np.concatenate([p_seg, s_seg], axis=0)}
-	skip_keys = {"segment", *mask_defaults}
+	skip_keys = {"segment", "noisy", *mask_defaults}
 	for key in p_arrs:
 		if key in skip_keys or key not in s_arrs:
 			continue
@@ -989,6 +1192,17 @@ def stitch_perturbation_episode(
 			else np.full(n_suffix, default_val, dtype=bool)
 		)
 		stitched_arrays[mask_key] = np.concatenate([p_mask, s_mask], axis=0)
+
+	if "noisy" in p_arrs or "noisy" in s_arrs:
+		p_noisy = (
+			np.asarray(p_arrs["noisy"][:start_frame], dtype=bool)
+			if "noisy" in p_arrs
+			else np.zeros(start_frame, dtype=bool)
+		)
+		s_noisy = np.asarray(s_arrs["noisy"], dtype=bool) if "noisy" in s_arrs else np.zeros(n_suffix, dtype=bool)
+		noisy_cat = np.concatenate([p_noisy, s_noisy], axis=0)
+		if bool(noisy_cat.any()):
+			stitched_arrays["noisy"] = noisy_cat
 
 	if blind_span is not None:
 		lo = max(0, min(n_total, int(blind_span[0])))
@@ -1058,7 +1272,12 @@ def stitch_perturbation_episode(
 			fail["prior_views"] = [
 				{**pv, "id": _rewrite_view_id(pv.get("id"), src_branch_id, 0)} for pv in fail["prior_views"]
 			]
-	result["student_eligible"] = bool(result.get("verdict") == "SUCCESS" and not result["rewinds"])
+	oracle_used = bool(
+		((parent_manifest.get("provenance") or {}).get("experiment") or {}).get("oracle")
+		or ((branch_manifest.get("provenance") or {}).get("experiment") or {}).get("oracle")
+		or any(ev.get("kind") == "oracle_applied" for ev in stitched_events)
+	)
+	result["student_eligible"] = bool(result.get("verdict") == "SUCCESS" and not result["rewinds"] and not oracle_used)
 
 	provenance = {
 		**parent_manifest.get("provenance", {}),
@@ -1081,6 +1300,8 @@ def stitch_perturbation_episode(
 		"provenance": provenance,
 		"result": result,
 	}
+	if scene := (branch_manifest.get("scene") or parent_manifest.get("scene")):
+		manifest["scene"] = scene
 	write_json(out_dir / "episode.json", manifest)
 	segment_labels(out_dir)
 	return manifest
@@ -1092,9 +1313,43 @@ def main():
 	parser = argparse.ArgumentParser(description="Export accepted Armigo recordings through LeRobot.")
 	parser.add_argument("--out", type=Path, required=True)
 	parser.add_argument("--repo-id", default="local/armigo-six-face")
+	parser.add_argument(
+		"--trim-unsupervised-prefix",
+		action="store_true",
+		help="Start each episode one row before its first supervised row (paired carry episodes)",
+	)
+	parser.add_argument(
+		"--student-cameras-only",
+		action="store_true",
+		help="Export only canonical student cameras (omit front and top_full)",
+	)
+	parser.add_argument(
+		"--include-noisy-mask",
+		action=argparse.BooleanOptionalAction,
+		default=None,
+		help="Include mask.noisy feature (default: True for --student-cameras-only, False for legacy 5-camera export)",
+	)
+	parser.add_argument(
+		"--video-dir-map",
+		type=Path,
+		default=None,
+		help="Optional JSON mapping episode_dir -> verified deferred rerender video_dir",
+	)
 	parser.add_argument("episodes", nargs="+", type=Path)
 	args = parser.parse_args()
-	export_lerobot(args.episodes, args.out, args.repo_id)
+	extra_kw: dict[str, Any] = {}
+	if args.include_noisy_mask is not None:
+		extra_kw["include_noisy_mask"] = args.include_noisy_mask
+	if args.video_dir_map is not None:
+		extra_kw["video_dirs"] = json.loads(args.video_dir_map.read_text(encoding="utf-8"))
+	export_lerobot(
+		args.episodes,
+		args.out,
+		args.repo_id,
+		trim_unsupervised_prefix=args.trim_unsupervised_prefix,
+		student_cameras_only=args.student_cameras_only,
+		**extra_kw,
+	)
 
 
 if __name__ == "__main__":

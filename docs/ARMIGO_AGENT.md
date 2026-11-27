@@ -61,14 +61,23 @@ whether the brick is grasped, the brick position, the offered checkpoints and a 
 visual mark geometry, mark seed, ground-truth label and face never enter it (`assert_no_defect_leakage` runs on
 every context). A first decision is about 200 user tokens instead of 1,600 for the earlier full-scene dump.
 
+The default prompt puts chronological view and tool records before the current choices, coverage and budgets,
+so vLLM can reuse matching prefixes. Views follow the graph's active evidence. A rewind restores the checkpoint's
+views, and a retry drops them if the brick shifted. Previous failure and recovery results remain available to inform
+the next attempt. History mode drops the oldest detail records first to fit the context, with the current coverage,
+legal choices and latest failure kept together. Set `ARMIGO_LLM_CONTEXT_MODE=compact` in the Armigo process
+environment to use the original prompt.
+
 `select_skill` constrains the answer with a JSON schema whose `skill` is an enum of the legal choices (vLLM
 `response_format: json_schema`; a 4xx from the server degrades to `json_object` once). The prompt is counted
-with the server's `/tokenize` before sending and the oldest views and failures are dropped if it would not fit.
-An invalid answer gets one repair turn with the validation error. Otherwise the decision falls back to the first
+with the server's `/tokenize` before sending. In compact mode the oldest views and failures are dropped if it
+would not fit. An invalid answer allows one repair turn with the validation error if the request fits the window
+in history mode. Otherwise the decision falls back to the first
 choice, which is always the deterministic default, and records one reason: `http_error`, `timeout`,
 `invalid_json`, `illegal_choice`, `context_too_long` or `empty_output`. Every `decision` event carries
-`fallback_reason`, `prompt_tokens`, `latency_s` and `attempts`. Each episode result has an `llm` block, and the
-run report adds `llm_consulted`, `llm_adopted`, `llm_adoption_rate`, `fallback_reasons` and token statistics.
+`fallback_reason`, `prompt_tokens`, `cached_tokens`, `latency_s` and `attempts`. Cached token counts come from
+vLLM's response usage and may be unavailable. Each episode result has an `llm` block, and the run report adds
+`llm_consulted`, `llm_adopted`, `llm_adoption_rate`, `fallback_reasons` and token statistics.
 
 Rewind choices are `<checkpoint>` and `<checkpoint>+<variant>`. Variants come from a frozen, bounded table
 (`slow_scan`, `slow_carry`, `gentle_place`, `high_place`, `cautious`) that only slows motion or raises the
@@ -207,16 +216,22 @@ E:/il/v/Scripts/python.exe scripts/isaac/stage2_expert.py --no-cameras --out-dir
 ```
 
 Start the local vLLM service from WSL with `bash scripts/serve_armigo_qwen.sh` (port 8038, the client default).
-It serves Qwen3.8-27B NVFP4 with a 4,096-token context, one image per request and NVFP4 KV cache. Defaults are
-4 concurrent sequences (so parallel episode workers share the server) and prefix caching on (all decisions share
-one system prompt), with eager execution kept as the memory-safe choice. Override with `ARMIGO_VLLM_MAX_LEN`,
+It configures Qwen3.8-27B NVFP4 with a 16,384-token window for input and output combined, one image per request
+and an NVFP4 KV cache. Defaults include four concurrent sequences, prefix caching and eager execution. The client
+uses the configured model's limit from `/models` and falls back to 4,096 if the limit is unavailable. Restart the
+Armigo client after switching service windows so it reads the new limit.
+Set `ARMIGO_VLLM_MAX_LEN=4096` for the earlier window. Other overrides include
 `ARMIGO_VLLM_MAX_SEQS`, `ARMIGO_VLLM_GPU_UTIL`, `ARMIGO_VLLM_PREFIX_CACHE`, `ARMIGO_VLLM_EAGER` and
-`ARMIGO_VLLM_EXTRA`. The earlier image test ran with one sequence and prefix caching disabled. A server
-configured with `--language-model-only` can run skill selection and the failure analysis. Vision review requires
-an image-enabled server. The current v6 path owns the sorting decision.
+`ARMIGO_VLLM_EXTRA`. If other GPU workloads leave too little memory for cache blocks, try
+`ARMIGO_VLLM_MAX_SEQS=1` with the 16,384-token window. For text-only skill selection, start a separate server
+with `ARMIGO_VLLM_EXTRA=--language-model-only bash scripts/serve_armigo_qwen.sh 18038`.
+Vision review requires an image-enabled server. The current v6 path owns the sorting decision.
 
 `scripts/bench_agent.py` measures the stack before and after a change: `episodes` (wall time, outcomes and LLM
-decision statistics of a suite run), `vllm` (concurrent request throughput) and `context` (prompt tokens of the
-first decision). The suites are in `config/agent_bench/`.
+decision statistics of a suite run, including cached tokens when available), `vllm` (concurrent request throughput)
+and `context` (tokens of the first decision's full prompt in the selected runtime mode). The suites are in
+`config/agent_bench/`. Compare the same prompt sequence with prefix caching enabled and disabled and report
+cached tokens, time to first token and end-to-end latency. The startup log shows the cache block size, which
+determines how much of an identical prefix can be reused.
 
 [Acceptance report](../results/agent-twin/REPORT.md)

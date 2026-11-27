@@ -91,11 +91,18 @@ def _brick_bbox(cell, camera: str, crop, data) -> tuple[int, int, int, int] | No
 	return x0, y0, x1 - x0, y1 - y0
 
 
-def detector_crop(cell, camera, crop, data, image_size, pad=DETECTOR_PAD, clamp=False, *, rgb=None):
-	"""Crop around the main brick blob, identically for detector training and inference."""
+def detector_crop(cell, camera, crop, data, image_size, pad=DETECTOR_PAD, clamp=False, *, rgb=None, center_px=None):
+	"""Crop around the main brick blob (or centred on ``center_px`` keeping bbox size), identically for train/eval."""
 	bbox = _brick_bbox(cell, camera, crop, data)
 	if bbox is None:
 		return None, None
+	if center_px is not None:
+		bbox = (
+			round(float(center_px[0]) - bbox[2] / 2.0),
+			round(float(center_px[1]) - bbox[3] / 2.0),
+			bbox[2],
+			bbox[3],
+		)
 	if rgb is None:
 		rgb = _render_rgb(cell, camera, data)
 	if crop is not None:

@@ -9,10 +9,28 @@ from typing import Literal, TypedDict
 from .llm import ChatLLM, LLMError
 
 TASK = "Inspect the brick for a cross. Sort defective bricks into the pink bowl and normal bricks into the green bowl."
-NODES = ("prepare", "choose_view", "scan_wrist", "present_bottom", "recover", "place", "evaluate")
+RECALIBRATE = "RECALIBRATE"
+RECALIBRATION_FAILED = "RECALIBRATION_FAILED"
+NODES = (
+	"prepare",
+	"localize",
+	"recalibrate",
+	"choose_view",
+	"scan_wrist",
+	"present_bottom",
+	"recover",
+	"place",
+	"evaluate",
+)
 EDGES = (
 	("prepare", "recover"),
+	("prepare", "localize"),
 	("prepare", "choose_view"),
+	("localize", "choose_view"),
+	("localize", "recover"),
+	("localize", "recalibrate"),
+	("recalibrate", "localize"),
+	("recalibrate", "recover"),
 	("choose_view", "scan_wrist"),
 	("choose_view", "present_bottom"),
 	("choose_view", "place"),
@@ -45,6 +63,7 @@ class Policy:
 
 class InspectionState(TypedDict, total=False):
 	views: list[dict]
+	recalibration_attempted: bool
 	failures: list[dict]
 	action: str
 	error: str | None
@@ -70,11 +89,35 @@ def build_graph(backend, policy: Policy, checkpointer=None):
 	def prepare(state: InspectionState):
 		return {"views": [], "failures": [], "error": backend.prepare()}
 
+	def localize(state: InspectionState):
+		# Brick localisation before any skill (backend.localise_brick): vote, wrist confirmation, ring, pin.
+		return {"error": backend.localise_brick()}
+
+	def after_localize(state: InspectionState):
+		if state["error"] == RECALIBRATE and not state.get("recalibration_attempted"):
+			return "recalibrate"
+		return "recover" if state["error"] else "choose_view"
+
+	def recalibrate(state: InspectionState):
+		return {"error": backend.recalibrate(), "recalibration_attempted": True}
+
 	def choose_view(state: InspectionState):
 		views = state["views"]
-		label, covered = decision(views)
-		if label != "unknown":
-			return {"label": label, "action": "place"}
+		if getattr(backend, "strategy", "A") == "A":
+			label, covered = decision(views)
+			if label != "unknown":
+				return {"label": label, "action": "place"}
+		else:
+			# Decision point 2 (B / C): before placing, an unresolved alarm is re-viewed while the budget lasts; when it
+			# cannot be, the brick is unknown. A confirmed alarm or six cleared faces label it.
+			from .review import review_decision
+
+			label, covered, pending = review_decision(views)
+			if label != "unknown":
+				return {"label": label, "action": "place"}
+			if pending:
+				_, possible = backend.review_pending(views)
+				return {"label": "unknown", "action": "review" if possible else "place"}
 		wrist = bool(set(range(5)) - covered) and backend.can_scan_wrist(policy)
 		bottom = 5 not in covered and backend.can_present_bottom(policy)
 		order = ("scan_wrist", "present_bottom") if policy.order == "wrist_first" else ("present_bottom", "scan_wrist")
@@ -93,7 +136,7 @@ def build_graph(backend, policy: Policy, checkpointer=None):
 	def recover(state: InspectionState):
 		failure = backend.failure(state["error"], state["views"])
 		failures = [*state["failures"], failure]
-		restored = backend.rewind(policy, failures)
+		restored = None if state["error"] in (RECALIBRATE, RECALIBRATION_FAILED) else backend.rewind(policy, failures)
 		if restored is None:
 			return {"action": "evaluate", "label": state.get("label", "unknown"), "failures": failures}
 		return {"action": "choose_view", "views": restored, "error": None, "label": "unknown", "failures": failures}
@@ -107,9 +150,12 @@ def build_graph(backend, policy: Policy, checkpointer=None):
 	graph = StateGraph(InspectionState)
 	for name, operation in (
 		("prepare", prepare),
+		("localize", localize),
+		("recalibrate", recalibrate),
 		("choose_view", choose_view),
 		("scan_wrist", observe("scan_wrist")),
 		("present_bottom", observe("present_bottom")),
+		("review", observe("review")),
 		("recover", recover),
 		("place", place),
 		("evaluate", evaluate),
@@ -121,13 +167,22 @@ def build_graph(backend, policy: Policy, checkpointer=None):
 
 		graph.add_node(name, node)
 	graph.add_edge(START, "prepare")
+	localise = getattr(backend, "can_localise", None)
 	graph.add_conditional_edges(
 		"prepare",
-		lambda state: "recover" if state["error"] else "choose_view",
-		["recover", "choose_view"],
+		lambda state: (
+			"recover" if state["error"] else "localize" if localise is not None and localise() else "choose_view"
+		),
+		["recover", "localize", "choose_view"],
 	)
-	graph.add_conditional_edges("choose_view", lambda s: s["action"], ["scan_wrist", "present_bottom", "place"])
-	for name in ("scan_wrist", "present_bottom", "place"):
+	graph.add_conditional_edges("localize", after_localize, ["recover", "choose_view", "recalibrate"])
+	graph.add_conditional_edges(
+		"recalibrate", lambda state: "recover" if state["error"] else "localize", ["recover", "localize"]
+	)
+	graph.add_conditional_edges(
+		"choose_view", lambda s: s["action"], ["scan_wrist", "present_bottom", "review", "place"]
+	)
+	for name in ("scan_wrist", "present_bottom", "review", "place"):
 		next_node = "evaluate" if name == "place" else "choose_view"
 		graph.add_conditional_edges(
 			name,
@@ -149,6 +204,10 @@ SELECT_SYSTEM = (
 	"keeps the stall will fail the same way again; prefer the earliest-listed choice that clears it. Choices are "
 	"listed best-evidence first. stop ends the episode as a failure with the brick unsorted, so avoid it while a "
 	"checkpoint is offered. choice_notes explains each choice."
+)
+SELECT_HISTORY_SYSTEM = SELECT_SYSTEM + (
+	" Select only from current.choices and use current.covered_faces as the coverage summary. "
+	"History records earlier tool activity. Use past failures and recovery results to choose what to try next."
 )
 LLM_FALLBACK_REASONS = (
 	"http_error",
@@ -173,23 +232,39 @@ def skill_schema(choices: list[str]) -> dict:
 
 
 def _skill_messages(choices: list[str], context: dict) -> list[dict[str, str]]:
-	user = json.dumps({"choices": choices, **context}, allow_nan=False, separators=(",", ":"))
-	return [{"role": "system", "content": SELECT_SYSTEM}, {"role": "user", "content": user}]
+	if "history" in context:
+		current = {key: value for key, value in context.items() if key != "history"}
+		payload = {"history": context["history"], "current": {"choices": choices, **current}}
+		system = SELECT_HISTORY_SYSTEM
+	else:
+		payload = {"choices": choices, **context}
+		system = SELECT_SYSTEM
+	user = json.dumps(payload, allow_nan=False, separators=(",", ":"))
+	return [{"role": "system", "content": system}, {"role": "user", "content": user}]
 
 
-def _count_prompt(llm, messages) -> tuple[int, bool]:
+def _count_prompt(llm, messages, *, conservative=False) -> tuple[int, bool]:
 	"""(tokens, exact). Uses the server tokenizer when the client has one, else a chars-per-token estimate."""
 	counter = getattr(llm, "count_tokens", None)
 	exact = counter(messages) if counter else None
 	if exact is not None:
 		return int(exact), True
+	if conservative:
+		# The UTF-8 byte count bounds text tokens for Qwen when the tokenizer endpoint is unavailable.
+		return sum(len(m["content"].encode("utf-8")) for m in messages), False
 	chars = sum(len(m["content"]) for m in messages)
 	return int(chars / CHARS_PER_TOKEN_ESTIMATE) + 1, False
 
 
 def _trim_context(context: dict) -> dict | None:
-	"""Drop the oldest per-view detail (then oldest failure); ``None`` when nothing is left to drop."""
+	"""Drop the oldest detail; ``None`` when nothing is left to drop."""
 	out = dict(context)
+	if "history" in out:
+		if not out["history"]:
+			return None
+		out["history"] = out["history"][1:]
+		out["history_omitted"] = out.get("history_omitted", 0) + 1
+		return out
 	for key, counter in (("views", "views_omitted"), ("failures", "failures_omitted")):
 		items = out.get(key)
 		if items:
@@ -234,6 +309,7 @@ def select_skill(llm: ChatLLM, choices: list[str], distinct_context: dict) -> tu
 		"reason": None,
 		"attempts": 0,
 		"prompt_tokens": 0,
+		"cached_tokens": None,
 		"completion_tokens": 0,
 		"latency_s": 0.0,
 		"trimmed": 0,
@@ -246,9 +322,10 @@ def select_skill(llm: ChatLLM, choices: list[str], distinct_context: dict) -> tu
 		return choices[0], "fallback", info
 
 	context, messages = distinct_context, _skill_messages(choices, distinct_context)
+	history = "history" in context
 	limit = getattr(llm, "context_limit", lambda: 4096)()
 	budget = int(limit) - int(getattr(llm, "max_tokens", 96)) - TOKEN_MARGIN
-	tokens, exact = _count_prompt(llm, messages)
+	tokens, exact = _count_prompt(llm, messages, conservative=history)
 	while tokens > budget:
 		smaller = _trim_context(context)
 		if smaller is None:
@@ -256,7 +333,7 @@ def select_skill(llm: ChatLLM, choices: list[str], distinct_context: dict) -> tu
 			return fallback("context_too_long")
 		context, info["trimmed"] = smaller, info["trimmed"] + 1
 		messages = _skill_messages(choices, context)
-		tokens, exact = _count_prompt(llm, messages)
+		tokens, exact = _count_prompt(llm, messages, conservative=history)
 	info["counted_tokens"], info["tokens_exact"] = tokens, exact
 	schema = skill_schema(choices) if getattr(llm, "structured", False) else None
 	for attempt in range(2):
@@ -268,14 +345,14 @@ def select_skill(llm: ChatLLM, choices: list[str], distinct_context: dict) -> tu
 		info["latency_s"] = round(info["latency_s"] + response.latency_s, 4)
 		info["completion_tokens"] += response.completion_tokens
 		info["prompt_tokens"] = response.prompt_tokens or tokens
+		info["cached_tokens"] = getattr(response, "cached_tokens", None)
 		info["format"] = response.response_format
 		name, reason, detail = _parse_skill(response.content, choices)
 		if name is not None:
 			info["reason"] = None
 			return name, "llm", info
 		if attempt == 0:
-			info["repaired"] = True
-			messages = [
+			repair_messages = [
 				*messages,
 				{"role": "assistant", "content": response.content or "(empty)"},
 				{
@@ -283,6 +360,13 @@ def select_skill(llm: ChatLLM, choices: list[str], distinct_context: dict) -> tu
 					"content": f'Invalid answer: {detail}. Reply with only {{"skill": X}} where X is exactly one of {choices}.',
 				},
 			]
+			if history:
+				repair_tokens, _ = _count_prompt(llm, repair_messages, conservative=True)
+				if repair_tokens > budget:
+					break
+				tokens = repair_tokens
+			info["repaired"] = True
+			messages = repair_messages
 	return fallback(reason)
 
 

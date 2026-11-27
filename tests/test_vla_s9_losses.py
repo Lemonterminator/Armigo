@@ -3,7 +3,7 @@
 Python environments:
   - Repo ``.venv`` (numpy, pytest, mujoco, no torch/lerobot):
       ``E:\\digital_twin_armigo\\.venv\\Scripts\\python.exe -m pytest tests/test_vla_s9_losses.py -v``
-      Executes all pure-numpy Data Contract v1, 36-dim state encoding, dataset masking / ``let_go`` synthesis /
+      Executes all pure-numpy Data Contract v1, 38-dim state encoding, dataset masking / ``let_go`` synthesis /
       takeover cutoff / normalizer, and End-Step F1 metrics tests (torch/lerobot tests skip cleanly).
   - CUDA training env ``E:\\il\\lerobot-cuda`` (torch 2.11+cu130, lerobot 0.6.0, transformers, RTX 5090):
       ``E:\\il\\lerobot-cuda\\Scripts\\python.exe tests/test_vla_s9_losses.py``
@@ -62,6 +62,7 @@ from digital_twin_armigo.vla.contract import (
 	encode_state,
 	encode_state_from_task,
 	end_step_target_from_segment,
+	policy_inputs_from_segment_dict,
 )
 from digital_twin_armigo.vla.dataset import SegmentChunkDataset, StudentImageAugmentor, vla_collate_fn
 from digital_twin_armigo.vla.metrics import (
@@ -162,7 +163,7 @@ def _make_synthetic_episode(
 
 
 def test_contract_constants_and_repo_sync():
-	assert STATE_DIM == 36
+	assert STATE_DIM == 38
 	assert ACTION_DIM == 6
 	assert len(SEGMENT_KINDS_ORDER) == 12
 	assert BOWL_VOCAB == ("", "green", "pink")
@@ -196,7 +197,7 @@ def test_encode_state_layout_and_no_diagnostics():
 		views=5,
 		segment_frame=150,
 	)
-	assert s0.shape == (36,) and s0.dtype == np.float32
+	assert s0.shape == (38,) and s0.dtype == np.float32
 	assert np.allclose(s0[0:6], q)
 	assert np.allclose(s0[6:12], q)  # repeats q_0
 	assert np.allclose(s0[12:18], INITIAL_Q.astype(np.float32))
@@ -206,6 +207,13 @@ def test_encode_state_layout_and_no_diagnostics():
 	assert s0[31] == 1.0 and s0[31:34].sum() == 1.0
 	assert np.isclose(s0[34], 2.0 / 5.0)
 	assert np.isclose(s0[35], 150.0 / 300.0)
+	assert s0[36] == 0.0 and s0[37] == 0.0  # no segment roll
+	s_roll = encode_state(q, None, None, 0.75, "grasp", roll_deg=-81.6)
+	assert np.isclose(s_roll[36], np.radians(-81.6)) and s_roll[37] == 1.0
+	task = policy_inputs_from_segment_dict("grasp", {"roll_deg": -81.6, "target_q": [0.0] * 6})
+	assert task["roll_deg"] == -81.6 and "target_q" not in task
+	assert task["instruction"] == "Grasp the brick on the table. Use a wrist roll of -81.6 degrees."
+	assert np.allclose(encode_state_from_task(q, None, None, 0.75, task), s_roll)
 
 	# Clamping of segment_frame_norm at 5.0 and view_norm when view=0 / views=0
 	s_clamp = encode_state(
@@ -437,6 +445,125 @@ def test_takeover_boundary_cutoff_and_2x_weight():
 	assert end_step_target_from_segment(10, 50, "brick_lost") == IGNORE_INDEX
 
 
+def test_drop_unsupervised_leaves_out_zero_loss_samples():
+	ep = _make_synthetic_episode(
+		0,
+		[("grasp", 0, 3, "done", {}), ("carry_to_bowl", 3, 6, "done", {"bowl": "green"})],
+		supervise_action=[False, False, False, True, True, True],
+	)
+	full = SegmentChunkDataset.from_episodes([ep], horizon=4, return_torch=False)
+	kept = SegmentChunkDataset.from_episodes([ep], horizon=4, return_torch=False, drop_unsupervised=True)
+	dead = [i for i in range(len(full)) if not full[i]["action_mask"].any() and int(full[i]["end_step_target"]) < 0]
+	assert dead and len(kept) == len(full) - len(dead)
+	assert kept.summary()["dropped_unsupervised_samples"] == len(dead)
+	assert full.summary()["dropped_unsupervised_samples"] == 0
+	assert all(kept[i]["action_mask"].any() or int(kept[i]["end_step_target"]) >= 0 for i in range(len(kept)))
+
+
+def test_segment_roll_reaches_state_and_instruction():
+	"""A segment's roll_deg param (meta/segments.json) is fed to every row of that segment, and only to it."""
+	ep = _make_synthetic_episode(
+		0,
+		[
+			("return_ready", 0, 3, "done", {}),
+			("grasp", 3, 7, "done", {"roll_deg": 45.0}),
+			("lift", 7, 9, "done", {}),
+		],
+	)
+	ds = SegmentChunkDataset.from_episodes([ep], horizon=4, return_torch=False)
+	for t in range(9):
+		s = ds[t]
+		if 3 <= t < 7:
+			assert np.isclose(s["observation.state"][36], np.radians(45.0)) and s["observation.state"][37] == 1.0
+			assert s["task"].endswith("Use a wrist roll of 45.0 degrees.")
+		else:
+			assert s["observation.state"][37] == 0.0 and "wrist roll" not in s["task"]
+
+
+def test_future_blind_frames_are_cut_from_earlier_chunks():
+	"""A chunk anchored before a blind span must not supervise the blind-zone actions (audit 2026-11-20 #4)."""
+	ep = _make_synthetic_episode(
+		0,
+		[("grasp", 0, 5, "done", {})],
+		is_blind=[False, False, True, True, False],
+		supervise_action=[True, True, True, True, True],
+	)
+	ep["frames"]["action"][:, 0] = np.arange(5, dtype=np.float32)
+	ds = SegmentChunkDataset.from_episodes([ep], horizon=4, return_torch=False)
+	act = ep["frames"]["action"]
+
+	# Frame 0: blind onset at d=2 -> only actions 0,1 supervised, padded with action 1 (never blind action 2).
+	s0 = ds[0]
+	assert s0["action_mask"].tolist() == [True, True, False, False]
+	assert np.allclose(s0["action"][:, 0], [0.0, 1.0, 1.0, 1.0])
+	# The segment ends after the blind span, so its end timing is not taught from frame 0.
+	assert int(s0["end_step_target"]) == IGNORE_INDEX
+
+	s1 = ds[1]
+	assert s1["action_mask"].tolist() == [True, False, False, False]
+	assert np.allclose(s1["action"][1:], np.repeat(act[1:2], 3, axis=0))
+	assert int(s1["end_step_target"]) == IGNORE_INDEX
+
+	for idx in (2, 3):
+		assert ds[idx]["action_mask"].tolist() == [False] * 4
+		assert int(ds[idx]["end_step_target"]) == IGNORE_INDEX
+
+	# Frame 4 (after the blind span) is supervised normally.
+	assert ds[4]["action_mask"].tolist() == [True, False, False, False]
+	assert int(ds[4]["end_step_target"]) == 1
+
+	# Changing the blind-zone action sentinels must not change any supervised target.
+	ep2 = {**ep, "frames": {**ep["frames"], "action": act.copy()}}
+	ep2["frames"]["action"][2:4] = 999.0
+	ds2 = SegmentChunkDataset.from_episodes([ep2], horizon=4, return_torch=False)
+	for idx in range(len(ds)):
+		m = ds[idx]["action_mask"]
+		assert np.array_equal(m, ds2[idx]["action_mask"])
+		assert np.allclose(ds[idx]["action"][m], ds2[idx]["action"][m])
+		assert int(ds[idx]["end_step_target"]) == int(ds2[idx]["end_step_target"])
+		# Padding never carries a blind-zone value.
+		assert not np.any(ds2[idx]["action"] == 999.0) or not m.any()
+
+
+def test_blind_span_beyond_horizon_keeps_end_label():
+	ep = _make_synthetic_episode(
+		0,
+		[("lift", 0, 10, "done", {})],
+		is_blind=[False] * 8 + [True, False],
+	)
+	ds = SegmentChunkDataset.from_episodes([ep], horizon=4, return_torch=False)
+	# Frame 0: blind frame at d=8 is outside the 4-step window -> full mask, end label H+1 kept.
+	assert ds[0]["action_mask"].tolist() == [True] * 4
+	assert int(ds[0]["end_step_target"]) == 5
+	# Frame 5: blind at d=3 inside the window -> cut to 3 steps, end label dropped.
+	assert ds[5]["action_mask"].tolist() == [True, True, True, False]
+	assert int(ds[5]["end_step_target"]) == IGNORE_INDEX
+
+
+def test_checkpoint_selection_rule():
+	"""best/ = lowest MAE among F1 >= 0.9 evals; highest F1 only while none passes (plan A3)."""
+	pytest.importorskip("torch")
+	if str(ROOT) not in sys.path:
+		sys.path.insert(0, str(ROOT))
+	from scripts.vla.train import _is_better_selection
+
+	hist = [
+		{"step": 1000, "end_step_f1": 0.80, "action_mae_rad": 0.05},
+		{"step": 2000, "end_step_f1": 0.85, "action_mae_rad": 0.09},
+		{"step": 3000, "end_step_f1": 0.95, "action_mae_rad": 0.04},
+		{"step": 4000, "end_step_f1": 0.97, "action_mae_rad": 0.06},  # higher F1 but worse MAE: not chosen
+		{"step": 5000, "end_step_f1": 0.91, "action_mae_rad": 0.03},
+		{"step": 6000, "end_step_f1": 0.89, "action_mae_rad": 0.01},  # best MAE but fails gate: not chosen
+	]
+	sel = None
+	picks = []
+	for c in hist:
+		if _is_better_selection(c, sel):
+			sel = c
+		picks.append(sel["step"])
+	assert picks == [1000, 2000, 3000, 3000, 5000, 5000]
+
+
 def test_end_step_f1_tolerance_and_metrics():
 	h = 50
 	# Samples:
@@ -604,6 +731,30 @@ def test_act_wrapper_forward_backward_and_predict_chunk(tmp_path):
 	assert torch.allclose(end_probs, end_probs_2, atol=1e-5)
 
 
+def test_end_head_gets_its_own_lr_group():
+	"""The from-scratch End-Step Head trains at its own LR (ACT default LR is too slow for it)."""
+	pytest.importorskip("torch")
+	pytest.importorskip("lerobot")
+	from digital_twin_armigo.vla.models import ACTWithEndHead
+
+	ep = _make_synthetic_episode(0, [("grasp", 0, 4, "done", {})])
+	ds = SegmentChunkDataset.from_episodes([ep], horizon=4, return_torch=True)
+	shapes = {c: (3, 64, 64) for c in STUDENT_CAMERAS}
+	model = ACTWithEndHead(
+		horizon=4,
+		normalizer=ds.fit_normalizer(),
+		class_weights=ds.end_step_class_weights(),
+		camera_shapes=shapes,
+		tiny_for_test=True,
+	)
+	groups = model.get_optim_param_groups(1e-5, weight_decay=1e-4, backbone_lr=2e-5, end_head_lr=1e-3)
+	head_ids = {id(p) for p in model.end_head.parameters()}
+	head_groups = [g for g in groups if {id(p) for p in g["params"]} == head_ids]
+	assert len(head_groups) == 1 and head_groups[0]["lr"] == 1e-3
+	all_ids = [id(p) for g in groups for p in g["params"]]
+	assert len(all_ids) == len(set(all_ids)) == sum(1 for p in model.parameters() if p.requires_grad)
+
+
 def test_smolvla_wrapper_forward_backward_and_predict_chunk(tmp_path):
 	torch = pytest.importorskip("torch")
 	pytest.importorskip("lerobot")
@@ -674,6 +825,31 @@ def test_smolvla_wrapper_forward_backward_and_predict_chunk(tmp_path):
 	pred_rad_2, end_probs_2 = reloaded.predict_chunk(batch, noise=noise)
 	assert torch.allclose(pred_rad, pred_rad_2, atol=1e-5)
 	assert torch.allclose(end_probs, end_probs_2, atol=1e-5)
+
+	# Continue training from the Armigo checkpoint through the real trainer entry (S11 --init-from path):
+	# zero optimiser steps must reproduce the parent's weights INCLUDING the End-Step Head, and its predictions.
+	if str(ROOT) not in sys.path:
+		sys.path.insert(0, str(ROOT))
+	from scripts.vla.train import build_model
+
+	torch.manual_seed(123)  # a fresh head would get different random weights
+	child = build_model(
+		family="smolvla",
+		horizon=6,
+		init_from=str(ckpt),
+		lambda_done=0.1,
+		normalizer=norm,
+		class_weights=cw,
+		camera_shapes=shapes,
+		tiny_for_test=True,
+	)
+	parent_sd = model.state_dict()
+	for k, v in child.state_dict().items():
+		if k.startswith(("policy.", "end_head.")):
+			assert torch.equal(v, parent_sd[k]), k
+	pred_rad_3, end_probs_3 = child.predict_chunk(batch, noise=noise)
+	assert torch.allclose(pred_rad, pred_rad_3, atol=1e-5)
+	assert torch.allclose(end_probs, end_probs_3, atol=1e-5)
 
 
 def test_lerobot_v3_roundtrip_and_train_cli_smoke(tmp_path):

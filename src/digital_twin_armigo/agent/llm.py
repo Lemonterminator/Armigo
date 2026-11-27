@@ -40,6 +40,7 @@ class ChatResult:
 	reasoning: str | None = None
 	finish_reason: str | None = None
 	response_format: str | None = None  # "json_schema", "json_object" or None, as actually sent
+	cached_tokens: int | None = None
 
 
 class ChatLLM(Protocol):
@@ -95,15 +96,18 @@ class OpenAICompatLLM:
 		self._limit_checked = False
 		self._client = httpx.Client(timeout=timeout_s)
 
-	def _body(self, messages: Sequence[dict[str, str]], json_schema: dict[str, Any] | None = None) -> dict[str, Any]:
+	def _prompt_body(self, messages: Sequence[dict[str, str]]) -> dict[str, Any]:
 		body: dict[str, Any] = {
 			"model": self.model,
 			"messages": list(messages),
-			"temperature": self.temperature,
-			"max_tokens": self.max_tokens,
 		}
 		if self.enable_thinking is not None:
 			body["chat_template_kwargs"] = {"enable_thinking": bool(self.enable_thinking)}
+		return body
+
+	def _body(self, messages: Sequence[dict[str, str]], json_schema: dict[str, Any] | None = None) -> dict[str, Any]:
+		body = self._prompt_body(messages)
+		body.update(temperature=self.temperature, max_tokens=self.max_tokens)
 		if json_schema is not None and not self.schema_degraded:
 			body["response_format"] = schema_response_format(json_schema)
 		elif self.json_mode or json_schema is not None:
@@ -146,6 +150,8 @@ class OpenAICompatLLM:
 				msg = choice.get("message") or {}
 				usage = data.get("usage") or {}
 				details = usage.get("completion_tokens_details") or {}
+				prompt_details = usage.get("prompt_tokens_details")
+				cached_tokens = prompt_details.get("cached_tokens") if isinstance(prompt_details, dict) else None
 				return ChatResult(
 					content=msg.get("content") or "",
 					latency_s=time.perf_counter() - t0,
@@ -155,20 +161,27 @@ class OpenAICompatLLM:
 					reasoning=msg.get("reasoning") or msg.get("reasoning_content"),
 					finish_reason=choice.get("finish_reason"),
 					response_format=(body.get("response_format") or {}).get("type"),
+					cached_tokens=cached_tokens if type(cached_tokens) is int and cached_tokens >= 0 else None,
 				)
 			if attempt < self.retries:
 				time.sleep(self.backoff_s * (2**attempt))
 		raise LLMError(f"chat failed after {attempt + 1} attempts: {last!r}", kind)
 
 	def context_limit(self) -> int:
-		"""The server's ``max_model_len`` (vLLM lists it in ``/models``); the constructor value if unreachable."""
+		"""The configured model's advertised limit, or the constructor fallback."""
 		import httpx
 
 		if not self._limit_checked:
 			self._limit_checked = True
 			try:
 				r = self._client.get(f"{self.base_url}/models", timeout=self.tokenize_timeout_s)
-				self.max_model_len = int(r.json()["data"][0].get("max_model_len") or self.max_model_len)
+				r.raise_for_status()
+				for model in r.json()["data"]:
+					if isinstance(model, dict) and model.get("id") == self.model:
+						limit = model.get("max_model_len")
+						if type(limit) is int and limit > 0:
+							self.max_model_len = limit
+						break
 			except (httpx.HTTPError, ValueError, LookupError, TypeError):
 				pass
 		return self.max_model_len
@@ -185,7 +198,7 @@ class OpenAICompatLLM:
 		try:
 			r = self._client.post(
 				f"{root}/tokenize",
-				json={"model": self.model, "messages": list(messages)},
+				json=self._prompt_body(messages),
 				timeout=self.tokenize_timeout_s,
 			)
 			r.raise_for_status()

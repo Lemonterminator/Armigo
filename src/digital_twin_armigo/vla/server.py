@@ -29,8 +29,12 @@ from .contract import (
 	STATE_DIM,
 	STUDENT_CAMERA_NAMES,
 	STUDENT_CAMERAS,
+	STUDENT_INPUT_CONTRACT_V2,
+	STUDENT_INPUT_CONTRACT_V3,
+	StudentInputContract,
 	assert_no_planner_diagnostics,
-	encode_state_from_task,
+	encode_student_state,
+	resolve_student_input_contract,
 )
 
 DEFAULT_HOST = "127.0.0.1"
@@ -142,8 +146,16 @@ def decode_image(value: Any) -> np.ndarray:
 def validate_predict_payload(
 	payload: Mapping[str, Any],
 	expected_shapes: Mapping[str, tuple[int, int, int]] | None = None,
+	zero_bowl: bool | None = None,
+	*,
+	input_contract: StudentInputContract | Mapping[str, Any] | str | None = None,
 ) -> dict[str, Any]:
-	"""Validate a ``/predict`` payload, enforce D1/R1 leakage guards, and convert to model inputs."""
+	"""Validate a ``/predict`` payload, enforce D1/R1 leakage guards, and convert to model inputs.
+
+	When ``zero_bowl`` / ``input_contract`` are explicitly passed (e.g. from the serving predictor or checkpoint
+	metadata), they take precedence over any payload hint. When neither is forced, ``payload.get("input_contract")``
+	and ``payload.get("scene") == "v3"`` are consulted before defaulting to legacy v2 (``zero_bowl=False``).
+	"""
 	if not isinstance(payload, Mapping):
 		raise TypeError("predict payload must be a mapping")
 
@@ -177,13 +189,24 @@ def validate_predict_payload(
 		chw = np.transpose(img_hwc, (2, 0, 1)).astype(np.float32) / 255.0
 		images_chw[cam_key] = np.ascontiguousarray(chw, dtype=np.float32)
 
-	state_vec = encode_state_from_task(
+	if input_contract is not None or zero_bowl is not None:
+		contract = resolve_student_input_contract(input_contract=input_contract, zero_bowl=zero_bowl)
+	else:
+		payload_ic = payload.get("input_contract")
+		payload_scene = payload.get("scene")
+		contract = resolve_student_input_contract(
+			scene=str(payload_scene) if payload_scene is not None else None,
+			input_contract=payload_ic,
+		)
+
+	state_vec = encode_student_state(
 		q_t=payload["q_t"],
 		q_prev=payload["q_prev"],
 		prev_action=payload["prev_action"],
 		gripper_cmd=payload["gripper_cmd"],
 		task=task,
 		segment_frame=segment_frame,
+		input_contract=contract,
 	)
 
 	return {
@@ -192,6 +215,8 @@ def validate_predict_payload(
 		"task": str(task["instruction"]),
 		"raw_task": dict(task),
 		"segment_frame": segment_frame,
+		"zero_bowl": contract.zero_bowl,
+		"input_contract": contract.to_dict(),
 	}
 
 
@@ -222,6 +247,56 @@ def _shapes_from_model(model: Any) -> dict[str, tuple[int, int, int]] | None:
 	return out if len(out) == len(STUDENT_CAMERA_NAMES) else None
 
 
+def _contract_from_mapping(data: Mapping[str, Any]) -> StudentInputContract | None:
+	if "input_contract" in data and data["input_contract"] is not None:
+		return resolve_student_input_contract(input_contract=data["input_contract"])
+	if "version" in data and data["version"] in ("v2", "v3"):
+		return StudentInputContract.from_dict(data)
+	if "zero_bowl" in data and data["zero_bowl"] is not None:
+		return StudentInputContract.from_zero_bowl(bool(data["zero_bowl"]))
+	if data.get("scene") == "v3":
+		return STUDENT_INPUT_CONTRACT_V3
+	for sub_key in ("model_config", "extra"):
+		sub = data.get(sub_key)
+		if isinstance(sub, Mapping):
+			found = _contract_from_mapping(sub)
+			if found is not None:
+				return found
+	return None
+
+
+def _infer_model_contract(model: Any) -> StudentInputContract:
+	ic = getattr(model, "input_contract", None)
+	if ic is not None:
+		return resolve_student_input_contract(input_contract=ic)
+	zb = getattr(model, "zero_bowl", None)
+	if zb is not None:
+		return StudentInputContract.from_zero_bowl(bool(zb))
+	if getattr(model, "scene", None) == "v3":
+		return STUDENT_INPUT_CONTRACT_V3
+	return STUDENT_INPUT_CONTRACT_V2
+
+
+def _infer_checkpoint_contract(ckpt_dir: str | Path, model: Any = None) -> StudentInputContract:
+	"""Infer the checkpoint's :class:`StudentInputContract` from metadata files or model attributes."""
+	src = Path(ckpt_dir)
+	for fname in ("contract.json", "vla_config.json", "config.json"):
+		f = src / fname
+		if not f.is_file():
+			continue
+		try:
+			raw = json.loads(f.read_text(encoding="utf-8"))
+		except (OSError, ValueError):
+			continue
+		if isinstance(raw, Mapping):
+			found = _contract_from_mapping(raw)
+			if found is not None:
+				return found
+	if model is not None:
+		return _infer_model_contract(model)
+	return STUDENT_INPUT_CONTRACT_V2
+
+
 class LocalChunkPredictor:
 	"""In-process ``ChunkPredictor`` wrapping a VLA model (``predict_chunk``) or callable.
 
@@ -237,6 +312,8 @@ class LocalChunkPredictor:
 		horizon: int | None = None,
 		device: str = "cpu",
 		expected_shapes: Mapping[str, tuple[int, int, int]] | None = None,
+		zero_bowl: bool | None = None,
+		input_contract: StudentInputContract | Mapping[str, Any] | str | None = None,
 	) -> None:
 		self._target = model_or_fn
 		self._lock = threading.Lock()
@@ -244,6 +321,11 @@ class LocalChunkPredictor:
 		raw_h = horizon if horizon is not None else getattr(model_or_fn, "horizon", None)
 		self.horizon: int | None = int(raw_h) if raw_h is not None else None
 		self.device = str(device)
+		if input_contract is not None or zero_bowl is not None:
+			self.input_contract = resolve_student_input_contract(input_contract=input_contract, zero_bowl=zero_bowl)
+		else:
+			self.input_contract = _infer_model_contract(model_or_fn)
+		self.zero_bowl: bool = self.input_contract.zero_bowl
 		inferred_shapes = _shapes_from_model(model_or_fn)
 		self.expected_shapes: dict[str, tuple[int, int, int]] = (
 			{k: tuple(v) for k, v in expected_shapes.items()}
@@ -266,6 +348,8 @@ class LocalChunkPredictor:
 		*,
 		device: str = "auto",
 		local_files_only: bool = True,
+		zero_bowl: bool | None = None,
+		input_contract: StudentInputContract | Mapping[str, Any] | str | None = None,
 	) -> LocalChunkPredictor:
 		import torch
 
@@ -273,11 +357,16 @@ class LocalChunkPredictor:
 
 		resolved = ("cuda" if torch.cuda.is_available() else "cpu") if device == "auto" else str(device)
 		model = load_vla_checkpoint(ckpt_dir, device=resolved, local_files_only=local_files_only)
+		if input_contract is not None or zero_bowl is not None:
+			contract = resolve_student_input_contract(input_contract=input_contract, zero_bowl=zero_bowl)
+		else:
+			contract = _infer_checkpoint_contract(ckpt_dir, model)
 		return cls(
 			model,
 			family=getattr(model, "family", "unknown"),
 			horizon=int(model.horizon),
 			device=resolved,
+			input_contract=contract,
 		)
 
 	def health(self) -> dict[str, Any]:
@@ -290,10 +379,17 @@ class LocalChunkPredictor:
 			"action_dim": ACTION_DIM,
 			"device": self.device,
 			"cameras": list(STUDENT_CAMERA_NAMES),
+			"zero_bowl": self.zero_bowl,
+			"input_contract": self.input_contract.to_dict(),
 		}
 
 	def predict(self, payload: Mapping[str, Any]) -> dict[str, Any]:
-		prepared = validate_predict_payload(payload, expected_shapes=self.expected_shapes)
+		prepared = validate_predict_payload(
+			payload,
+			expected_shapes=self.expected_shapes,
+			zero_bowl=self.zero_bowl,
+			input_contract=self.input_contract,
+		)
 		t0 = time.perf_counter()
 		with self._lock:
 			if self._is_chunk_model:
@@ -481,16 +577,43 @@ def build_parser() -> argparse.ArgumentParser:
 	p.add_argument("--device", default="auto", help="auto | cpu | cuda[:idx]")
 	p.add_argument("--allow-download", action="store_true", help="Allow HF downloads if weights are not cached")
 	p.add_argument("--ready-file", type=Path, default=None, help="Optional JSON file written once bound and ready")
+	p.add_argument(
+		"--v3",
+		action="store_true",
+		help="Serve under the v3 student input contract (zero_bowl=True)",
+	)
+	p.add_argument(
+		"--zero-bowl",
+		action=argparse.BooleanOptionalAction,
+		default=None,
+		help="Override bowl one-hot zeroing in observation.state[31:34] (default: infer from checkpoint)",
+	)
+	p.add_argument(
+		"--input-contract",
+		choices=("v2", "v3"),
+		default=None,
+		help="Explicit student input contract version (overrides checkpoint inference)",
+	)
 	p.add_argument("--quiet", action="store_true", help="Suppress per-request HTTP logging")
 	return p
 
 
 def main(argv: list[str] | None = None) -> int:
 	args = build_parser().parse_args(argv)
+	zero_bowl = args.zero_bowl
+	input_contract = args.input_contract
+	if args.v3:
+		if zero_bowl is False or input_contract == "v2":
+			raise ValueError("--v3 conflicts with --no-zero-bowl / --input-contract v2")
+		zero_bowl = True
+		if input_contract is None:
+			input_contract = "v3"
 	predictor = LocalChunkPredictor.from_checkpoint(
 		args.ckpt,
 		device=args.device,
 		local_files_only=not args.allow_download,
+		zero_bowl=zero_bowl,
+		input_contract=input_contract,
 	)
 	server = VLAPolicyServer(
 		predictor,

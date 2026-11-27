@@ -1,0 +1,14 @@
+[
+  [4100001, false, 0, {"scene": "v3", "cameras": "fixed", "split": "train"}],
+  [4100001, true, 0, {"scene": "v3", "cameras": "fixed", "split": "train"}],
+  [4100002, false, 1, {"scene": "v3", "cameras": "fixed", "split": "train"}],
+  [4100002, true, 1, {"scene": "v3", "cameras": "fixed", "split": "train"}],
+  [4100003, false, 2, {"scene": "v3", "cameras": "fixed", "split": "train"}],
+  [4100003, true, 2, {"scene": "v3", "cameras": "fixed", "split": "train"}],
+  [4100004, false, 3, {"scene": "v3", "cameras": "fixed", "split": "train"}],
+  [4100004, true, 3, {"scene": "v3", "cameras": "fixed", "split": "train"}],
+  [4100005, false, 4, {"scene": "v3", "cameras": "fixed", "split": "train"}],
+  [4100005, true, 4, {"scene": "v3", "cameras": "fixed", "split": "train"}],
+  [4100006, false, 5, {"scene": "v3", "cameras": "fixed", "split": "train"}],
+  [4100006, true, 5, {"scene": "v3", "cameras": "fixed", "split": "train"}]
+]

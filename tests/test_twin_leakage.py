@@ -157,7 +157,7 @@ def test_realistic_plans_use_the_perceived_brick_size(tmp_path, sensing, monkeyp
 			assert backend._perceive() is None and backend.brick_est.size == DUPLO_2X2
 		before = _plans(backend)
 		assert {c[1] for c in before[0]} == {(0, 1), (2, 3)}  # a square brick may be pinched across either axis
-		layout.brick_size = DUPLO_2X4  # the simulator's brick changes behind the (fixed) perception
+		backend.layout.brick_size = DUPLO_2X4  # the simulator's brick changes behind the (fixed) perception
 		ex = backend.expert  # rebuilt as a retry / restore does, so nothing cached at construction survives
 		backend.expert = backend.expert_type(backend.cell, INITIAL_Q, backend._expert_xy, ex.p, ex.rp)
 		after = _plans(backend)

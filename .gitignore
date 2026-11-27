@@ -39,3 +39,4 @@ results/agent-bench/step-mcp/runs/
 results/agent-bench/videos/*.mp4
 results/agent-bench/sup-local.json
 results/demos/
+data/inventory/

@@ -130,8 +130,14 @@ class TwinService:
 		owner=True,
 		max_queue=None,
 		sensing="truth",
+		agent_options=None,
+		review_llm_spec=None,
 	):
 		self.sensing = sensing  # TwinMujoco sensing mode of every episode this service runs
+		# Extra TwinMujoco keyword arguments (strategy, max_scored_views, boundary, ...) for every episode.
+		self.agent_options = dict(agent_options or {})
+		self.review_llm_spec = review_llm_spec
+		self.review_llm = OpenAICompatLLM(**review_llm_spec) if review_llm_spec else None
 		self.out = Path(out).resolve()
 		self.detector = Path(detector).resolve()
 		spec = json.loads(self.detector.read_text(encoding="utf-8"))
@@ -205,6 +211,8 @@ class TwinService:
 			self.scorer.close()
 		if self.llm:
 			self.llm.close()
+		if self.review_llm:
+			self.review_llm.close()
 
 	def run(
 		self,
@@ -219,6 +227,8 @@ class TwinService:
 		thread_id=None,
 		resume=None,
 		carry_check=None,
+		provenance=None,
+		cell_factory=None,
 	):
 		"""Run one episode in this process. ``hook`` is called per frame and may raise ``JobCancelled``.
 
@@ -249,6 +259,9 @@ class TwinService:
 				on_frame=hook,
 				smooth_carry=carry_check is not None and carry_check.reference is not None,
 				sensing=self.sensing,
+				**self.agent_options,
+				**({"cell_factory": cell_factory} if cell_factory is not None else {}),
+				**({"review_llm": self.review_llm} if self.review_llm is not None else {}),
 			)
 			start = _robot_state(backend.cell) if carry_check is not None else None
 			link = None
@@ -275,7 +288,7 @@ class TwinService:
 			trace.finish(
 				result,
 				{
-					"engine": "mujoco",
+					"engine": getattr(backend, "engine", "mujoco"),
 					"sensing": self.sensing,
 					"camera_profile": PROFILE,
 					"detector_sha256": self.model_hash,
@@ -284,6 +297,9 @@ class TwinService:
 					"bottom_threshold": self.bottom_threshold,
 					"model": self.llm.model if use_llm else None,
 					**({"resumed_from": link} if link else {}),
+					**({"agent_options": self.agent_options} if self.agent_options else {}),
+					**({"review_model": self.review_llm.model} if self.review_llm is not None else {}),
+					**(provenance or {}),
 				},
 			)
 			return result
@@ -747,6 +763,11 @@ def main():
 	step.add_argument("--host", default="127.0.0.1")
 	step.add_argument("--port", type=int, default=8766)
 	step.add_argument("--scripted", action="store_true", help="Run the scripted client over every case instead.")
+	step.add_argument(
+		"--act-server-url",
+		default=None,
+		help="URL of a vla/server.py serving an ACT grasp checkpoint: adds the act_grasp tool (agent/act_grasp.py)",
+	)
 	dashboard = sub.add_parser("dashboard")
 	dashboard.add_argument("--out", type=Path, default=ROOT / "data/catalog/agent")
 	dashboard.add_argument("--port", type=int, default=8095)

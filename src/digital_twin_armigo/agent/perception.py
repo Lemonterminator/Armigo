@@ -21,9 +21,11 @@ The brick is assumed to rest upright on the table, so its height comes from the 
 
 from __future__ import annotations
 
+import colorsys
 import json
 import math
 import os
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -42,11 +44,34 @@ GRID_M = 0.001
 MIN_TOP_POINTS = 40
 TABLE_BAND_M = 0.03  # first guess of table points around z = 0
 TABLE_INLIER_M = 0.003
+RESTING_BRICK_CLEARANCE_M = 0.0005
+# The initial pairs set the correction threshold. In seeds 3001261–3001320 the
+# calibrated table residual reached 2.79 mm, so allow up to 3 mm.
+DRIFT_CORRECTION_MM = 6.5
+DRIFT_TABLE_OFFSET_MM = 3.0
 MIN_DEFICIT_M = 0.003  # a fitted side this much shorter than the brick is checked for occlusion
 OCCLUDER_GAP_M = 0.01  # a pixel is covered when its depth is this much nearer than the hidden top face
+# The arm hides part of the brick from the top camera when, in the image, a raised blob borders pixels this high
+# above the table (the arm at the ready pose is 0.15-0.18 m up there; table objects stay under 0.07 m). Round-1 runs
+# (seeds 4100101-4100296, 4200001-4200102): every ready-pose top fit off by > 8 mm / 10 deg or of the wrong size
+# class in fixed and recal borders such pixels; at the rest pose none does and none of these fits is off.
+ARM_OCCLUDER_HEIGHT_M = 0.10
+ARM_OCCLUDER_PX = 4
+ARM_OCCLUDER_MIN_PX = 5
 # Bowl colours as OpenCV HSV bounds (H 0-180): hue low, hue high, minimum saturation, minimum value.
 BOWL_HSV = {"green": (45, 85, 70, 30), "pink": (150, 178, 40, 90)}
+# Engine-specific colour bands, calibrated on development renders only (plan 2026-11-24, section 四): the Isaac RTX
+# scene renders the pink bowl pastel (saturation ~20 against ~106 in MuJoCo), the green bowl passes unchanged.
+BOWL_HSV_BY_ENGINE: dict[str, dict[str, tuple[int, int, int, int]]] = {"isaac": {"pink": (150, 178, 12, 90)}}
 BOWL_MIN_PIXELS = 3000
+# Neutral (white/black) bowls match by brightness only. Round-0 clutter renders (seeds 4100101-4100130): white bowl walls
+# reach V 160-245 under the sampled lights (V >= 200 kept as little as 845 px), and often only the lit rim ring
+# (~1500 px) passes, so neutral components are tried from NEUTRAL_MIN_PIXELS. The height band keeps the table out.
+WHITE_V_MIN = 140
+NEUTRAL_MIN_PIXELS = 800
+# Bowl pixels lie under the rim (22 mm) plus resting bricks; higher pixels belong to the arm, which can share the bowl
+# colour (the yellow arm over a yellow bowl at the ready pose) and would merge with it.
+BOWL_MAX_HEIGHT_M = 0.035
 RIM_INLIER_M = 0.004
 FILL_GAP_M = 0.008  # a bowl pixel is filled when it came this much nearer the camera
 FILL_MIN_PIXELS = 500  # a 2x2 brick in a bowl shows about 1400; arm edges and noise up to about 300
@@ -79,6 +104,8 @@ class BrickEstimate:
 	footprint_m: tuple[float, float]  # fitted top-face rectangle, long side first
 	top_points: int
 	extended_mm: tuple[float, float] = (0.0, 0.0)  # occlusion correction along the long and short axes
+	yaw_ambiguity_deg: float = 0.0
+	footprint_occluded_frac: float = 0.0
 
 	def quat_xyzw(self) -> np.ndarray:
 		return np.array([0.0, 0.0, math.sin(self.yaw / 2), math.cos(self.yaw / 2)])
@@ -90,6 +117,11 @@ def depth_points(depth: np.ndarray, k: np.ndarray, world_from_cam: np.ndarray) -
 	u, v = np.meshgrid(np.arange(w, dtype=np.float64), np.arange(h, dtype=np.float64))
 	cam = np.stack([(u - k[0, 2]) / k[0, 0] * depth, (v - k[1, 2]) / k[1, 1] * depth, depth], axis=-1)
 	return cam @ world_from_cam[:3, :3].T + world_from_cam[:3, 3]
+
+
+def top_camera_drift(correction_mm: float, ring_accepted: bool, table_z_mm: float) -> bool:
+	"""Test the wrist correction and the fitted table against the robot's known z=0 table datum."""
+	return (ring_accepted and correction_mm > DRIFT_CORRECTION_MM) or abs(table_z_mm) > DRIFT_TABLE_OFFSET_MM
 
 
 def yaw_error_deg(est: float, truth: float, size: tuple[float, float, float]) -> float:
@@ -125,15 +157,16 @@ def table_plane(points: np.ndarray) -> np.ndarray | None:
 	return coef
 
 
-def locate_brick(
-	depth: np.ndarray, k: np.ndarray, world_from_cam: np.ndarray, bowls: list[tuple[float, float]]
-) -> BrickEstimate | None:
-	"""The brick on the table in a planar depth image seen through ``world_from_cam``, or None when no blob has a
-	usable top face."""
+def _raised_blobs(depth: np.ndarray, k: np.ndarray, world_from_cam: np.ndarray, bowls):
+	"""``locate_brick``'s segmentation: raised points (height above the fitted table) of the reach band outside the
+	bowls, gridded, closed and split into connected components. Returns ``(plane, points, pixel index, component
+	label per point, component stats)`` or None."""
 	import cv2
 
 	p = depth_points(depth, k, world_from_cam).reshape(-1, 3)
-	p = p[np.isfinite(p).all(axis=1)]
+	idx = np.arange(p.shape[0])
+	finite = np.isfinite(p).all(axis=1)
+	p, idx = p[finite], idx[finite]
 	r = np.hypot(p[:, 0], p[:, 1])
 	area = (r > REACH_M[0]) & (r < 0.45)
 	for bx, by in bowls:
@@ -141,9 +174,11 @@ def locate_brick(
 	plane = table_plane(p[area & (np.abs(p[:, 2]) < TABLE_BAND_M)])
 	if plane is None:
 		return None
-	p = p[area & (r < REACH_M[1])]
+	keep = area & (r < REACH_M[1])
+	p, idx = p[keep], idx[keep]
 	p[:, 2] -= p[:, :2] @ plane[:2] + plane[2]  # height above the fitted table
-	p = p[(p[:, 2] > MIN_HEIGHT_M) & (p[:, 2] < MAX_HEIGHT_M)]
+	keep = (p[:, 2] > MIN_HEIGHT_M) & (p[:, 2] < MAX_HEIGHT_M)
+	p, idx = p[keep], idx[keep]
 	if len(p) < MIN_TOP_POINTS:
 		return None
 	lo = p[:, :2].min(axis=0) - 0.005
@@ -155,8 +190,104 @@ def locate_brick(
 	n, labels, stats, _ = cv2.connectedComponentsWithStats(occ, connectivity=8)
 	if n < 2:
 		return None
-	best = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
-	blob = p[labels[cells[:, 1], cells[:, 0]] == best]
+	return plane, p, idx, labels[cells[:, 1], cells[:, 0]], stats
+
+
+def arm_occludes_blob(depth: np.ndarray, k: np.ndarray, world_from_cam: np.ndarray, bowls, label: int | None = None) -> bool:
+	"""True when the raised blob ``locate_brick`` fits (the largest, or ``label`` of :func:`brick_blobs`) borders,
+	within ``ARM_OCCLUDER_PX`` image pixels, at least ``ARM_OCCLUDER_MIN_PX`` pixels higher than
+	``ARM_OCCLUDER_HEIGHT_M`` above the table: something tall (the arm) stands between the top camera and the blob,
+	so its top-face fit may be cut short."""
+	import cv2
+
+	seg = _raised_blobs(depth, k, world_from_cam, bowls)
+	if seg is None:
+		return False
+	plane, _, idx, lab, stats = seg
+	best = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA])) if label is None else int(label)
+	mask = np.zeros(depth.size, np.uint8)
+	mask[idx[lab == best]] = 1
+	mask = mask.reshape(depth.shape)
+	n = 2 * ARM_OCCLUDER_PX + 1
+	ring = (cv2.dilate(mask, np.ones((n, n), np.uint8)) > 0) & (mask == 0)
+	p = depth_points(depth, k, world_from_cam)[ring]
+	p = p[np.isfinite(p).all(axis=1)]
+	if len(p) == 0:
+		return False
+	height = p[:, 2] - (p[:, :2] @ plane[:2] + plane[2])
+	return int(np.count_nonzero(height > ARM_OCCLUDER_HEIGHT_M)) >= ARM_OCCLUDER_MIN_PX
+
+
+@dataclass
+class BrickBlob:
+	"""One raised blob of the top depth image (a brick candidate)."""
+
+	label: int  # component label (pass to ``locate_brick(..., label=)``)
+	cells: int  # area of the closed component, in GRID_M cells
+	xy: np.ndarray  # mean of its points (robot frame)
+	height_m: float  # 90th-percentile height above the table
+	long_m: float  # long side of the top band's minimum-area rectangle
+	short_m: float
+	pixels: np.ndarray  # (n, 2) image (u, v) of its points
+
+
+def brick_blobs(
+	depth: np.ndarray, k: np.ndarray, world_from_cam: np.ndarray, bowls: list[tuple[float, float]]
+) -> list[BrickBlob]:
+	"""Every raised blob ``locate_brick`` chooses its brick from, largest first."""
+	import cv2
+
+	seg = _raised_blobs(depth, k, world_from_cam, bowls)
+	if seg is None:
+		return []
+	_, p, idx, lab, stats = seg
+	width = depth.shape[1]
+	out = []
+	for label in np.unique(lab):
+		m = lab == label
+		blob = p[m]
+		z_top = float(np.percentile(blob[:, 2], 90))
+		top = blob[blob[:, 2] > z_top - TOP_BAND_M]
+		w = h = 0.0
+		if len(top) >= 3:
+			_, (w, h), _ = cv2.minAreaRect(top[:, :2].astype(np.float32))
+		v, u = np.divmod(idx[m], width)
+		out.append(
+			BrickBlob(
+				int(label),
+				int(stats[label, cv2.CC_STAT_AREA]),
+				blob[:, :2].mean(axis=0),
+				z_top,
+				float(max(w, h)),
+				float(min(w, h)),
+				np.stack([u, v], axis=1),
+			)
+		)
+	out.sort(key=lambda b: -b.cells)
+	return out
+
+
+def locate_brick(
+	depth: np.ndarray,
+	k: np.ndarray,
+	world_from_cam: np.ndarray,
+	bowls: list[tuple[float, float]],
+	*,
+	label: int | None = None,
+) -> BrickEstimate | None:
+	"""The brick on the table in a planar depth image seen through ``world_from_cam``, or None when no blob has a
+	usable top face. The brick is the largest raised blob, or the blob ``label`` of :func:`brick_blobs` (same
+	image) when given."""
+	import cv2
+
+	seg = _raised_blobs(depth, k, world_from_cam, bowls)
+	if seg is None:
+		return None
+	plane, p, _, lab, stats = seg
+	best = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA])) if label is None else int(label)
+	blob = p[lab == best]
+	if len(blob) == 0:
+		return None
 	z_top = float(np.percentile(blob[:, 2], 90))
 	top = blob[blob[:, 2] > z_top - TOP_BAND_M]
 	if len(top) < MIN_TOP_POINTS:
@@ -193,8 +324,34 @@ def locate_brick(
 		centre = centre + sign * deficit / 2 * axis
 		extended.append(round(deficit * 1000, 2))
 	table_z = float(centre @ plane[:2] + plane[2])
-	pos = np.array([centre[0], centre[1], table_z + size[2] / 2 + 0.0005])  # resting upright on the table
-	return BrickEstimate(pos, yaw, size, (float(long_side), float(short_side)), len(top), tuple(extended))
+	pos = np.array(
+		[centre[0], centre[1], table_z + size[2] / 2 + RESTING_BRICK_CLEARANCE_M]
+	)  # resting upright on the table
+	n_long = 12 if size[0] > 0.048 else 8
+	a = np.linspace(-0.45 * size[0], 0.45 * size[0], n_long)
+	b = np.linspace(-0.45 * size[1], 0.45 * size[1], 8)
+	xy = centre + a[:, None, None] * axes[0] + b[None, :, None] * axes[1]
+	xy = xy.reshape(-1, 2)
+	grid_pts = np.column_stack([xy, xy @ plane[:2] + plane[2] + z_top])
+	depth_occ = _covered_fraction(grid_pts, depth, k, cam_from_world)
+	rect_shortfall = 1.0 - (min(long_side, size[0]) * min(short_side, size[1])) / (size[0] * size[1])
+	occluded_frac = round(float(np.clip(max(depth_occ, rect_shortfall), 0.0, 1.0)), 4)
+
+	rel0 = (top[:, :2] - centre) @ axes[0]
+	rel1 = (top[:, :2] - centre) @ axes[1]
+	out0 = np.maximum(0.0, np.abs(rel0) - size[0] / 2.0)
+	out1 = np.maximum(0.0, np.abs(rel1) - size[1] / 2.0)
+	outside_rms = float(np.sqrt(np.mean(out0**2 + out1**2)))
+	side_res = math.hypot(long_side - size[0], short_side - size[1])
+	occ_res = occluded_frac * 0.5 * min(size[0], size[1])
+	residual_m = math.sqrt(side_res**2 + outside_rms**2 + occ_res**2)
+	half_span = max(long_side, short_side, size[0]) / 2.0
+	sparsity = math.sqrt(max(1.0, 200.0 / len(top)))
+	max_amb = 45.0 if size[0] == size[1] else 90.0
+	yaw_amb = round(min(max_amb, math.degrees(math.atan2(residual_m, half_span)) * sparsity), 3)
+	return BrickEstimate(
+		pos, yaw, size, (float(long_side), float(short_side)), len(top), tuple(extended), yaw_amb, occluded_frac
+	)
 
 
 @dataclass
@@ -203,6 +360,7 @@ class BowlEstimate:
 	radius_m: float
 	pixels: int
 	rim_points: int
+	fit_residual_m: float = 0.0
 
 
 def _plane_heights(p: np.ndarray, bowls_hint=()) -> np.ndarray | None:
@@ -215,50 +373,169 @@ def _plane_heights(p: np.ndarray, bowls_hint=()) -> np.ndarray | None:
 	return p[:, 2] - (p[:, :2] @ plane[:2] + plane[2])
 
 
+def _circular_hue_deg_dist(a_deg: float, b_deg: float) -> float:
+	d = abs(a_deg - b_deg) % 360.0
+	return min(d, 360.0 - d)
+
+
+def bands_for(
+	rgb_by_slot: Mapping[str, Sequence[float]], *, engine: str = "mujoco"
+) -> dict[str, tuple[int, int, int, int]]:
+	"""Compute OpenCV HSV bowl bands per slot from scene RGB colours.
+
+	Returns ``(lo, hi, p3, p4)`` per slot:
+	- Chromatic: ``(h_lo, h_hi, s_min, v_min)`` with OpenCV H in [0, 179] (``h_lo > h_hi`` wraps around 180/0).
+	- White: ``(-1, -1, s_max, v_min)`` meaning ``S < s_max`` and ``V > v_min``.
+	- Black: ``(-2, -2, s_max, v_max)`` meaning ``S <= s_max`` and ``V < v_max``.
+	"""
+	if engine not in ("mujoco", "isaac"):
+		raise ValueError(f"unknown engine {engine!r}")
+	out: dict[str, tuple[int, int, int, int]] = {}
+	for slot, rgb in rgb_by_slot.items():
+		r, g, b = (float(rgb[0]), float(rgb[1]), float(rgb[2]))
+		h_turn, s, v = colorsys.rgb_to_hsv(r, g, b)
+		hue_deg = h_turn * 360.0
+		if engine == "isaac":
+			if s >= 0.15 and v >= 0.25 and _circular_hue_deg_dist(hue_deg, 127.5) <= 10.0:
+				out[slot] = BOWL_HSV["green"]
+			elif s >= 0.15 and v >= 0.25 and _circular_hue_deg_dist(hue_deg, 334.5) <= 10.0:
+				out[slot] = BOWL_HSV_BY_ENGINE["isaac"]["pink"]
+			else:
+				raise NotImplementedError(f"Isaac HSV band not calibrated for slot {slot!r}; see Task 3b")
+		elif s < 0.15 and v > 0.70:
+			out[slot] = (-1, -1, 40, WHITE_V_MIN)
+		elif v < 0.25:
+			out[slot] = (-2, -2, 255, 50)
+		else:
+			lo = math.floor((hue_deg - 14.0) / 2.0) % 180
+			hi = math.ceil((hue_deg + 14.0) / 2.0) % 180
+			smin = max(35, min(70, round(s * 255 * 0.45)))
+			out[slot] = (lo, hi, smin, 30)
+	return out
+
+
+def _fit_bowl_rim(rim: np.ndarray, area: int) -> BowlEstimate | None:
+	"""Fit a circle of radius ~``BOWL_R`` to 3D rim points and return its :class:`BowlEstimate`."""
+	if len(rim) < 20:
+		return None
+	keep = np.ones(len(rim), bool)
+	cx = cy = radius = 0.0
+	for _ in range(4):
+		a = np.column_stack([2 * rim[keep, :2], np.ones(int(keep.sum()))])
+		(cx, cy, c), *_ = np.linalg.lstsq(a, (rim[keep, :2] ** 2).sum(axis=1), rcond=None)
+		radius = math.sqrt(max(c + cx * cx + cy * cy, 0.0))
+		keep = np.abs(np.hypot(rim[:, 0] - cx, rim[:, 1] - cy) - radius) < RIM_INLIER_M
+		if keep.sum() < 10:
+			break
+	if keep.sum() < 10 or abs(radius - BOWL_R) > 0.015:
+		return None
+	residuals = np.abs(np.hypot(rim[keep, 0] - cx, rim[keep, 1] - cy) - radius)
+	fit_residual = float(np.sqrt(np.mean(residuals**2)))
+	return BowlEstimate(np.array([cx, cy]), float(radius), area, int(keep.sum()), fit_residual)
+
+
+def _locate_bowl_from_band(
+	hsv: np.ndarray,
+	pts: np.ndarray,
+	h2d: np.ndarray | None,
+	workspace: np.ndarray,
+	band: tuple[int, int, int, int],
+) -> BowlEstimate | None:
+	"""Locate one bowl matching ``band`` by testing connected components largest-first."""
+	import cv2
+
+	lo, hi, p3, p4 = band
+	if lo == -1 and hi == -1:
+		mask = (hsv[..., 1] < p3) & (hsv[..., 2] > p4)
+	elif lo == -2 and hi == -2:
+		mask = (hsv[..., 1] <= p3) & (hsv[..., 2] < p4)
+	else:
+		if lo <= hi:
+			h_mask = (hsv[..., 0] >= lo) & (hsv[..., 0] <= hi)
+		else:
+			h_mask = (hsv[..., 0] >= lo) | (hsv[..., 0] <= hi)
+		mask = h_mask & (hsv[..., 1] >= p3) & (hsv[..., 2] >= p4)
+	mask &= workspace
+	if h2d is not None:
+		if lo == -2:
+			mask &= np.isfinite(h2d) & (h2d > 0.004) & (h2d < 0.028)
+		elif lo == -1:
+			mask &= np.isfinite(h2d) & (h2d > 0.002) & (h2d < 0.030)
+		else:
+			mask &= ~(h2d > BOWL_MAX_HEIGHT_M)  # unknown depth stays in, as before
+	min_pixels = NEUTRAL_MIN_PIXELS if lo < 0 else BOWL_MIN_PIXELS
+	n, labels, stats, _ = cv2.connectedComponentsWithStats(mask.astype(np.uint8), connectivity=8)
+	if n < 2:
+		return None
+	candidates = [
+		(int(stats[cid, cv2.CC_STAT_AREA]), cid)
+		for cid in range(1, n)
+		if int(stats[cid, cv2.CC_STAT_AREA]) >= min_pixels
+	]
+	candidates.sort(key=lambda item: item[0], reverse=True)
+	for area, cid in candidates:
+		comp = labels == cid
+		contours, _ = cv2.findContours(comp.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+		if not contours:
+			continue
+		edge = max(contours, key=len)[:, 0]
+		rim = pts[edge[:, 1], edge[:, 0]]
+		if h2d is not None:
+			edge_h = h2d[edge[:, 1], edge[:, 0]]
+			blob_top = float(np.nanpercentile(h2d[comp], 95))
+			# The outer contour runs round the rim and down the wall to where the band starts (4 mm for black): keep
+			# the upper part, as for colours, so the fitted circle is the rim and not the narrower wall foot.
+			rim = rim[edge_h > 0.6 * blob_top]
+		rim = rim[np.isfinite(rim).all(axis=1)]
+		est = _fit_bowl_rim(rim, area)
+		if est is not None:
+			return est
+	return None
+
+
 def locate_bowls(
-	rgb: np.ndarray, depth: np.ndarray, k: np.ndarray, world_from_cam: np.ndarray
+	rgb: np.ndarray,
+	depth: np.ndarray,
+	k: np.ndarray,
+	world_from_cam: np.ndarray,
+	*,
+	engine: str = "mujoco",
+	bands: Mapping[str, tuple[int, int, int, int]] | None = None,
 ) -> dict[str, BowlEstimate | None]:
-	"""The green and pink bowls in a top image: the largest blob of each colour, then a circle fitted to the 3D points
-	of its outer contour that stand on the rim (the contour also runs along occluders and the image edge; those
-	points sit lower or off the circle and are dropped by the height cut and the inlier refit)."""
+	"""Locate bowls in a top image: by default the green and pink bowls via ``BOWL_HSV``, or per-slot ``bands``."""
 	import cv2
 
 	hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
 	pts = depth_points(depth, k, world_from_cam)
 	heights = _plane_heights(pts.reshape(-1, 3))
 	out: dict[str, BowlEstimate | None] = {}
-	for name, (lo, hi, smin, vmin) in BOWL_HSV.items():
-		out[name] = None
-		mask = (hsv[..., 0] >= lo) & (hsv[..., 0] <= hi) & (hsv[..., 1] >= smin) & (hsv[..., 2] >= vmin)
-		n, labels, stats, _ = cv2.connectedComponentsWithStats(mask.astype(np.uint8), connectivity=8)
-		if n < 2:
-			continue
-		best = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
-		area = int(stats[best, cv2.CC_STAT_AREA])
-		if area < BOWL_MIN_PIXELS:
-			continue
-		comp = labels == best
-		contours, _ = cv2.findContours(comp.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
-		edge = max(contours, key=len)[:, 0]
-		rim = pts[edge[:, 1], edge[:, 0]]
-		if heights is not None:
-			h = heights.reshape(depth.shape)
-			blob_top = float(np.percentile(h[comp], 95))
-			rim = rim[h[edge[:, 1], edge[:, 0]] > 0.6 * blob_top]
-		rim = rim[np.isfinite(rim).all(axis=1)]
-		if len(rim) < 20:
-			continue
-		keep = np.ones(len(rim), bool)
-		for _ in range(4):
-			a = np.column_stack([2 * rim[keep, :2], np.ones(int(keep.sum()))])
-			(cx, cy, c), *_ = np.linalg.lstsq(a, (rim[keep, :2] ** 2).sum(axis=1), rcond=None)
-			radius = math.sqrt(max(c + cx * cx + cy * cy, 0.0))
-			keep = np.abs(np.hypot(rim[:, 0] - cx, rim[:, 1] - cy) - radius) < RIM_INLIER_M
-			if keep.sum() < 10:
-				break
-		if abs(radius - BOWL_R) > 0.015:
-			continue
-		out[name] = BowlEstimate(np.array([cx, cy]), float(radius), area, int(keep.sum()))
+	if bands is None:
+		for name, (lo, hi, smin, vmin) in {**BOWL_HSV, **BOWL_HSV_BY_ENGINE.get(engine, {})}.items():
+			out[name] = None
+			mask = (hsv[..., 0] >= lo) & (hsv[..., 0] <= hi) & (hsv[..., 1] >= smin) & (hsv[..., 2] >= vmin)
+			n, labels, stats, _ = cv2.connectedComponentsWithStats(mask.astype(np.uint8), connectivity=8)
+			if n < 2:
+				continue
+			best = 1 + int(np.argmax(stats[1:, cv2.CC_STAT_AREA]))
+			area = int(stats[best, cv2.CC_STAT_AREA])
+			if area < BOWL_MIN_PIXELS:
+				continue
+			comp = labels == best
+			contours, _ = cv2.findContours(comp.astype(np.uint8), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+			edge = max(contours, key=len)[:, 0]
+			rim = pts[edge[:, 1], edge[:, 0]]
+			if heights is not None:
+				h = heights.reshape(depth.shape)
+				blob_top = float(np.percentile(h[comp], 95))
+				rim = rim[h[edge[:, 1], edge[:, 0]] > 0.6 * blob_top]
+			rim = rim[np.isfinite(rim).all(axis=1)]
+			out[name] = _fit_bowl_rim(rim, area)
+		return out
+
+	workspace = np.hypot(pts[..., 0], pts[..., 1]) < 0.42
+	h2d = heights.reshape(depth.shape) if heights is not None else None
+	for name, band in bands.items():
+		out[name] = _locate_bowl_from_band(hsv, pts, h2d, workspace, band)
 	return out
 
 

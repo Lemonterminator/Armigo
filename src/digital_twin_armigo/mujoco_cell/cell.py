@@ -230,6 +230,26 @@ class Cell:
 			m.cam_pos[cid], m.cam_quat[cid] = self.wrist_cam_actual
 			mujoco.mj_camlight(m, d)
 
+	@contextmanager
+	def camera_override(self, name: str, world_from_cam_cv: np.ndarray, data=None):
+		"""Temporarily set a world-mounted camera pose (OpenCV world-from-camera); restores on exit."""
+		m, d = self.model, self.data if data is None else data
+		cid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_CAMERA, name)
+		if m.cam_bodyid[cid] != 0:
+			raise ValueError(f"{name} is mounted on a body; use nominal_wrist_cam")
+		saved = m.cam_pos[cid].copy(), m.cam_quat[cid].copy()
+		rot = np.asarray(world_from_cam_cv, dtype=np.float64)[:3, :3] @ np.diag([1.0, -1.0, -1.0])
+		quat = np.empty(4, dtype=np.float64)
+		mujoco.mju_mat2Quat(quat, rot.flatten())
+		m.cam_pos[cid] = np.asarray(world_from_cam_cv, dtype=np.float64)[:3, 3]
+		m.cam_quat[cid] = quat
+		mujoco.mj_camlight(m, d)
+		try:
+			yield
+		finally:
+			m.cam_pos[cid], m.cam_quat[cid] = saved
+			mujoco.mj_camlight(m, d)
+
 	def _apply_physics_spec(self, physics: PhysicsSpec, mass_scale: float, friction_scale: float) -> None:
 		"""Align MuJoCo actuator gains, joint dynamics, and surface friction with :class:`PhysicsSpec`."""
 		m = self.model
@@ -252,7 +272,7 @@ class Cell:
 		table_gid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_GEOM, "table")
 		if table_gid >= 0:
 			m.geom_friction[table_gid] = (physics.table.dynamic_friction * friction_scale, 0.005, 0.0005)
-		for bname in ("green_bowl", "pink_bowl"):
+		for bname in ("green_bowl", "pink_bowl", *(f"extra_bowl_{i}" for i in range(len(self.layout.extra_bowls)))):
 			bid = mujoco.mj_name2id(m, mujoco.mjtObj.mjOBJ_BODY, bname)
 			if bid >= 0:
 				for g in range(m.ngeom):
@@ -487,6 +507,21 @@ class Cell:
 		self.renderer.disable_segmentation_rendering()
 		return out
 
+	def _face_segment_geom(self, camera: str, scene_option, crop=None, data=None) -> np.ndarray:
+		if not self.has_face_probes:
+			raise RuntimeError("face segmentation needs a Cell built with face_probes=True")
+		d = self.data if data is None else data
+		self.renderer.enable_segmentation_rendering()
+		try:
+			self.renderer.update_scene(d, camera, scene_option=scene_option)
+			seg = self.renderer.render()
+		finally:
+			self.renderer.disable_segmentation_rendering()
+		if crop is not None:
+			x, y, w, h = crop
+			seg = seg[y : y + h, x : x + w]
+		return _drop_specks(np.where(seg[..., 1] == self._obj_geom, seg[..., 0], -1), self._is_brick)
+
 	def face_visibility(
 		self, camera: str, crop: tuple[int, int, int, int] | None = None, data=None
 	) -> dict[str, np.ndarray | int]:
@@ -495,24 +530,8 @@ class Cell:
 		plus the brick's pixels with the arm removed (``brick_full``) and its pixel bounding box ``bbox`` (x, y, w, h in
 		the crop, or None). Needs a cell built with ``face_probes``. ``data`` renders another ``MjData`` of this model
 		(for example a kinematic copy with the arm moved) instead of the simulation state."""
-		if not self.has_face_probes:
-			raise RuntimeError("face_visibility needs a Cell built with face_probes=True")
-		d = self.data if data is None else data
-		segs = []
-		self.renderer.enable_segmentation_rendering()
-		try:
-			for opt in (self._all_groups, self._brick_only):
-				self.renderer.update_scene(d, camera, scene_option=opt)
-				seg = self.renderer.render()
-				if crop is not None:
-					x, y, w, h = crop
-					seg = seg[y : y + h, x : x + w]
-				segs.append(np.where(seg[..., 1] == self._obj_geom, seg[..., 0], -1))
-		finally:
-			self.renderer.disable_segmentation_rendering()
-		geom, geom_full = segs
-		geom = _drop_specks(geom, self._is_brick)
-		geom_full = _drop_specks(geom_full, self._is_brick)
+		geom = self._face_segment_geom(camera, self._all_groups, crop=crop, data=data)
+		geom_full = self._face_segment_geom(camera, self._brick_only, crop=crop, data=data)
 		face = self._face_of[geom]
 		faces = np.bincount(face[face >= 0], minlength=len(FACES))
 		brick = self._is_brick[geom]
@@ -536,17 +555,18 @@ class Cell:
 		the face id (-1 off the face probes) and the defect-cross mask, arm occlusion included. Summing them over
 		the frame gives ``face_visibility``'s ``faces`` and ``defect``; resampling them like an image crop gives what
 		that crop shows."""
-		if not self.has_face_probes:
-			raise RuntimeError("visibility_labels needs a Cell built with face_probes=True")
-		d = self.data if data is None else data
-		self.renderer.enable_segmentation_rendering()
-		try:
-			self.renderer.update_scene(d, camera, scene_option=self._all_groups)
-			seg = self.renderer.render()
-		finally:
-			self.renderer.disable_segmentation_rendering()
-		geom = _drop_specks(np.where(seg[..., 1] == self._obj_geom, seg[..., 0], -1), self._is_brick)
+		geom = self._face_segment_geom(camera, self._all_groups, data=data)
 		return self._face_of[geom], self._is_defect[geom]
+
+	def face_class_map(self, camera: str, data=None) -> np.ndarray:
+		"""Per-pixel semantic brick face class (0=top, 1=bottom, 2=side, -1=background), dtype int8."""
+		geom = self._face_segment_geom(camera, self._all_groups, data=data)
+		face = self._face_of[geom]
+		cls = np.full(face.shape, -1, dtype=np.int8)
+		cls[face == 4] = 0
+		cls[face == 5] = 1
+		cls[(face >= 0) & (face <= 3)] = 2
+		return cls
 
 	def robot_min_z(self, data=None) -> float:
 		"""Lowest point of the moving links' collision geometry (oriented bounding boxes), metres above the table;
@@ -563,6 +583,16 @@ class Cell:
 		centre, normal, _, _ = face_frame(self.layout.brick_size, self.layout.defect_face)
 		rot = self.data.xmat[self.brick_body].reshape(3, 3)
 		return self.data.xpos[self.brick_body] + rot @ centre, rot @ normal
+
+	def depth(self, camera: str) -> np.ndarray:
+		"""Depth image of ``camera`` in metres along the optical axis (float64, height x width)."""
+		r = self.renderer
+		r.enable_depth_rendering()
+		try:
+			r.update_scene(self.data, camera)
+			return r.render().astype(np.float64)
+		finally:
+			r.disable_depth_rendering()
 
 	def rgb(self, camera: str, out: np.ndarray | None = None) -> np.ndarray:
 		"""Colour image of ``camera`` (height, width, 3), written into ``out`` when given."""

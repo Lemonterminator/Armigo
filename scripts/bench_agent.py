@@ -4,11 +4,11 @@ Subcommands
 -----------
 ``episodes``  Run ``armigo-mcp run`` on a fixture suite (extra args are passed through, e.g. ``--use-llm`` or
               ``--workers 4``), then summarise wall time, outcomes and every graph ``decision`` event
-              (source llm / fallback / policy, fallback reasons, prompt tokens and latency when logged).
+              (source llm / fallback / policy, fallback reasons, prompt and cached tokens, and latency when logged).
 ``vllm``      Fire N chat requests at an OpenAI-compatible server with C concurrent clients. Every request shares
               one fixed system prefix (to expose prefix caching) and has a short distinct user turn.
 ``context``   Build the inner-graph LLM context after ``prepare`` for one fixture and count its prompt tokens
-              through the server's ``/tokenize`` endpoint (the pre-change ``select_skill`` message shape).
+              through the server's ``/tokenize`` endpoint using the selected runtime prompt mode.
 
 Every subcommand prints one JSON object and can write it with ``--json``.
 """
@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import statistics
 import subprocess
 import sys
@@ -26,6 +27,8 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT / "src") not in sys.path:
+	sys.path.insert(0, str(ROOT / "src"))
 
 
 def _emit(result: dict, path: Path | None) -> None:
@@ -39,7 +42,7 @@ def _emit(result: dict, path: Path | None) -> None:
 def summarise_decisions(out: Path) -> dict:
 	sources: Counter = Counter()
 	reasons: Counter = Counter()
-	tokens, latency = [], []
+	tokens, cached_tokens, latency = [], [], []
 	llm_calls = 0
 	for log in sorted(out.rglob("events.jsonl")):
 		for line in log.read_text(encoding="utf-8").splitlines():
@@ -54,6 +57,9 @@ def summarise_decisions(out: Path) -> dict:
 				reasons[event.get("fallback_reason") or event.get("reason")] += 1
 			if event.get("prompt_tokens"):
 				tokens.append(int(event["prompt_tokens"]))
+			cached = event.get("cached_tokens")
+			if type(cached) is int and cached >= 0:
+				cached_tokens.append(cached)
 			if event.get("latency_s") is not None:
 				latency.append(float(event["latency_s"]))
 	llm = sources.get("llm", 0)
@@ -64,6 +70,9 @@ def summarise_decisions(out: Path) -> dict:
 		"fallback_reasons": dict(reasons),
 		"prompt_tokens_median": statistics.median(tokens) if tokens else None,
 		"prompt_tokens_max": max(tokens) if tokens else None,
+		"cached_tokens_samples": len(cached_tokens),
+		"cached_tokens_median": statistics.median(cached_tokens) if cached_tokens else None,
+		"cached_tokens_max": max(cached_tokens) if cached_tokens else None,
 		"llm_latency_median_s": round(statistics.median(latency), 3) if latency else None,
 	}
 
@@ -154,46 +163,55 @@ def cmd_vllm(a) -> dict:
 
 
 def cmd_context(a) -> dict:
-	import httpx
-
+	from digital_twin_armigo.agent.llm import OpenAICompatLLM
+	from digital_twin_armigo.agent.twin_graph import _skill_messages
 	from digital_twin_armigo.agent.twin_mujoco import TwinMujoco, sample_case
 
 	class _NullTrace:
 		def __init__(self):
 			self.events = []
 
+		def event(self, kind, node, branch, frame, **payload):
+			self.events.append({"kind": kind, "node": node, "branch": branch, "frame": frame, **payload})
+
 		def __getattr__(self, name):
 			return lambda *args, **kwargs: None
 
+	choices = ["scan_wrist", "present_bottom"]
+	history = os.environ.get("ARMIGO_LLM_CONTEXT_MODE", "history") == "history"
 	backend = TwinMujoco(sample_case(*a.case), None, _NullTrace())
 	try:
+		backend.enter("prepare")
 		backend.prepare()
-		build = getattr(backend, "decision_context", None)
-		context = (
-			build(["scan_wrist", "present_bottom"], [], [])
-			if build
-			else {
-				"geometry": backend._geometry(),
-				"views": [],
-				"failures": [],
-				"spent_sim_frames": backend.total_frames,
-			}
-		)
+		context = backend.decision_context(choices, [], [])
+		if history:
+			backend._add_decision_history(context)
 	finally:
 		backend.close()
-	user = json.dumps({"choices": ["scan_wrist", "present_bottom"], **context}, separators=(",", ":"))
-	r = httpx.post(
-		f"{a.url.rstrip('/').removesuffix('/v1')}/tokenize",
-		json={"model": a.model, "messages": [{"role": "user", "content": user}]},
-		timeout=60,
-	)
-	r.raise_for_status()
-	return {"case": a.case, "context_chars": len(user), "prompt_tokens": r.json()["count"], "max_model_len": a.max_len}
+	messages = _skill_messages(choices, context)
+	client = OpenAICompatLLM(a.url, a.model, max_model_len=a.max_len)
+	try:
+		prompt_tokens = client.count_tokens(messages)
+		if prompt_tokens is None:
+			raise SystemExit(f"Unable to count prompt tokens on {a.url}")
+		max_model_len = client.context_limit()
+	finally:
+		client.close()
+	return {
+		"case": a.case,
+		"context_mode": "history" if history else "compact",
+		"context_chars": len(messages[1]["content"]),
+		"prompt_tokens": prompt_tokens,
+		"max_model_len": max_model_len,
+	}
 
 
 def main() -> None:
 	p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 	p.add_argument("--json", type=Path)
+	p.add_argument("--mlflow", action="store_true", help="Record this benchmark in MLflow")
+	p.add_argument("--mlflow-experiment", default="agent-bench")
+	p.add_argument("--run-name", default=None)
 	sub = p.add_subparsers(dest="cmd", required=True)
 	ep = sub.add_parser("episodes")
 	ep.add_argument("--suite", type=Path, required=True)
@@ -209,7 +227,7 @@ def main() -> None:
 	cx.add_argument("--url", default="http://127.0.0.1:8038/v1")
 	cx.add_argument("--model", default="qwen3.8-vllm")
 	cx.add_argument("--case", type=json.loads, default=[442701, False, 5])
-	cx.add_argument("--max-len", type=int, default=4096)
+	cx.add_argument("--max-len", type=int, default=4096, help="Fallback when /models does not report a context limit.")
 	a, rest = p.parse_known_args()
 	if a.cmd == "episodes":
 		result = cmd_episodes(a, rest)
@@ -218,6 +236,18 @@ def main() -> None:
 	else:
 		result = cmd_vllm(a) if a.cmd == "vllm" else cmd_context(a)
 	_emit(result, a.json)
+	from digital_twin_armigo.tracking.runs import tracked_run
+
+	with tracked_run(
+		a.mlflow_experiment,
+		a.run_name or (a.json.stem if a.json else a.cmd),
+		enabled=a.mlflow,
+		params={k: v for k, v in vars(a).items() if not k.startswith("mlflow") and k != "json"} | {"passthrough": rest},
+		tags={"task": "agent_bench", "subcommand": a.cmd},
+	) as run:
+		run.log_report(result)
+		if a.json:
+			run.log_artifact(a.json)
 
 
 if __name__ == "__main__":

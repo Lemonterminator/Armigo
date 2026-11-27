@@ -1,1 +1,4 @@
 /scripts/serve_armigo_qwen.sh text eol=lf
+# Suite files are hashed byte-for-byte by experiments.runner._freeze_suite; keep LF on Windows checkouts.
+/config/agent_bench/**/*.json text eol=lf
+/scripts/experiments/*.sh text eol=lf

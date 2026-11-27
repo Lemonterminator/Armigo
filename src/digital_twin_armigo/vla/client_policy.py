@@ -249,7 +249,17 @@ class ChunkClientPolicy:
 		replan_interval: int | None = None,
 		prefetch_ahead: int | None = None,
 		end_threshold: float | None = None,
+		temporal_ensemble: float | None = None,
+		stop_policy: str = "latest",
 	) -> None:
+		"""``temporal_ensemble``: ACT temporal ensembling coefficient ``m`` (paper default 0.01). When set, the
+		executed target at a frame is the weighted mean of every chunk of the current segment that covers that
+		frame, with weight ``exp(-m * i)`` where ``i = 0`` is the oldest chunk. ``None`` executes the latest chunk.
+
+		``stop_policy``: how a replan combines its end-step with an already planned stop frame. ``latest`` (default):
+		the newest chunk replaces it, including cancelling it when it predicts no end within its horizon. ``keep``:
+		the newest in-horizon prediction replaces it, but an out-of-horizon one does not cancel it. ``earliest``: the
+		stop may only move earlier (biases early when the end-step head is noisy)."""
 		if mode not in ("sync", "async"):
 			raise ValueError(f"mode must be 'sync' or 'async', got {mode!r}")
 		if replan_interval is not None and int(replan_interval) <= 0:
@@ -258,8 +268,15 @@ class ChunkClientPolicy:
 			raise ValueError(f"prefetch_ahead must be >= 0, got {prefetch_ahead!r}")
 		if end_threshold is not None and not (0.0 < float(end_threshold) <= 1.0):
 			raise ValueError(f"end_threshold must be in (0, 1], got {end_threshold!r}")
+		if temporal_ensemble is not None and float(temporal_ensemble) < 0.0:
+			raise ValueError(f"temporal_ensemble must be >= 0, got {temporal_ensemble!r}")
 
 		self.predictor = predictor
+		self.temporal_ensemble = float(temporal_ensemble) if temporal_ensemble is not None else None
+		if stop_policy not in ("latest", "keep", "earliest"):
+			raise ValueError(f"stop_policy must be 'latest', 'keep' or 'earliest', got {stop_policy!r}")
+		self.stop_policy = stop_policy
+		self._te_chunks: list[tuple[int, np.ndarray]] = []
 		self.mode = mode
 		self.replan_interval = int(replan_interval) if replan_interval is not None else None
 		self.prefetch_ahead = int(prefetch_ahead) if prefetch_ahead is not None else None
@@ -311,6 +328,7 @@ class ChunkClientPolicy:
 			self._chunk_anchor_frame = 0
 			self._next_expected_frame = 0
 			self._planned_stop_step = None
+			self._te_chunks = []
 			if self._pending_future is not None:
 				if self._pending_future.done():
 					self.stats.stale_discarded += 1
@@ -369,17 +387,23 @@ class ChunkClientPolicy:
 			raise ValueError(f"end_step_probs shape {probs.shape} != expected ({horizon + 2},)")
 
 		k_hat = int(result.get("predicted_end_step", int(np.argmax(probs))))
+		candidate: int | None = None
 		if 0 <= k_hat <= horizon:
 			if self.end_threshold is None or float(probs[k_hat]) >= self.end_threshold:
-				self._planned_stop_step = base_frame + k_hat
-			else:
-				self._planned_stop_step = None
-		else:
-			self._planned_stop_step = None
+				candidate = base_frame + k_hat
+		if self.stop_policy != "latest" and self._planned_stop_step is not None:
+			if candidate is None:
+				# "keep" and "earliest": a chunk that sees no end within its horizon does not cancel a planned stop.
+				candidate = self._planned_stop_step
+			elif self.stop_policy == "earliest" and candidate > self._planned_stop_step:
+				candidate = self._planned_stop_step
+		self._planned_stop_step = candidate
 
 		if current_frame < base_frame + horizon:
 			self._chunk_actions = actions
 			self._chunk_anchor_frame = base_frame
+			if self.temporal_ensemble is not None:
+				self._te_chunks.append((base_frame, actions))
 			self._next_expected_frame = max(self._next_expected_frame, current_frame)
 			return True
 		return False
@@ -551,6 +575,13 @@ class ChunkClientPolicy:
 					f"[{self._chunk_anchor_frame}, {self._chunk_anchor_frame + len(self._chunk_actions)})"
 				)
 			target = np.asarray(self._chunk_actions[idx], dtype=np.float64).copy()
+			if self.temporal_ensemble is not None:
+				# Drop chunks that no longer reach this frame (frames only move forward within a segment).
+				self._te_chunks = [(a, c) for a, c in self._te_chunks if seg_frame - a < len(c)]
+				covering = [c[seg_frame - a] for a, c in self._te_chunks if 0 <= seg_frame - a < len(c)]
+				if covering:
+					w = np.exp(-self.temporal_ensemble * np.arange(len(covering), dtype=np.float64))
+					target = (w[:, None] * np.asarray(covering, dtype=np.float64)).sum(axis=0) / w.sum()
 			self._next_expected_frame = max(self._next_expected_frame, seg_frame + 1)
 		return PolicyStep(target=target)
 

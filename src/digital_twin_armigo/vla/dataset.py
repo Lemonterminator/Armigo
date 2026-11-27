@@ -13,15 +13,17 @@ import numpy as np
 from .contract import (
 	ACTION_DIM,
 	BOWL_VOCAB,
+	IGNORE_INDEX,
 	INITIAL_Q,
 	SEGMENT_KINDS_ORDER,
 	STATE_DIM,
 	STUDENT_CAMERAS,
 	ActionNormalizer,
-	encode_state,
-	encode_state_from_task,
+	StudentInputContract,
+	encode_student_state,
 	end_step_target_from_segment,
 	policy_inputs_from_segment_dict,
+	resolve_student_input_contract,
 )
 
 try:
@@ -30,6 +32,53 @@ try:
 except ImportError:  # pragma: no cover - repo .venv lacks torch
 	torch = None
 	_BaseDataset = object
+
+
+_PYAV_CACHE_SIZE = 16  # open containers kept per process (3 student cameras x a few chunk files)
+_pyav_containers: dict[str, Any] = {}  # per process: each DataLoader worker builds its own
+
+
+def _decode_frame_pyav_cached(video_path: str, ts: float, tolerance_s: float) -> Any:
+	"""One RGB frame at ``ts`` as float32 CHW in [0, 1], decoded like LeRobot's ``decode_video_frames_pyav``.
+
+	Same seek (nearest keyframe at or before ``ts`` with a one-frame margin), decode-forward and nearest-frame
+	tolerance rule, but the container stays open between calls. LeRobot opens the chunk file (~180 MB, many
+	episodes) for every frame, which made the training loader CPU-bound (S9 ACT run 03).
+
+	Only DataLoader worker processes keep containers open (their handles go away with the worker); in the main
+	process the file is opened per call, so nothing holds a lock on it (Windows) after the dataset is used."""
+	import av
+	from torch.utils.data import get_worker_info
+
+	if get_worker_info() is None:
+		with av.open(video_path) as container:
+			return _decode_nearest(container, container.streams.video[0], video_path, ts, tolerance_s)
+	entry = _pyav_containers.pop(video_path, None)
+	if entry is None:
+		container = av.open(video_path)
+		entry = (container, container.streams.video[0])
+		while len(_pyav_containers) >= _PYAV_CACHE_SIZE:
+			_pyav_containers.pop(next(iter(_pyav_containers)))[0].close()
+	_pyav_containers[video_path] = entry  # most recently used last
+	return _decode_nearest(*entry, video_path, ts, tolerance_s)
+
+
+def _decode_nearest(container: Any, stream: Any, video_path: str, ts: float, tolerance_s: float) -> Any:
+	container.seek(round(ts / stream.time_base) - 1, backward=True, any_frame=False, stream=stream)
+	best, best_dist = None, float("inf")
+	for frame in container.decode(stream):
+		if frame.pts is None:
+			continue
+		cur = float(frame.pts * stream.time_base)
+		dist = abs(cur - ts)
+		if dist < best_dist:
+			best, best_dist = frame, dist
+		if cur >= ts:
+			break
+	if best is None or not best_dist < tolerance_s:
+		raise RuntimeError(f"no frame within {tolerance_s}s of t={ts:.4f} in {video_path} (closest {best_dist:.4f}s)")
+	arr = best.to_ndarray(format="rgb24")
+	return torch.from_numpy(arr).permute(2, 0, 1).to(dtype=torch.float32).div_(255.0).contiguous()
 
 
 def _to_float_chw(img: Any) -> np.ndarray:
@@ -91,11 +140,10 @@ class StudentImageAugmentor:
 		self.depth_noise_std = float(depth_noise_std)
 		self._rng = np.random.default_rng(seed)
 
-	def _random_resized_crop_torch(self, img: Any, scale: tuple[float, float], ratio: tuple[float, float]) -> Any:
-		import torch.nn.functional as F
-		import torchvision.transforms.functional as TF
-
-		_, h, w = img.shape
+	def _draw_crop(
+		self, h: int, w: int, scale: tuple[float, float], ratio: tuple[float, float]
+	) -> tuple[int, int, int, int]:
+		"""``(top, left, crop_h, crop_w)`` of a random resized crop (the draws ``_random_resized_crop_torch`` makes)."""
 		area = h * w
 		target_area = area * float(self._rng.uniform(scale[0], scale[1]))
 		log_ratio = (np.log(ratio[0]), np.log(ratio[1]))
@@ -104,27 +152,52 @@ class StudentImageAugmentor:
 		crop_h = max(1, min(h, round(np.sqrt(target_area / aspect))))
 		top = int(self._rng.integers(0, h - crop_h + 1))
 		left = int(self._rng.integers(0, w - crop_w + 1))
-		cropped = TF.crop(img, top, left, crop_h, crop_w)
+		return top, left, crop_h, crop_w
+
+	@staticmethod
+	def _crop_resize_torch(img: Any, crop: tuple[int, int, int, int]) -> Any:
+		import torch.nn.functional as F
+		import torchvision.transforms.functional as TF
+
+		_, h, w = img.shape
+		cropped = TF.crop(img, *crop)
 		resized = F.interpolate(cropped.unsqueeze(0), size=(h, w), mode="bilinear", align_corners=False).squeeze(0)
 		return resized.clamp(0.0, 1.0)
+
+	def _random_resized_crop_torch(self, img: Any, scale: tuple[float, float], ratio: tuple[float, float]) -> Any:
+		_, h, w = img.shape
+		return self._crop_resize_torch(img, self._draw_crop(h, w, scale, ratio))
+
+	def _draw_rgb(self, h: int, w: int) -> dict[str, Any]:
+		"""One RGB image's augmentation parameters, drawn in the order ``_augment_rgb_torch`` has always drawn them
+		(crop, brightness, contrast, saturation, hue); None for a transform that is off or not drawn."""
+		crop = None
+		if self._rng.random() < self.rgb_crop_prob:
+			crop = self._draw_crop(h, w, self.rgb_crop_scale, self.rgb_crop_ratio)
+		b, c, s = self.brightness, self.contrast, self.saturation
+		return {
+			"crop": crop,
+			"brightness": float(self._rng.uniform(max(0.0, 1.0 - b), 1.0 + b)) if b > 0 else None,
+			"contrast": float(self._rng.uniform(max(0.0, 1.0 - c), 1.0 + c)) if c > 0 else None,
+			"saturation": float(self._rng.uniform(max(0.0, 1.0 - s), 1.0 + s)) if s > 0 else None,
+			"hue": float(self._rng.uniform(-self.hue, self.hue)) if self.hue > 0 else None,
+		}
 
 	def _augment_rgb_torch(self, img: Any) -> Any:
 		import torchvision.transforms.functional as TF
 
-		if self._rng.random() < self.rgb_crop_prob:
-			img = self._random_resized_crop_torch(img, self.rgb_crop_scale, self.rgb_crop_ratio)
-		if self.brightness > 0:
-			img = TF.adjust_brightness(
-				img, float(self._rng.uniform(max(0.0, 1.0 - self.brightness), 1.0 + self.brightness))
-			)
-		if self.contrast > 0:
-			img = TF.adjust_contrast(img, float(self._rng.uniform(max(0.0, 1.0 - self.contrast), 1.0 + self.contrast)))
-		if self.saturation > 0:
-			img = TF.adjust_saturation(
-				img, float(self._rng.uniform(max(0.0, 1.0 - self.saturation), 1.0 + self.saturation))
-			)
-		if self.hue > 0:
-			img = TF.adjust_hue(img, float(self._rng.uniform(-self.hue, self.hue)))
+		_, h, w = img.shape
+		p = self._draw_rgb(h, w)
+		if p["crop"] is not None:
+			img = self._crop_resize_torch(img, p["crop"])
+		if p["brightness"] is not None:
+			img = TF.adjust_brightness(img, p["brightness"])
+		if p["contrast"] is not None:
+			img = TF.adjust_contrast(img, p["contrast"])
+		if p["saturation"] is not None:
+			img = TF.adjust_saturation(img, p["saturation"])
+		if p["hue"] is not None:
+			img = TF.adjust_hue(img, p["hue"])
 		if self.rgb_noise_std > 0:
 			noise = torch.randn_like(img) * self.rgb_noise_std
 			img = img + noise
@@ -159,6 +232,116 @@ class StudentImageAugmentor:
 				out[key] = self._augment_numpy(np.asarray(img, dtype=np.float32), is_depth=is_depth)
 		return out
 
+	def augment_batch(self, images: Mapping[str, Any]) -> dict[str, Any]:
+		""":meth:`__call__` for whole batches: ``(B, 3, H, W)`` float tensors in [0, 1] on any device (the trainer's
+		``--gpu-augment`` runs it on the GPU instead of in the DataLoader workers). Same transforms, parameter
+		distributions and order as the per-sample path, each sample drawing its own parameters; the crop-resize is one
+		``grid_sample`` (bilinear, edge-clamped, matching ``F.interpolate(align_corners=False)`` of the crop)."""
+		from torchvision.transforms._functional_tensor import _hsv2rgb, _rgb2hsv
+
+		out: dict[str, Any] = {}
+		for key, x in images.items():
+			x = x.float()
+			b, _, h, w = x.shape
+			if key.endswith("top_depth_v2"):
+				crops = [
+					self._draw_crop(h, w, self.depth_crop_scale, self.depth_crop_ratio)
+					if self._rng.random() < self.depth_crop_prob
+					else None
+					for _ in range(b)
+				]
+				x = _batch_crop_resize(x, crops)
+				if self.depth_noise_std > 0:
+					x = x + torch.randn_like(x) * self.depth_noise_std
+				out[key] = x.clamp(0.0, 1.0)
+				continue
+			ps = [self._draw_rgb(h, w) for _ in range(b)]
+			x = _batch_crop_resize(x, [p["crop"] for p in ps])
+
+			def factor(name: str, ps=ps, x=x) -> Any:
+				return torch.tensor([p[name] for p in ps], device=x.device, dtype=x.dtype).view(-1, 1, 1, 1)
+
+			if self.brightness > 0:
+				x = (factor("brightness") * x).clamp(0.0, 1.0)
+			if self.contrast > 0:
+				f = factor("contrast")
+				mean = _grayscale(x).mean(dim=(-3, -2, -1), keepdim=True)
+				x = (f * x + (1.0 - f) * mean).clamp(0.0, 1.0)
+			if self.saturation > 0:
+				f = factor("saturation")
+				x = (f * x + (1.0 - f) * _grayscale(x)).clamp(0.0, 1.0)
+			if self.hue > 0:
+				hh, ss, vv = _rgb2hsv(x).unbind(dim=-3)
+				hh = (hh + factor("hue").view(-1, 1, 1)) % 1.0
+				x = _hsv2rgb(torch.stack((hh, ss, vv), dim=-3))
+			if self.rgb_noise_std > 0:
+				x = x + torch.randn_like(x) * self.rgb_noise_std
+			out[key] = x.clamp(0.0, 1.0)
+		return out
+
+
+def _grayscale(x: Any) -> Any:
+	"""``torchvision`` ``rgb_to_grayscale`` weights, keeping a channel axis."""
+	r, g, b = x.unbind(dim=-3)
+	return (0.2989 * r + 0.587 * g + 0.114 * b).unsqueeze(-3)
+
+
+def _batch_crop_resize(x: Any, crops: Sequence[tuple[int, int, int, int] | None]) -> Any:
+	"""Crop each ``(B, C, H, W)`` image to its ``(top, left, crop_h, crop_w)`` and resize back to ``H x W``
+	(bilinear, ``align_corners=False``, edge-clamped like ``F.interpolate``); None leaves an image untouched."""
+	import torch.nn.functional as F
+
+	idx = [i for i, c in enumerate(crops) if c is not None]
+	if not idx:
+		return x
+	_, c, h, w = x.shape
+	theta = torch.zeros(len(idx), 2, 3, device=x.device, dtype=torch.float32)
+	for j, i in enumerate(idx):
+		top, left, ch, cw = crops[i]
+		theta[j, 0, 0] = cw / w
+		theta[j, 0, 2] = (2 * left + cw) / w - 1.0
+		theta[j, 1, 1] = ch / h
+		theta[j, 1, 2] = (2 * top + ch) / h - 1.0
+	grid = F.affine_grid(theta, [len(idx), c, h, w], align_corners=False)
+	# F.interpolate of the cropped tensor clamps source positions to the crop's edge pixels; clamp the grid to the
+	# crop's first and last pixel centres so edge pixels never blend with pixels outside the crop.
+	lo = torch.tensor([[(2 * crops[i][1] + 1) / w - 1.0, (2 * crops[i][0] + 1) / h - 1.0] for i in idx])
+	hi = torch.tensor(
+		[
+			[(2 * (crops[i][1] + crops[i][3]) - 1) / w - 1.0, (2 * (crops[i][0] + crops[i][2]) - 1) / h - 1.0]
+			for i in idx
+		]
+	)
+	lo, hi = lo.to(grid.device).view(-1, 1, 1, 2), hi.to(grid.device).view(-1, 1, 1, 2)
+	grid = torch.maximum(torch.minimum(grid, hi), lo)
+	out = x.clone()
+	out[idx] = F.grid_sample(x[idx], grid.to(x.dtype), mode="bilinear", padding_mode="border", align_corners=False)
+	return out.clamp(0.0, 1.0)
+
+
+def _segment_roll_rows(ep: _EpisodeData) -> tuple[list[float | None], list[str]]:
+	"""Per-row segment ``roll_deg`` (None without one) and instruction, from ``meta/segments.json``'s params.
+
+	The roll is a segment param (not a per-frame column), so rows take it from their segment (``segment.index`` =
+	the segment row's ``id``). A row whose segment carries a roll gets the instruction formatted with it."""
+	params_by_id = {int(m["id"]): dict(m.get("params") or {}) for m in ep.segments_meta if "id" in m}
+	variant_by_id = {int(m["id"]): int(m.get("variant", ep.variant or 0)) for m in ep.segments_meta if "id" in m}
+	default_variant = int(ep.variant or 0)
+	rolls: list[float | None] = []
+	tasks: list[str] = []
+	for t in range(ep.length):
+		seg_id = int(ep.segment_index[t])
+		params = params_by_id.get(seg_id, {})
+		var = variant_by_id.get(seg_id, default_variant)
+		roll = params.get("roll_deg")
+		rolls.append(None if roll is None else float(roll))
+		tasks.append(
+			ep.task[t]
+			if roll is None
+			else policy_inputs_from_segment_dict(ep.segment_kind[t], params, variant=var)["instruction"]
+		)
+	return rolls, tasks
+
 
 @dataclass
 class _EpisodeData:
@@ -182,6 +365,8 @@ class _EpisodeData:
 	supervise_action: np.ndarray  # (T,) bool
 	task: list[str]
 	segments_meta: list[dict[str, Any]]
+	scene: str | None = None
+	variant: int | None = None
 	timestamps: np.ndarray | None = None
 	rel_row_indices: np.ndarray | None = None
 	images: dict[str, np.ndarray] | Callable[[int], dict[str, np.ndarray]] | None = None
@@ -276,6 +461,8 @@ def _normalize_in_memory_episode(ep_idx: int, raw: Mapping[str, Any]) -> _Episod
 	if "task" in cols:
 		task = _unwrap_str_col(cols["task"])
 	else:
+		raw_variant = raw.get("variant", 0)
+		ep_var = int(raw_variant) if raw_variant is not None else 0
 		task = [
 			policy_inputs_from_segment_dict(
 				seg_kind[t],
@@ -284,11 +471,14 @@ def _normalize_in_memory_episode(ep_idx: int, raw: Mapping[str, Any]) -> _Episod
 					"view": int(view[t]) if view[t] > 0 else None,
 					"views": int(views[t]) if views[t] > 0 else None,
 				},
+				variant=ep_var,
 			)["instruction"]
 			for t in range(n)
 		]
 
 	segments_meta = list(raw.get("segments", []))
+	scene = raw.get("scene")
+	variant = raw.get("variant")
 	images_payload = raw.get("images")
 	if images_payload is None:
 		# Check if camera arrays exist directly inside cols
@@ -317,6 +507,8 @@ def _normalize_in_memory_episode(ep_idx: int, raw: Mapping[str, Any]) -> _Episod
 		supervise_action=supervise_action,
 		task=task,
 		segments_meta=segments_meta,
+		scene=scene,
+		variant=int(variant) if variant is not None else None,
 		images=images_payload,
 	)
 
@@ -342,7 +534,13 @@ class SegmentChunkDataset(_BaseDataset):
 		video_backend: str = "pyav",
 		default_image_shape: tuple[int, int] = (64, 64),
 		return_torch: bool | None = None,
+		drop_unsupervised: bool = False,
+		zero_bowl: bool | None = None,
+		input_contract: StudentInputContract | Mapping[str, Any] | str | None = None,
 	) -> None:
+		"""``drop_unsupervised``: leave out samples that carry no loss at all (every action step masked and no end-step
+		label), e.g. the unsupervised prefix of paired-carry or takeover episodes; otherwise they fill batch slots at
+		zero loss."""
 		if horizon < 1:
 			raise ValueError(f"horizon must be >= 1, got {horizon}")
 		if takeover_weight <= 0:
@@ -359,6 +557,11 @@ class SegmentChunkDataset(_BaseDataset):
 		self.video_backend = video_backend
 		self.default_image_shape = tuple(default_image_shape)
 		self.return_torch = (torch is not None) if return_torch is None else bool(return_torch)
+		self._forced_contract: StudentInputContract | None = (
+			resolve_student_input_contract(input_contract=input_contract, zero_bowl=zero_bowl)
+			if (input_contract is not None or zero_bowl is not None)
+			else None
+		)
 		if self.return_torch and torch is None:
 			raise RuntimeError("return_torch=True requested, but PyTorch is not installed in this environment")
 
@@ -374,6 +577,11 @@ class SegmentChunkDataset(_BaseDataset):
 
 		self._samples: list[_SampleSpec] = []
 		self._build_samples()
+		self.dropped_unsupervised = 0
+		if drop_unsupervised:
+			kept = [s for s in self._samples if s.action_mask.any() or s.end_step_target >= 0]
+			self.dropped_unsupervised = len(self._samples) - len(kept)
+			self._samples = kept
 
 	@classmethod
 	def from_episodes(
@@ -386,6 +594,9 @@ class SegmentChunkDataset(_BaseDataset):
 		augmentor: StudentImageAugmentor | None = None,
 		default_image_shape: tuple[int, int] = (64, 64),
 		return_torch: bool | None = None,
+		drop_unsupervised: bool = False,
+		zero_bowl: bool | None = None,
+		input_contract: StudentInputContract | Mapping[str, Any] | str | None = None,
 	) -> SegmentChunkDataset:
 		return cls(
 			root=None,
@@ -396,6 +607,9 @@ class SegmentChunkDataset(_BaseDataset):
 			augmentor=augmentor,
 			default_image_shape=default_image_shape,
 			return_torch=return_torch,
+			drop_unsupervised=drop_unsupervised,
+			zero_bowl=zero_bowl,
+			input_contract=input_contract,
 		)
 
 	def _load_lerobot(self, root: Path, *, repo_id: str, episodes: list[int] | None) -> list[_EpisodeData]:
@@ -417,11 +631,14 @@ class SegmentChunkDataset(_BaseDataset):
 			self._lerobot_ds = ds
 
 		seg_meta_by_ep: dict[int, list[dict[str, Any]]] = {}
+		ep_meta_extra: dict[int, tuple[str | None, int | None]] = {}
 		seg_meta_path = root / "meta" / "segments.json"
 		if seg_meta_path.exists():
 			seg_meta = json.loads(seg_meta_path.read_text(encoding="utf-8"))
 			for row in seg_meta.get("episodes", []):
-				seg_meta_by_ep[int(row["episode_index"])] = list(row.get("segments", []))
+				ep_idx_i = int(row["episode_index"])
+				seg_meta_by_ep[ep_idx_i] = list(row.get("segments", []))
+				ep_meta_extra[ep_idx_i] = (row.get("scene"), row.get("variant"))
 
 		hf = ds.hf_dataset.with_format(None)
 		required_cols = (
@@ -491,6 +708,7 @@ class SegmentChunkDataset(_BaseDataset):
 					from_ts = float(ep_meta[f"videos/{cam}/from_timestamp"])
 					video_path = str(ds.root / ds.meta.get_video_file_path(ep_i, cam))
 					self._video_lookup[(ep_i, cam)] = (video_path, from_ts)
+			extra_scene, extra_variant = ep_meta_extra.get(ep_i, (None, None))
 			out.append(
 				_EpisodeData(
 					episode_index=ep_i,
@@ -513,6 +731,8 @@ class SegmentChunkDataset(_BaseDataset):
 					supervise_action=supervise_all[idx_arr],
 					task=[task_map[int(task_indices_all[r])] for r in rows],
 					segments_meta=seg_meta_by_ep.get(ep_i, []),
+					scene=extra_scene,
+					variant=extra_variant,
 					timestamps=timestamps_all[idx_arr],
 					rel_row_indices=idx_arr,
 				)
@@ -523,6 +743,7 @@ class SegmentChunkDataset(_BaseDataset):
 		h = self.horizon
 		for ep_pos, ep in enumerate(self._episodes):
 			n = ep.length
+			roll_rows, task_rows = _segment_roll_rows(ep)
 			# q_{t-1}: frame 0 repeats q_0; frame t > 0 uses previous frame in the SAME episode.
 			q_prev = np.empty_like(ep.state)
 			q_prev[0] = ep.state[0]
@@ -542,7 +763,16 @@ class SegmentChunkDataset(_BaseDataset):
 						takeover_cutoff = d
 						break
 
-				valid_action_horizon = min(seg_rem, takeover_cutoff)
+				# Stop before the first FUTURE frame whose action may not be supervised (blind or
+				# supervise_action=False). Checking only the anchor would let a chunk that starts before a
+				# perturbation put blind-zone actions into the loss of an earlier prediction.
+				unsup_cutoff = seg_rem
+				for d in range(1, seg_rem):
+					if bool(ep.is_blind[t + d]) or not bool(ep.supervise_action[t + d]):
+						unsup_cutoff = d
+						break
+
+				valid_action_horizon = min(seg_rem, takeover_cutoff, unsup_cutoff)
 				supervised_here = bool(ep.supervise_action[t]) and (not bool(ep.is_blind[t]))
 				num_unmasked = min(h, valid_action_horizon) if supervised_here else 0
 
@@ -565,16 +795,32 @@ class SegmentChunkDataset(_BaseDataset):
 					supervise_action=bool(ep.supervise_action[t]),
 					is_zero_frame=False,
 				)
-				state_vec = encode_state(
+				# If an unsupervisable frame lies inside this chunk window before the segment end, the segment's
+				# end timing reflects what happened in that zone (e.g. a perturbation the anchor cannot see):
+				# conservatively drop the end-step label rather than teach it.
+				if unsup_cutoff < min(h, seg_rem):
+					end_target = IGNORE_INDEX
+				ep_contract = (
+					self._forced_contract
+					if self._forced_contract is not None
+					else resolve_student_input_contract(scene=ep.scene, bowls=ep.bowl)
+				)
+				task_dict = {
+					"kind": ep.segment_kind[t],
+					"instruction": task_rows[t],
+					"bowl": ep.bowl[t] if ep.bowl[t] else None,
+					"view": int(ep.view[t]) if int(ep.view[t]) > 0 else None,
+					"views": int(ep.views[t]) if int(ep.views[t]) > 0 else None,
+					"roll_deg": roll_rows[t],
+				}
+				state_vec = encode_student_state(
 					q_t=ep.state[t],
 					q_prev=q_prev[t],
 					prev_action=ep.prev_action[t],
 					gripper_cmd=ep.gripper_cmd[t],
-					segment_kind=ep.segment_kind[t],
-					bowl=ep.bowl[t],
-					view=int(ep.view[t]),
-					views=int(ep.views[t]),
+					task=task_dict,
 					segment_frame=int(ep.segment_frame[t]),
+					input_contract=ep_contract,
 				)
 				weight = self.takeover_weight if bool(ep.is_takeover[t]) else 1.0
 				self._samples.append(
@@ -586,7 +832,7 @@ class SegmentChunkDataset(_BaseDataset):
 						action_mask=action_mask,
 						end_step_target=end_target,
 						sample_weight=float(weight),
-						task=ep.task[t],
+						task=task_rows[t],
 						segment_kind=ep.segment_kind[t],
 						is_synthesized_zero_frame=False,
 					)
@@ -596,17 +842,24 @@ class SegmentChunkDataset(_BaseDataset):
 			for seg in ep.segments_meta:
 				if int(seg["start"]) == int(seg["end"]) and str(seg.get("reason", "")) == "done":
 					anchor_row = min(int(seg["start"]), n - 1)
-					pi = policy_inputs_from_segment_dict(str(seg["kind"]), seg.get("params"))
+					seg_var = int(seg.get("variant", ep.variant or 0))
+					pi = policy_inputs_from_segment_dict(str(seg["kind"]), seg.get("params"), variant=seg_var)
 					is_blind = bool(ep.is_blind[anchor_row])
 					is_takeover = bool(ep.is_takeover[anchor_row])
 					supervise_action = bool(ep.supervise_action[anchor_row])
-					state_vec = encode_state_from_task(
+					ep_contract = (
+						self._forced_contract
+						if self._forced_contract is not None
+						else resolve_student_input_contract(scene=ep.scene, bowls=ep.bowl)
+					)
+					state_vec = encode_student_state(
 						q_t=ep.state[anchor_row],
 						q_prev=q_prev[anchor_row],
 						prev_action=ep.prev_action[anchor_row],
 						gripper_cmd=ep.gripper_cmd[anchor_row],
 						task=pi,
 						segment_frame=0,
+						input_contract=ep_contract,
 					)
 					action_mask = np.zeros(h, dtype=bool)
 					action_chunk = np.repeat(ep.prev_action[anchor_row][None, :], h, axis=0).astype(np.float32)
@@ -648,8 +901,11 @@ class SegmentChunkDataset(_BaseDataset):
 			for cam in STUDENT_CAMERAS:
 				if self._is_video_camera.get(cam, False):
 					video_path, from_ts = self._video_lookup[(ep.episode_index, cam)]
-					frame = decode_video_frames(video_path, [from_ts + ts], self._tolerance_s, self.video_backend)
-					images[cam] = frame.squeeze(0).to(dtype=torch.float32)
+					if self.video_backend == "pyav":
+						images[cam] = _decode_frame_pyav_cached(video_path, from_ts + ts, self._tolerance_s)
+					else:
+						frame = decode_video_frames(video_path, [from_ts + ts], self._tolerance_s, self.video_backend)
+						images[cam] = frame.squeeze(0).to(dtype=torch.float32)
 				else:
 					if raw_row is None:
 						raw_row = self._lerobot_ds.hf_dataset[rel_row]
@@ -761,6 +1017,7 @@ class SegmentChunkDataset(_BaseDataset):
 			"synthesized_zero_frame_samples": synth_count,
 			"takeover_samples": takeover_count,
 			"supervised_end_step_samples": valid_end_count,
+			"dropped_unsupervised_samples": int(getattr(self, "dropped_unsupervised", 0)),
 			"segment_kinds": kind_counts,
 			"bowls": list(BOWL_VOCAB),
 			"state_dim": STATE_DIM,

@@ -137,9 +137,10 @@ def test_recorded_camera_observation_precedes_its_action_and_rewound_trace_is_re
 	assert [int(r["segment.index"][0]) for r in rows] == [0, 1]
 	assert [bool(r["segment.done"][0]) for r in rows] == [False, True]  # segment 0 ended at observation 1
 	assert [int(r["segment.chunk_valid_len"][0]) for r in rows] == [1, 1]
+	# The legacy 5-camera export keeps the pre-v3 feature set (no mask.noisy) so old shards still merge (WP5).
 	assert set(rows[0]) == {"task", "action", "observation.state"} | {
 		"observation.images." + x for x in ("front", "wrist", "top_rgb_v2", "top_depth_v2", "top_full")
-	} | set(INPUT_FEATURES) | set(SEGMENT_FEATURES)
+	} | set(INPUT_FEATURES) | (set(SEGMENT_FEATURES) - {"mask.noisy"})
 	# A recording without segment labels (segment == -1) is not exportable.
 	np.savez(branch / "actions.npz", state=np.zeros((2, 6)), action=action, segment=np.array([-1, -1], dtype=np.int32))
 	with pytest.raises(SegmentLabelError, match="no segment"):
@@ -177,6 +178,29 @@ def test_live_preview_retries_after_a_windows_file_lock(tmp_path, monkeypatch):
 		assert published.read_bytes() != previous
 	finally:
 		trace.close()
+
+
+def test_replay_node_strip_fits_the_frame(tmp_path):
+	pytest.importorskip("av")
+	pytest.importorskip("cv2")
+	from digital_twin_armigo.agent.twin_graph import NODES
+	from digital_twin_armigo.agent.twin_record import EpisodeTrace
+
+	trace = EpisodeTrace(tmp_path / "episode", video=False)
+	trace.images = dict.fromkeys(("front", "wrist", "top_rgb"), np.zeros((20, 20, 3), dtype=np.uint8))
+	try:
+		frame = trace._composite("evaluate", frame=0)
+	finally:
+		trace.close()
+
+	background = frame[0, 0]
+	strip = frame[690]
+	painted = np.flatnonzero(np.any(strip != background, axis=1))
+	boxes = np.split(painted, np.flatnonzero(np.diff(painted) > 1) + 1)
+	assert len(boxes) == len(NODES)
+	assert painted[0] >= 12 and painted[-1] < frame.shape[1] - 12
+	assert np.all(strip[boxes[-1]] == (44, 164, 112))
+	assert np.all(frame[653:698, np.all(strip == background, axis=1)] == background)
 
 
 def test_continuous_carry_preserves_the_path_duration_and_gripper_transition():

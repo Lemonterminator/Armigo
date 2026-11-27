@@ -19,6 +19,7 @@ from lerobot.policies.smolvla.modeling_smolvla import SmolVLAPolicy, pad_vector
 from lerobot.utils.constants import (
 	ACTION,
 	IMAGENET_STATS,
+	OBS_ENV_STATE,
 	OBS_IMAGES,
 	OBS_LANGUAGE_ATTENTION_MASK,
 	OBS_LANGUAGE_TOKENS,
@@ -43,6 +44,11 @@ DEFAULT_CAMERA_SHAPES: dict[str, tuple[int, int, int]] = {
 	"observation.images.top_depth_v2": (3, 416, 512),
 	"observation.images.wrist": (3, 480, 640),
 }
+# Target-bowl one-hot inside the 38-dim student state (contract.encode_state [31:34]). With ``bowl_token`` the ACT
+# wrapper moves it to its own encoder token (LeRobot's environment-state input) and zeroes it in the state token
+# (docs/vla/BOWL_CHANNEL_PAIRED_PLAN_2026-11-23.md).
+BOWL_SLICE = slice(31, 34)
+POS_EMBED_KEY = "policy.model.encoder_1d_feature_pos_embed.weight"
 DEFAULT_SMOLVLM_ID = "HuggingFaceTB/SmolVLM2-500M-Video-Instruct"
 DEFAULT_SMOLVLA_BASE_ID = "lerobot/smolvla_base"
 
@@ -164,9 +170,16 @@ class _BaseVLAWrapper(nn.Module):
 	def _checkpoint_meta(self) -> dict[str, Any]:
 		raise NotImplementedError
 
-	def get_optim_param_groups(self, lr: float, *, weight_decay: float = 1e-4) -> list[dict[str, Any]]:
-		params = [p for p in self.parameters() if p.requires_grad]
-		return [{"params": params, "lr": float(lr), "weight_decay": float(weight_decay)}]
+	def get_optim_param_groups(
+		self, lr: float, *, weight_decay: float = 1e-4, end_head_lr: float | None = None
+	) -> list[dict[str, Any]]:
+		head = [p for n, p in self.named_parameters() if n.startswith("end_head.") and p.requires_grad]
+		rest = [p for n, p in self.named_parameters() if not n.startswith("end_head.") and p.requires_grad]
+		groups = [{"params": rest, "lr": float(lr), "weight_decay": float(weight_decay)}]
+		if head:
+			head_lr = float(end_head_lr) if end_head_lr is not None else float(lr)
+			groups.append({"params": head, "lr": head_lr, "weight_decay": float(weight_decay)})
+		return groups
 
 	def save_checkpoint(self, save_dir: str | Path, extra_meta: Mapping[str, Any] | None = None) -> Path:
 		out = Path(save_dir)
@@ -361,6 +374,7 @@ class SmolVLAWithEndHead(_BaseVLAWrapper):
 		input_features[OBS_STATE] = PolicyFeature(type=FeatureType.STATE, shape=(STATE_DIM,))
 		output_features = {ACTION: PolicyFeature(type=FeatureType.ACTION, shape=(ACTION_DIM,))}
 
+		pending_end_head_sd: dict[str, Any] | None = None
 		if self.tiny_for_test:
 			cfg = SmolVLAConfig(
 				chunk_size=self.horizon,
@@ -386,6 +400,9 @@ class SmolVLAWithEndHead(_BaseVLAWrapper):
 			cfg.output_features = output_features
 			with _tiny_smolvlm_context():
 				self.policy = SmolVLAPolicy(cfg)
+			# Tiny models can only continue from a local Armigo checkpoint (continue-training tests).
+			if init_from not in (None, "none", "scratch", "vlm") and Path(str(init_from)).exists():
+				pending_end_head_sd = self._load_pretrained_backbone(str(init_from), local_files_only=True)
 		else:
 			init_str = None if init_from in (None, "none", "scratch", "vlm") else str(init_from)
 			use_vlm_init = init_from == "vlm"
@@ -413,7 +430,7 @@ class SmolVLAWithEndHead(_BaseVLAWrapper):
 			cfg.output_features = output_features
 			self.policy = SmolVLAPolicy(cfg)
 			if init_str is not None:
-				self._load_pretrained_backbone(init_str, local_files_only=local_files_only)
+				pending_end_head_sd = self._load_pretrained_backbone(init_str, local_files_only=local_files_only)
 
 		vlm_hidden = int(self.policy.model.vlm_with_expert.config.text_config.hidden_size)
 		self.end_head = EndStepHead(
@@ -422,12 +439,18 @@ class SmolVLAWithEndHead(_BaseVLAWrapper):
 			hidden_dim=self.end_head_hidden_dim,
 			dropout=self.end_head_dropout,
 		)
+		# Continuing from an Armigo checkpoint (e.g. S11 DAgger fine-tuning) must keep the trained End-Step Head;
+		# only a fresh upstream backbone gets a newly initialised head. Normalizer / class-weight buffers are NOT
+		# restored here: the trainer passes statistics fitted on the current training split (same as ACT).
+		if pending_end_head_sd:
+			self.end_head.load_state_dict(pending_end_head_sd, strict=True)
 		self._token_cache: dict[str, tuple[Tensor, Tensor]] = {}
 		self._captured_prefix_pad_masks: Tensor | None = None
 		self._captured_prefix_out: Tensor | None = None
 		self._register_prefix_hooks()
 
-	def _load_pretrained_backbone(self, init_from: str, *, local_files_only: bool = False) -> None:
+	def _load_pretrained_backbone(self, init_from: str, *, local_files_only: bool = False) -> dict[str, Any] | None:
+		"""Load backbone weights; return the ``end_head.*`` sub-state of an Armigo checkpoint (None otherwise)."""
 		from huggingface_hub import hf_hub_download
 		from safetensors.torch import load_file
 
@@ -443,9 +466,13 @@ class SmolVLAWithEndHead(_BaseVLAWrapper):
 		if any(k.startswith("policy.") for k in sd):
 			sub_sd = {k.removeprefix("policy."): v for k, v in sd.items() if k.startswith("policy.")}
 			self.policy.load_state_dict(sub_sd, strict=True)
-		else:
-			adapted = _adapt_smolvla_base_state_dict(sd, self.policy)
-			self.policy.load_state_dict(adapted, strict=True)
+			end_sd = {k.removeprefix("end_head."): v for k, v in sd.items() if k.startswith("end_head.")}
+			if not end_sd:
+				raise KeyError(f"Armigo checkpoint {sf_path} has policy.* weights but no end_head.* weights")
+			return end_sd
+		adapted = _adapt_smolvla_base_state_dict(sd, self.policy)
+		self.policy.load_state_dict(adapted, strict=True)
+		return None
 
 	def _register_prefix_hooks(self) -> None:
 		orig_embed_prefix = self.policy.model.embed_prefix
@@ -706,7 +733,10 @@ class ACTWithEndHead(_BaseVLAWrapper):
 		end_head_hidden_dim: int = 256,
 		end_head_dropout: float = 0.1,
 		tiny_for_test: bool = False,
+		bowl_token: bool = False,
 	) -> None:
+		"""``bowl_token``: feed the target-bowl one-hot (state ``[31:34]``) as its own encoder token instead of inside
+		the state token, which then sees those three slots as zero."""
 		super().__init__(
 			horizon=horizon,
 			state_dim=STATE_DIM,
@@ -741,11 +771,16 @@ class ACTWithEndHead(_BaseVLAWrapper):
 		self.end_head_hidden_dim = int(end_head_hidden_dim)
 		self.end_head_dropout = float(end_head_dropout)
 		self.tiny_for_test = bool(tiny_for_test)
+		self.bowl_token = bool(bowl_token)
 
 		input_features = {
 			cam: PolicyFeature(type=FeatureType.VISUAL, shape=self.camera_shapes[cam]) for cam in STUDENT_CAMERAS
 		}
 		input_features[OBS_STATE] = PolicyFeature(type=FeatureType.STATE, shape=(STATE_DIM,))
+		if self.bowl_token:
+			input_features[OBS_ENV_STATE] = PolicyFeature(
+				type=FeatureType.ENV, shape=(BOWL_SLICE.stop - BOWL_SLICE.start,)
+			)
 		output_features = {ACTION: PolicyFeature(type=FeatureType.ACTION, shape=(ACTION_DIM,))}
 
 		cfg = ACTConfig(
@@ -811,10 +846,13 @@ class ACTWithEndHead(_BaseVLAWrapper):
 				img = img[:, -1]
 			imgs.append((img - mean) / std)
 
-		act_batch: dict[str, Any] = {
-			OBS_STATE: self._normalize_state(state),
-			OBS_IMAGES: imgs,
-		}
+		state_norm = self._normalize_state(state)
+		if self.bowl_token:
+			state_norm = state_norm.clone()
+			state_norm[:, BOWL_SLICE] = 0.0
+		act_batch: dict[str, Any] = {OBS_STATE: state_norm, OBS_IMAGES: imgs}
+		if self.bowl_token:
+			act_batch[OBS_ENV_STATE] = state[:, BOWL_SLICE]  # raw one-hot ("", green, pink)
 		if include_action:
 			actions = batch[ACTION].to(device=device, dtype=torch.float32)
 			act_batch[ACTION] = self._normalize_action(actions)
@@ -908,6 +946,7 @@ class ACTWithEndHead(_BaseVLAWrapper):
 			"end_head_hidden_dim": self.end_head_hidden_dim,
 			"end_head_dropout": self.end_head_dropout,
 			"tiny_for_test": self.tiny_for_test,
+			"bowl_token": self.bowl_token,
 		}
 
 	def get_optim_param_groups(
@@ -916,15 +955,29 @@ class ACTWithEndHead(_BaseVLAWrapper):
 		*,
 		weight_decay: float = 1e-4,
 		backbone_lr: float | None = None,
+		end_head_lr: float | None = None,
 	) -> list[dict[str, Any]]:
+		"""Backbone, End-Step Head and the rest of ACT as separate groups.
+
+		The End-Step Head is initialised from scratch, so the ACT default LR (1e-5, tuned for 100k+ steps) leaves it
+		near its initial prior within a 20k-step budget; ``end_head_lr`` lets it train at its own rate."""
 		bb_lr = float(backbone_lr) if backbone_lr is not None else float(lr)
-		non_bb = [
-			p for n, p in self.named_parameters() if not n.startswith("policy.model.backbone.") and p.requires_grad
-		]
-		bb = [p for n, p in self.named_parameters() if n.startswith("policy.model.backbone.") and p.requires_grad]
-		groups = [{"params": non_bb, "lr": float(lr), "weight_decay": float(weight_decay)}]
+		head_lr = float(end_head_lr) if end_head_lr is not None else float(lr)
+		rest, bb, head = [], [], []
+		for n, p in self.named_parameters():
+			if not p.requires_grad:
+				continue
+			if n.startswith("policy.model.backbone."):
+				bb.append(p)
+			elif n.startswith("end_head."):
+				head.append(p)
+			else:
+				rest.append(p)
+		groups = [{"params": rest, "lr": float(lr), "weight_decay": float(weight_decay)}]
 		if bb:
 			groups.append({"params": bb, "lr": bb_lr, "weight_decay": float(weight_decay)})
+		if head:
+			groups.append({"params": head, "lr": head_lr, "weight_decay": float(weight_decay)})
 		return groups
 
 	@classmethod
@@ -959,12 +1012,40 @@ class ACTWithEndHead(_BaseVLAWrapper):
 			end_head_hidden_dim=int(mc["end_head_hidden_dim"]),
 			end_head_dropout=float(mc["end_head_dropout"]),
 			tiny_for_test=bool(mc.get("tiny_for_test", False)),
+			bowl_token=bool(mc.get("bowl_token", False)),
 		)
 		sd = load_file(str(src / "model.safetensors"), device="cpu")
 		model.load_state_dict(sd, strict=True)
 		model.to(device)
 		model.eval()
 		return model
+
+
+def load_act_weights_expanding(model: ACTWithEndHead, src_state_dict: Mapping[str, Tensor]) -> list[str]:
+	"""Load an ACT state dict without the bowl token into ``model`` (which has it): every shared tensor is copied, the
+	1-d positional embedding keeps its old rows and gets one new row (left at its fresh init), and the new env-state
+	projection stays freshly initialised. Returns the names of the freshly initialised tensors."""
+	if not model.bowl_token:
+		raise ValueError("load_act_weights_expanding needs a model with bowl_token=True")
+	if any("encoder_env_state_input_proj" in k for k in src_state_dict):
+		raise ValueError("source already has a bowl token; load it with load_state_dict(strict=True)")
+	own = model.state_dict()
+	fresh = sorted(set(own) - set(src_state_dict))
+	merged = dict(own)
+	for k, v in src_state_dict.items():
+		if k not in own:
+			raise ValueError(f"unexpected tensor {k} in source state dict")
+		if k == POS_EMBED_KEY:
+			if own[k].shape[0] != v.shape[0] + 1 or own[k].shape[1:] != v.shape[1:]:
+				raise ValueError(f"{k}: cannot expand {tuple(v.shape)} to {tuple(own[k].shape)}")
+			merged[k] = torch.cat([v.to(own[k].dtype), own[k][v.shape[0] :]], dim=0)
+			fresh.append(f"{k}[{v.shape[0]}]")
+		elif own[k].shape != v.shape:
+			raise ValueError(f"{k}: shape {tuple(v.shape)} != {tuple(own[k].shape)}")
+		else:
+			merged[k] = v
+	model.load_state_dict(merged, strict=True)
+	return fresh
 
 
 def load_vla_checkpoint(

@@ -22,6 +22,7 @@ import asyncio
 import itertools
 import json
 import math
+import time
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import asdict
@@ -41,15 +42,9 @@ PROFILES = ("omniscient", "realistic")
 # Generous fixed budgets: the agent decides how to use them.
 STEP_POLICY = Policy(max_bottom_views=3, max_wrist_views=3, max_rewinds=2)
 MAX_SESSIONS = 4
-# Keys that only the simulator knows. A realistic payload carrying one of them is a bug, not a feature.
-SIMULATOR_KEYS = frozenset(
+# Simulator truth written into events for scoring only (attribution, precursors). Never part of a tool result.
+TRUTH_DIAGNOSTIC_KEYS = frozenset(
 	{
-		"bodies",
-		"brick_position_m",
-		"brick_rotation_xyzw",
-		"bowl_positions_m",
-		"jaw_normal_n",
-		"pinch_normal_n",
 		"true_face_pixels",
 		"true_cross_px",
 		"true_face_pixels_crop",
@@ -58,19 +53,54 @@ SIMULATOR_KEYS = frozenset(
 		"true_cross_px_crop_native",
 		"truth_crop",
 		"true_brick_quat_xyzw",
-		"belief_brick_quat_xyzw",
 		"belief_error_mm",
 		"error_xy_mm",
+		"error_xy_mm_before",
 		"error_yaw_deg",
 		"cam_pos_err_mm",
 		"cam_rot_err_deg",
-		"bias_deg",
 		"size_correct",
 		"label_correct",
 		"true_label",
 		"true_face",
-		"destination",
+		"actual_cam_pos_err_mm",
+		"actual_cam_axis_err_deg",
+		"calibrated_on",
 	}
+)
+# Keys that only the simulator knows. A realistic payload carrying one of them is a bug, not a feature.
+SIMULATOR_KEYS = (
+	frozenset(
+		{
+			"bodies",
+			"brick_position_m",
+			"brick_rotation_xyzw",
+			"bowl_positions_m",
+			"jaw_normal_n",
+			"pinch_normal_n",
+			"true_face_pixels",
+			"true_cross_px",
+			"true_face_pixels_crop",
+			"true_face_pixels_crop_native",
+			"true_cross_px_crop",
+			"true_cross_px_crop_native",
+			"truth_crop",
+			"true_brick_quat_xyzw",
+			"belief_brick_quat_xyzw",
+			"belief_error_mm",
+			"error_xy_mm",
+			"error_yaw_deg",
+			"cam_pos_err_mm",
+			"cam_rot_err_deg",
+			"bias_deg",
+			"size_correct",
+			"label_correct",
+			"true_label",
+			"true_face",
+			"destination",
+		}
+	)
+	| TRUTH_DIAGNOSTIC_KEYS
 )
 
 
@@ -81,6 +111,12 @@ class SimulatorLeak(AssertionError):
 def assert_sensor_only(payload: Any, path: str = "root") -> None:
 	"""Raise :class:`SimulatorLeak` if ``payload`` holds a simulator-only key, and check it for the defect."""
 	if isinstance(payload, dict):
+		bowls_m = payload.get("bowls_m")
+		rim_inliers = payload.get("rim_inliers")
+		if isinstance(bowls_m, dict) and isinstance(rim_inliers, dict):
+			for slot, coords in bowls_m.items():
+				if rim_inliers.get(slot) == 0 and coords is not None:
+					raise SimulatorLeak(f"unfound bowl {slot!r} returned non-null coordinates with rim_inliers=0")
 		for key, value in payload.items():
 			if str(key) in SIMULATOR_KEYS:
 				raise SimulatorLeak(f"simulator key {key!r} at {path}")
@@ -109,7 +145,9 @@ def _png(pixels: np.ndarray) -> bytes:
 class StepSession:
 	"""One episode driven step by step. Not thread-safe: the server runs every session on one simulation thread."""
 
-	def __init__(self, case, profile: str, scorer, path: Path, *, crop_size=256, bottom_threshold=None):
+	def __init__(
+		self, case, profile: str, scorer, path: Path, *, crop_size=256, bottom_threshold=None, act_policy=None
+	):
 		if profile not in PROFILES:
 			raise ValueError(f"profile must be one of {PROFILES}")
 		self.profile = profile
@@ -118,14 +156,22 @@ class StepSession:
 		self.trace = EpisodeTrace(path, video=False)
 		self.case = case
 		# Segment-labelling expert (student_rollout.ExpertTracer): the recorded frames carry their motion segment.
-		self.backend = ExpertTracer(
-			sample_case(*case),
-			scorer,
-			self.trace,
-			crop_size=crop_size,
-			bottom_threshold=bottom_threshold,
-			sensing="realistic" if self.realistic else "truth",
-		)
+		# With an ACT grasp policy, the hybrid backend (agent/act_grasp.HybridTwin): the expert until act_grasp.
+		kw = {
+			"crop_size": crop_size,
+			"bottom_threshold": bottom_threshold,
+			"sensing": "realistic" if self.realistic else "truth",
+		}
+		if act_policy is None:
+			self.backend = ExpertTracer(sample_case(*case), scorer, self.trace, **kw)
+		else:
+			from .act_grasp import HybridTwin
+
+			self.backend = HybridTwin(
+				sample_case(*case), scorer, self.trace, act_policy, clamp_wait=True, clamp_wait_empty_rad=0.03, **kw
+			)
+			self.backend.student_grasp = False
+		self.act_policy = act_policy
 		self.views: list[dict] = []
 		self.failures: list[dict] = []
 		self.pending: dict | None = None  # the failure waiting for recover()
@@ -174,6 +220,32 @@ class StepSession:
 		else:
 			assert_no_defect_leakage(payload)
 		return payload
+
+	def last_wrist_fix(self) -> dict | None:
+		"""Most recent ``wrist_fix`` event with only sensor fields (never truth error_* fields)."""
+		for e in reversed(self.backend.record.events):
+			if e.get("kind") == "wrist_fix":
+				return {
+					k: v
+					for k, v in e.items()
+					if k not in ("kind", "node", "branch", "frame", "seq", "t") and not k.startswith("error_")
+				}
+		return None
+
+	def log_tool(self, tool: str, latency_s: float, *, args=None, returned=None, error: str | None = None) -> None:
+		if isinstance(returned, (list, tuple)):  # image content blocks
+			returned = {"n_images": len(returned)}
+		elif isinstance(returned, (bytes, bytearray)):
+			returned = {"n_images": 1}
+		self.backend.event(
+			"tool_call",
+			tool=tool,
+			args=dict(args or {}),
+			latency_s=round(float(latency_s), 4),
+			ok=error is None,
+			error=error,
+			returned=returned,
+		)
 
 	# -- observations shared by both profiles ----------------------------------------------------------------------
 
@@ -270,6 +342,21 @@ class StepSession:
 			raise ValueError("no wrist scan is left, or the brick is already placed")
 		return self._inspect("scan_wrist")
 
+	def act_grasp(self) -> dict:
+		"""Grasp and lift the brick with the ACT student (the expert plans only the wrist roll: the symmetric grasp
+		nearest the current one). The brick is then held for present_bottom / place."""
+		self._check_open()
+		if self.act_policy is None:
+			raise ValueError("this server has no ACT grasp policy (start it with --act-server-url)")
+		if self.placed or self.backend.held is not None:
+			raise ValueError("the brick is already held or placed")
+		self.backend.student_grasp = True
+		try:
+			error = self._run("present_bottom", self.backend._grasp)
+		finally:
+			self.backend.student_grasp = False
+		return {"error": error, "held": self.backend.held is not None}
+
 	def present_bottom(self) -> dict:
 		self._check_open()
 		if self.placed or not self.backend.can_present_bottom(self.policy):
@@ -277,6 +364,7 @@ class StepSession:
 		return self._inspect("present_bottom")
 
 	def _inspect(self, node: str) -> dict:
+		covered_before = decision(self.views)[1]
 		new: list[dict] = []
 
 		def run():
@@ -286,7 +374,23 @@ class StepSession:
 
 		error = self._run(node, run)
 		self.views.extend(new)
-		return {"new_views": [self._view(v) for v in new], "error": error}
+		target_faces = range(5) if node == "scan_wrist" else (5,)
+		faces_clear = sorted(
+			{
+				f
+				for v in new
+				if v.get("crop_bbox") is not None and v.get("score") is not None
+				for f in v["faces"]
+				if f in target_faces
+			}
+		)
+		faces_unclear = sorted((set(target_faces) - covered_before) - set(faces_clear))
+		return {
+			"new_views": [self._view(v) for v in new],
+			"error": error,
+			"faces_clear": faces_clear,
+			"faces_unclear": faces_unclear,
+		}
 
 	def place(self, label: str) -> dict:
 		self._check_open()
@@ -295,9 +399,16 @@ class StepSession:
 		if self.placed:
 			raise ValueError("the brick is already placed")
 		self.label = label
+		self.backend._last_carry_tcp = None
 		error = self._run("place", self.backend.place, label)
 		self.placed = not error
-		return {"error": error}
+		carry_target_dist_m = None
+		if label in ("defective", "normal") and getattr(self.backend, "_last_carry_tcp", None) is not None:
+			target_bowl = self.backend.target_bowl(label)
+			if target_bowl in self.backend.bowls:
+				bowl_xy = np.asarray(self.backend.bowls[target_bowl], dtype=np.float64)
+				carry_target_dist_m = round(float(np.linalg.norm(self.backend._last_carry_tcp[:2] - bowl_xy[:2])), 5)
+		return {"error": error, "carry_target_dist_m": carry_target_dist_m}
 
 	def recover(self, choice: str) -> dict:
 		self._check_open(allow_pending=True)
@@ -367,6 +478,7 @@ class StepSession:
 			"world_from_camera": _round(b._cam_est),
 			"convention": "OpenCV (x right, y down, z forward); robot base frame",
 			"reprojection_rms_px": event["rms_px"],
+			"reprojection_px": float(event["rms_px"]),
 			"poses_used": event["poses"],
 		}
 
@@ -386,15 +498,42 @@ class StepSession:
 			"size_m": list(est.size),
 			"footprint_mm": [round(v * 1000, 2) for v in est.footprint_m],
 			"occlusion_correction_mm": list(est.extended_mm),
+			"yaw_ambiguity_deg": round(float(est.yaw_ambiguity_deg), 3),
+			"footprint_occluded_frac": round(float(est.footprint_occluded_frac), 4),
 		}
 
 	def locate_bowls(self) -> dict:
 		"""realistic: the bowl centres found in the top image at the start of the session."""
-		return {"bowls_m": {n: _round(xy) for n, xy in self.backend.bowls.items()}, "found_at": "session start"}
+		b = self.backend
+		ests = getattr(b, "_bowl_estimates", None) or {}
+		slots = list(ests.keys()) if ests else list(b._bowl_slots())
+		bowls_m: dict[str, list[float] | None] = {}
+		rim_inliers: dict[str, int] = {}
+		fit_residual_m: dict[str, float | None] = {}
+		missing: list[str] = []
+		for slot in slots:
+			est = ests.get(slot)
+			if est is None:
+				bowls_m[slot] = None
+				rim_inliers[slot] = 0
+				fit_residual_m[slot] = None
+				missing.append(slot)
+			else:
+				bowls_m[slot] = _round(est.xy)
+				rim_inliers[slot] = int(est.rim_points)
+				fit_residual_m[slot] = round(float(est.fit_residual_m), 6)
+		return {
+			"bowls_m": bowls_m,
+			"found": len(missing) == 0,
+			"missing_bowls": missing,
+			"found_at": "session start",
+			"rim_inliers": rim_inliers,
+			"fit_residual_m": fit_residual_m,
+		}
 
 
 class StepService:
-	def __init__(self, out: Path, detector: Path, profile: str, cases, *, scorer=None):
+	def __init__(self, out: Path, detector: Path, profile: str, cases, *, scorer=None, act_server_url=None):
 		if profile not in PROFILES:
 			raise ValueError(f"profile must be one of {PROFILES}")
 		self.out = Path(out).resolve()
@@ -404,11 +543,30 @@ class StepService:
 		self.profile = profile
 		self.cases = {uuid.uuid4().hex: tuple(c) for c in cases}
 		self.scorer = scorer
+		self.act_server_url = act_server_url  # vla/server.py serving the ACT grasp checkpoint (act_grasp tool)
 		self.sessions: dict[str, StepSession] = {}
 		self.sim = ThreadPoolExecutor(max_workers=1, thread_name_prefix="armigo-step")  # one GL context, one thread
 
+	def _call_sync(self, fn, *args):
+		session = getattr(fn, "__self__", None)
+		t0 = time.perf_counter()
+		try:
+			out = fn(*args)
+		except Exception as exc:
+			if isinstance(session, StepSession):
+				session.log_tool(
+					fn.__name__,
+					time.perf_counter() - t0,
+					args={"args": list(args)},
+					error=f"{type(exc).__name__}: {exc}",
+				)
+			raise
+		if isinstance(session, StepSession):
+			session.log_tool(fn.__name__, time.perf_counter() - t0, args={"args": list(args)}, returned=out)
+		return out
+
 	async def call(self, fn, *args):
-		return await asyncio.wrap_future(self.sim.submit(fn, *args))
+		return await asyncio.wrap_future(self.sim.submit(self._call_sync, fn, *args))
 
 	def session(self, session_id: str) -> StepSession:
 		if session_id not in self.sessions:
@@ -425,8 +583,18 @@ class StepService:
 
 			self.scorer = default_sup_scorer(self.detector)
 		sid = uuid.uuid4().hex
+		act_policy = None
+		if self.act_server_url:
+			from ..vla.client_policy import ChunkClientPolicy, RemoteChunkPredictor
+
+			act_policy = ChunkClientPolicy(RemoteChunkPredictor(self.act_server_url, timeout_s=30.0))
 		session = StepSession(
-			self.cases[case_id], self.profile, self.scorer, self.out / "sessions" / sid, crop_size=self.crop_size
+			self.cases[case_id],
+			self.profile,
+			self.scorer,
+			self.out / "sessions" / sid,
+			crop_size=self.crop_size,
+			act_policy=act_policy,
 		)
 		self.sessions[sid] = session
 		return {"session_id": sid, **session._out({})}
@@ -476,7 +644,9 @@ def create_step_mcp(service: StepService, host="127.0.0.1", port=8766):
 	def session_tool(method_name: str):
 		async def run(session_id: str):
 			session = service.session(session_id)
-			return session._out(await service.call(getattr(session, method_name)))
+			out = dict(await service.call(getattr(session, method_name)))
+			out["last_wrist_fix"] = session.last_wrist_fix()
+			return session._out(out)
 
 		return run
 
@@ -484,7 +654,8 @@ def create_step_mcp(service: StepService, host="127.0.0.1", port=8766):
 	def list_cases() -> dict[str, Any]:
 		"""Opaque scene ids. The task: inspect the brick on the table for a cross defect on any of its six faces,
 		then sort it, defective into the pink bowl and normal into the green bowl (or leave it, as unknown)."""
-		return {"case_ids": list(service.cases), "profile": profile, "tools": [*TOOLS_COMMON, *TOOLS_ONLY[profile]]}
+		tools = [*TOOLS_COMMON, *TOOLS_ONLY[profile], *(["act_grasp"] if service.act_server_url else [])]
+		return {"case_ids": list(service.cases), "profile": profile, "tools": tools}
 
 	@mcp.tool()
 	async def start_session(case_id: str) -> dict[str, Any]:
@@ -523,6 +694,14 @@ def create_step_mcp(service: StepService, host="127.0.0.1", port=8766):
 		"""Move the wrist camera around the brick on the table and score its side and top faces (0-4) not yet
 		cleared. Parks a carried brick first. Returns the new views and an error code, if any."""
 		return await session_tool("scan_wrist")(session_id)
+
+	if service.act_server_url:
+
+		@mcp.tool()
+		async def act_grasp(session_id: str) -> dict[str, Any]:
+			"""Grasp the brick on the table with the learned ACT policy and lift it (instead of the scripted grasp that
+			present_bottom / place would run). Locate the brick first (top view). Returns held and an error code."""
+			return await session_tool("act_grasp")(session_id)
 
 	@mcp.tool()
 	async def present_bottom(session_id: str) -> dict[str, Any]:
@@ -591,23 +770,23 @@ def _scripted(service: StepService, case_ids) -> list[dict]:
 			if st["finished"] or s.stopped or s.placed:
 				break
 			if s.pending is not None:
-				s.recover(next(iter(st["recovery_choices"])))
+				service._call_sync(s.recover, next(iter(st["recovery_choices"])))
 				continue
 			label = st["evidence_label"]
 			wrist = bool(set(range(5)) - set(st["cleared_faces"])) and st["budget"]["wrist_scans_left"] > 0
 			bottom = 5 not in st["cleared_faces"] and st["budget"]["bottom_views_left"] > 0
 			if label != "unknown" or not (wrist or bottom):
-				s.place(label)
+				service._call_sync(s.place, label)
 			elif wrist:
-				s.scan_wrist()
+				service._call_sync(s.scan_wrist)
 			else:
-				s.present_bottom()
+				service._call_sync(s.present_bottom)
 		results.append({"case": list(s.case), **service.finish(sid)["result"]})
 	return results
 
 
 def main_step(a, cases):
-	service = StepService(a.out, a.detector, a.profile, cases)
+	service = StepService(a.out, a.detector, a.profile, cases, act_server_url=getattr(a, "act_server_url", None))
 	try:
 		if a.scripted:
 			results = run_scripted(service)

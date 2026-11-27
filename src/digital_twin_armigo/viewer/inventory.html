@@ -1,0 +1,389 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Armigo · 轨迹与场景清单</title>
+<style>
+:root { color-scheme: dark; font: 14px system-ui, sans-serif; background: #10171c; color: #e3ecee; }
+body { margin: auto; padding: 18px; max-width: 1800px; }
+header { display: flex; flex-wrap: wrap; gap: 12px; align-items: baseline; justify-content: space-between; }
+h1 { font-size: 22px; margin: .2em 0; } h2 { font-size: 15px; font-weight: 600; margin: 0 0 8px; }
+a { color: #8de0b8; text-decoration: none; } a:hover { text-decoration: underline; }
+input[type=search], select, button { font: inherit; color: inherit; background: #1e2d35; border: 1px solid #3a535e; border-radius: 6px; padding: 6px 10px; }
+button { cursor: pointer; } button:hover:not(:disabled) { background: #28404b; } button:disabled { opacity: .45; cursor: default; }
+section { background: #172229; border-radius: 9px; padding: 14px; margin: 14px 0; min-width: 0; }
+.muted { color: #a5bbc4; } [hidden] { display: none !important; }
+#meta { font-size: 12.5px; }
+table { border-collapse: collapse; font-size: 12.5px; }
+th, td { padding: 4px 8px; border-bottom: 1px solid #293a42; text-align: left; white-space: nowrap; }
+th { color: #a5bbc4; font-weight: 500; position: sticky; top: 0; background: #172229; }
+td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
+#matrix td.cell { text-align: right; cursor: pointer; } #matrix td.cell:hover { background: #28404b; }
+#matrix td.cell small { color: #a5bbc4; }
+#matrix th, #matrix td { padding: 5px 12px; }
+.badge { display: inline-block; border-radius: 4px; padding: 1px 7px; font-size: 12px; color: #10171c; white-space: nowrap; }
+.tabs { display: flex; gap: 6px; margin-bottom: 10px; }
+.tabs button[aria-selected=true] { background: #2c6b57; border-color: #4fae88; }
+.facet { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; margin: 6px 0; }
+.facet > span.name { color: #a5bbc4; width: 78px; flex: none; }
+.chip { padding: 2px 9px; border-radius: 12px; font-size: 12.5px; background: #1e2d35; border: 1px solid #3a535e; cursor: pointer; user-select: none; }
+.chip:hover { background: #28404b; } .chip.on { background: #2c6b57; border-color: #4fae88; }
+.chip i { font-style: normal; color: #a5bbc4; margin-left: 4px; } .chip.on i { color: #d7f5e8; }
+.chip.zero { opacity: .45; }
+#tools { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin: 8px 0; }
+#wrap { overflow: auto; max-height: 68vh; border-radius: 6px; }
+tbody tr { cursor: pointer; } tbody tr:hover { background: #20323b; } tbody tr.sel { background: #25443c; }
+th.sortable { cursor: pointer; } th.sortable:hover { color: #e3ecee; }
+#pager { display: flex; gap: 10px; align-items: center; margin-top: 10px; }
+#detail { position: fixed; top: 0; right: 0; bottom: 0; width: min(560px, 100vw); background: #172229; border-left: 1px solid #3a535e; padding: 16px; overflow: auto; box-shadow: -8px 0 24px #0008; }
+#detail dl { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 4px 12px; margin: 10px 0; font-size: 12.5px; }
+#detail dt { color: #a5bbc4; } #detail dd { margin: 0; word-break: break-all; }
+#err { color: #ffc49b; }
+#detail h3 { font-size: 13.5px; margin: 14px 0 6px; }
+#detail textarea, #detail input[type=text] { font: inherit; color: inherit; background: #1e2d35; border: 1px solid #3a535e; border-radius: 6px; padding: 5px 8px; width: 100%; box-sizing: border-box; }
+#audit form { display: grid; grid-template-columns: 90px minmax(0, 1fr); gap: 6px 10px; align-items: center; font-size: 12.5px; }
+#audit form label { color: #a5bbc4; } #audit form .wide { grid-column: 1 / -1; display: flex; gap: 10px; align-items: center; }
+.review { border-left: 3px solid #3a535e; padding: 3px 10px; margin: 6px 0; font-size: 12.5px; }
+.review.latest { border-color: #4fae88; } .review .note { white-space: pre-wrap; color: #c9dce2; }
+.pair { display: flex; gap: 8px; align-items: center; font-size: 12.5px; margin: 3px 0; flex-wrap: wrap; }
+.pair a { cursor: pointer; }
+.yes { color: #6fd3a6; } .no { color: #6b7f88; } .bad { color: #ff9b9b; }
+</style>
+</head>
+<body>
+<header>
+  <h1>轨迹与场景清单</h1>
+  <div><a href="/">← 状态机与阶段耗时</a></div>
+</header>
+<div id="meta" class="muted" role="status"></div>
+<div id="err" role="alert"></div>
+
+<section>
+  <h2>来源类别 × 引擎 <span class="muted" style="font-weight:400">（内容不重复的轨迹数；括号内为 SUCCESS 数；点击格子筛选）</span></h2>
+  <div style="overflow:auto"><table id="matrix"></table></div>
+</section>
+
+<section>
+  <div class="tabs" role="tablist">
+    <button role="tab" data-tab="trajectories" aria-selected="true">轨迹</button>
+    <button role="tab" data-tab="scenes" aria-selected="false">场景</button>
+    <button role="tab" data-tab="datasets" aria-selected="false">数据集</button>
+  </div>
+  <div id="facets"></div>
+  <div id="tools">
+    <input id="q" type="search" placeholder="搜索 id / 路径 / 批次 / 场景…" size="34" aria-label="搜索">
+    <label id="distinct-wrap"><input id="distinct" type="checkbox" checked> 去掉字节重复的拷贝</label>
+    <label id="latest-wrap" title="同一案例被重跑过的，只显示最新一次；原记录仍在表里"><input id="latest" type="checkbox"> 只看最新一次</label>
+    <label id="rerun-wrap">重跑 <select id="is_rerun"><option value="">不限</option><option value="1">只看重跑</option><option value="0">只看原记录</option></select></label>
+    <label id="motion-wrap">3D 位姿 <select id="has_motion"><option value="">不限</option><option value="1">有</option><option value="0">无</option></select></label>
+    <button id="reset" type="button">清除筛选</button>
+    <span id="count" class="muted"></span>
+  </div>
+  <div id="wrap"><table id="grid"><thead></thead><tbody></tbody></table></div>
+  <div id="pager">
+    <button id="prev" type="button">上一页</button><span id="page" class="muted"></span><button id="next" type="button">下一页</button>
+    <label class="muted">每页 <select id="limit"><option>50</option><option selected>100</option><option>200</option><option>500</option></select></label>
+  </div>
+</section>
+
+<aside id="detail" hidden aria-label="详情">
+  <div style="display:flex;justify-content:space-between;align-items:center"><h2 id="detail-title" style="word-break:break-all"></h2><button id="detail-close" type="button">关闭</button></div>
+  <div id="detail-links"></div>
+  <div id="paired" hidden><h3>配对记录</h3><div id="paired-body"></div></div>
+  <div id="audit" hidden><h3>人工审计</h3><div id="audit-body"></div></div>
+  <dl id="detail-body"></dl>
+</aside>
+
+<script>
+const $ = id => document.getElementById(id);
+const CAT_COLORS = { scripted: '#8fb0bd', agent_omniscient: '#e6b85c', agent_realistic: '#5fc79b', model: '#b99af0', model_takeover: '#f09a9a', agent_unknown: '#8a8a8a' };
+const BASIS = { explicit: '显式', inferred: '推断', override: '人工' };
+let CATS = {};
+
+// column specs per table: [key, header, kind]; kind drives rendering
+const COLS = {
+  trajectories: [
+    ['category', '类别', 'cat'], ['run_group', '批次'], ['engine', '引擎'], ['verdict', '结果', 'verdict'], ['verdict_final_cycle', '末轮', 'verdict'], ['failure_mode', '失败原因'],
+    ['case_id', '案例'], ['camera_condition', '相机'], ['strategy', '策略'], ['detector', '检测器'], ['run_state', '运行态', 'runstate'], ['audit_state', '审计', 'audit'], ['root_cause', '根因'],
+    ['seed', '种子', 'num'], ['defective', '缺陷', 'defect'], ['sim_s', '仿真 s', 'num1'], ['wall_s', '墙钟 s', 'num1'],
+    ['views', '视角', 'num'], ['rerun_of', '重跑', 'rerun'], ['has_motion', '3D', 'flag'], ['has_video', '视频', 'flag'], ['category_basis', '依据', 'basis'],
+    ['split_hint', '划分'], ['written_at', '写入时间', 'time'], ['traj_id', 'id'],
+  ],
+  scenes: [
+    ['scene_kind', '种类'], ['engine', '引擎'], ['scene_id', '场景 id'], ['dataset_id', '数据集'], ['seed', '种子', 'num'],
+    ['defective', '缺陷', 'defect'], ['defect_kind', '缺陷类型'], ['split', '划分'], ['n_trajectories', '轨迹数', 'num'], ['categories', '跑过它的类别', 'cats'],
+  ],
+  datasets: [
+    ['name', '名称'], ['kind', '种类'], ['engine', '引擎'], ['n_scenes', '场景数', 'num'], ['n_items', '条目', 'num'],
+    ['item_unit', '单位'], ['root', '根'], ['digest', 'digest'], ['path', '路径'],
+  ],
+};
+const FACET_LABELS = { category: '类别', engine: '引擎', verdict: '结果', verdict_final_cycle: '末轮结果', failure_mode: '失败原因', run_group: '批次', category_basis: '依据', root: '根目录', sensing: '感知', batch: '实验批', group: '实验组', camera_condition: '相机条件', strategy: '策略', detector: '检测器', run_state: '运行态', audit_state: '审计状态', root_cause: '根因', scene_kind: '种类', split: '划分', kind: '种类' };
+
+const FACET_FOLD = 10;  // chips shown per facet before "展开全部"
+const state = { tab: 'trajectories', expanded: new Set(), filters: {}, q: '', distinct: true, latest: false, is_rerun: '', has_motion: '', sort: '', offset: 0, limit: 100, total: 0 };
+
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) { if (k === 'class') el.className = v; else if (k.startsWith('on')) el.addEventListener(k.slice(2), v); else if (v !== null && v !== undefined) el.setAttribute(k, v); }
+  for (const kid of kids.flat()) if (kid !== null && kid !== undefined) el.append(kid);
+  return el;
+}
+function badge(cat) { return h('span', { class: 'badge', style: `background:${CAT_COLORS[cat] || '#8a8a8a'}`, title: cat }, CATS[cat] || cat); }
+function fmtTime(t) { return typeof t === 'number' ? new Date(t * 1000).toLocaleString('zh-CN', { hour12: false }) : (t ?? ''); }
+
+function cell(row, [key, , kind]) {
+  const v = row[key];
+  const td = h('td', { class: kind && kind.startsWith('num') ? 'num' : '' });
+  if (kind === 'rerun' && (v === null || v === undefined) && row.superseded_by) { td.append(h('span', { class: 'badge', style: 'background:#6b7f88' }, '已被重跑')); return td; }
+  if (v === null || v === undefined || v === '') return td;
+  switch (kind) {
+    case 'cat': td.append(badge(v)); break;
+    case 'cats': for (const [c, n] of Object.entries(v)) td.append(badge(c), h('span', { class: 'muted' }, `×${n} `)); break;
+    case 'verdict': td.append(h('span', { class: v === 'SUCCESS' ? 'yes' : 'bad' }, v)); break;
+    case 'flag': td.append(h('span', { class: v ? 'yes' : 'no' }, v ? '●' : '·')); break;
+    case 'defect': td.textContent = row.defective ? `缺陷${row.defect_face != null ? ' 面' + row.defect_face : ''}` : '良品'; break;
+    case 'rerun': td.append(h('span', { class: 'badge', style: 'background:#8de0b8' }, `重跑 r${row.attempt ?? ''}`)); break;
+    case 'basis': td.textContent = BASIS[v] || v; break;
+    case 'runstate': td.append(h('span', { class: v === 'done' ? 'yes' : (v === 'running' ? '' : 'bad') }, v)); break;
+    case 'audit': td.append(h('span', { class: v === 'confirmed' ? 'yes' : (v === 'unreviewed' ? 'muted' : 'bad') }, v)); break;
+    case 'time': td.textContent = fmtTime(v); break;
+    case 'num1': td.textContent = Number(v).toFixed(1); break;
+    default: td.textContent = typeof v === 'object' ? JSON.stringify(v) : v;
+  }
+  return td;
+}
+
+function query(extra) {
+  const p = new URLSearchParams();
+  for (const [k, set] of Object.entries(state.filters)) if (set.size) p.set(k, [...set].join(','));
+  if (state.q) p.set('q', state.q);
+  if (state.tab === 'trajectories') { p.set('distinct', state.distinct ? '1' : '0'); if (state.has_motion) p.set('has_motion', state.has_motion); if (state.latest) p.set('latest', '1'); if (state.is_rerun) p.set('is_rerun', state.is_rerun); }
+  for (const [k, v] of Object.entries(extra || {})) p.set(k, v);
+  return p.toString();
+}
+
+async function api(path) {
+  const r = await fetch(path, { cache: 'no-store' });
+  if (!r.ok) throw new Error((await r.json().catch(() => ({}))).detail || r.statusText);
+  return r.json();
+}
+
+async function loadSummary() {
+  const s = await api('/api/inventory/summary');
+  CATS = s.categories;
+  const m = s.meta;
+  $('meta').textContent = `扫描于 ${fmtTime(m.scanned_at && Date.parse(m.scanned_at) / 1000)} · 分类规则 v${m.rules_version} · 代码 ${m.git_commit} · ` +
+    `轨迹 ${s.totals.trajectories}（其中 ${s.duplicates} 条为字节重复） · 场景 ${s.totals.scenes} · 数据集 ${s.totals.datasets} · 人工覆盖 ${m.overrides_applied} 条` +
+    (s.reruns.reruns ? ` · 重跑 ${s.reruns.reruns} 条（通过 ${s.reruns.rerun_success}，取代 ${s.reruns.superseded} 条原记录）` : '');
+  const engines = [...new Set(s.matrix.map(r => r.engine))].sort();
+  const cats = Object.keys(CATS).filter(c => s.matrix.some(r => r.category === c));
+  const at = (c, e) => s.matrix.find(r => r.category === c && r.engine === e);
+  const tbl = $('matrix'); tbl.replaceChildren();
+  tbl.append(h('thead', {}, h('tr', {}, h('th', {}, '类别'), ...engines.map(e => h('th', { class: 'num' }, e)), h('th', { class: 'num' }, '合计'))));
+  const body = h('tbody');
+  for (const c of cats) {
+    const tot = s.matrix.filter(r => r.category === c).reduce((a, r) => [a[0] + r.n, a[1] + r.success], [0, 0]);
+    body.append(h('tr', {}, h('td', {}, badge(c)), ...engines.map(e => {
+      const r = at(c, e);
+      return r ? h('td', { class: 'cell', onclick: () => jump({ category: c, engine: e }) }, String(r.n), h('small', {}, ` (${r.success})`)) : h('td', { class: 'cell' });
+    }), h('td', { class: 'cell', onclick: () => jump({ category: c }) }, h('b', {}, String(tot[0])), h('small', {}, ` (${tot[1]})`))));
+  }
+  tbl.append(body);
+}
+
+function jump(filters) {
+  state.tab = 'trajectories'; state.filters = {}; state.q = ''; state.offset = 0;
+  for (const [k, v] of Object.entries(filters)) state.filters[k] = new Set([v]);
+  $('q').value = '';
+  syncTabs(); refresh(); $('facets').scrollIntoView({ behavior: 'smooth' });
+}
+
+function syncTabs() {
+  document.querySelectorAll('.tabs button').forEach(b => b.setAttribute('aria-selected', b.dataset.tab === state.tab));
+  $('distinct-wrap').hidden = $('motion-wrap').hidden = $('latest-wrap').hidden = $('rerun-wrap').hidden = state.tab !== 'trajectories';
+  const ths = h('tr', {}, ...COLS[state.tab].map(c => {
+    const arrow = state.sort === c[0] ? ' ▲' : state.sort === '-' + c[0] ? ' ▼' : '';
+    return h('th', { class: 'sortable' + (c[2] && c[2].startsWith('num') ? ' num' : ''), onclick: () => { state.sort = state.sort === c[0] ? '-' + c[0] : c[0]; state.offset = 0; syncTabs(); loadRows(); } }, c[1] + arrow);
+  }));
+  $('grid').tHead.replaceChildren(ths);
+}
+
+async function loadFacets() {
+  const f = await api(`/api/inventory/${state.tab}/facets?${query()}`);
+  const box = $('facets'); box.replaceChildren();
+  for (const [col, items] of Object.entries(f)) {
+    const sel = state.filters[col] || new Set();
+    const open = state.expanded.has(col);
+    const shown = open ? items.slice() : items.slice(0, FACET_FOLD);
+    for (const v of sel) if (!shown.some(i => i.value === v)) shown.push({ value: v, count: 0 });
+    if (!shown.length) continue;
+    const chips = shown.map(i =>
+      h('span', { class: 'chip' + (sel.has(i.value) ? ' on' : '') + (i.count ? '' : ' zero'), title: String(i.value), onclick: () => toggle(col, i.value) },
+        col === 'category' ? (CATS[i.value] || i.value) : (col === 'category_basis' ? BASIS[i.value] || i.value : i.value), h('i', {}, String(i.count))));
+    if (items.length > FACET_FOLD) {
+      chips.push(h('span', { class: 'chip', onclick: () => { open ? state.expanded.delete(col) : state.expanded.add(col); loadFacets(); } }, open ? '收起' : `展开全部 ${items.length}`));
+    }
+    box.append(h('div', { class: 'facet' }, h('span', { class: 'name' }, FACET_LABELS[col] || col), chips));
+  }
+}
+
+function toggle(col, value) {
+  const set = state.filters[col] || (state.filters[col] = new Set());
+  set.has(value) ? set.delete(value) : set.add(value);
+  state.offset = 0; refresh();
+}
+
+async function loadRows() {
+  $('err').textContent = '';
+  const data = await api(`/api/inventory/${state.tab}?${query({ limit: state.limit, offset: state.offset, ...(state.sort ? { sort: state.sort } : {}) })}`);
+  state.total = data.total;
+  const body = $('grid').tBodies[0]; body.replaceChildren();
+  for (const row of data.rows) {
+    const tr = h('tr', { onclick: () => showDetail(row, tr) }, COLS[state.tab].map(c => cell(row, c)));
+    body.append(tr);
+  }
+  const last = Math.min(state.offset + data.rows.length, data.total);
+  $('count').textContent = `${data.total} 条匹配`;
+  $('page').textContent = data.total ? `${state.offset + 1}–${last} / ${data.total}` : '无结果';
+  $('prev').disabled = state.offset <= 0; $('next').disabled = last >= data.total;
+}
+
+async function refresh() {
+  syncTabs();
+  try { await Promise.all([loadFacets(), loadRows()]); } catch (e) { $('err').textContent = '读取失败：' + e.message; }
+}
+
+function showDetail(row, tr) {
+  document.querySelectorAll('tbody tr.sel').forEach(r => r.classList.remove('sel')); if (tr) tr.classList.add('sel');
+  $('detail').hidden = false;
+  $('detail-title').textContent = row.traj_id || row.scene_id || row.dataset_id;
+  const dl = $('detail-body'); dl.replaceChildren();
+  for (const [k, v] of Object.entries(row)) {
+    if (v === null || v === undefined || v === '') continue;
+    const dd = h('dd', {});
+    if (k === 'category') dd.append(badge(v)); else dd.textContent = k === 'written_at' ? fmtTime(v) : (typeof v === 'object' ? JSON.stringify(v) : String(v));
+    dl.append(h('dt', {}, k), dd);
+  }
+  const links = $('detail-links'); links.replaceChildren();
+  if (state.tab === 'trajectories') {
+    api('/api/inventory/trajectory?id=' + encodeURIComponent(row.traj_id)).then(t => {
+      if (t.viewer_id) links.append(h('a', { href: '/#' + encodeURIComponent(t.viewer_id), target: '_blank' }, '在状态机页面打开 →'));
+      else links.append(h('span', { class: 'muted' }, '该轨迹目录已不存在（或不是 agent 回合），无法回放'));
+    }).catch(() => {});
+    loadPaired(row); loadAudit(row);
+  } else { $('paired').hidden = $('audit').hidden = true; }
+}
+
+// -- paired rows ---------------------------------------------------------------------------------------------------------
+function pairLine(label, r) {
+  const what = [r.engine, r.strategy && 'S' + r.strategy, r.camera_condition, r.detector, r.attempt > 1 ? 'a' + r.attempt : null].filter(Boolean).join(' · ');
+  return h('div', { class: 'pair' },
+    h('span', { class: 'muted' }, label), h('a', { title: r.traj_id, onclick: () => showDetail(r, null) }, `${r.case_id} · ${what}`),
+    r.verdict ? h('span', { class: r.verdict === 'SUCCESS' ? 'yes' : 'bad' }, r.verdict) : h('span', { class: 'muted' }, r.run_state || ''),
+    r.audit_state && r.audit_state !== 'unreviewed' ? h('span', { class: 'badge', style: 'background:#8fb0bd' }, r.audit_state) : null,
+    r.viewer_id ? h('a', { href: '/#' + encodeURIComponent(r.viewer_id), target: '_blank' }, '状态机 →') : null);
+}
+
+async function loadPaired(row) {
+  $('paired').hidden = true;
+  if (!row.batch) return;
+  try {
+    const p = await api('/api/inventory/paired?id=' + encodeURIComponent(row.traj_id));
+    if ($('detail-title').textContent !== row.traj_id) return;
+    const body = $('paired-body'); body.replaceChildren();
+    for (const r of p.layout) body.append(pairLine('同布局另一块', r));
+    for (const r of p.case) body.append(pairLine('同案例', r));
+    $('paired').hidden = !(p.layout.length || p.case.length);
+  } catch (e) { /* no pairs */ }
+}
+
+// -- human audit ---------------------------------------------------------------------------------------------------------
+let ENUMS = null;
+let TOKEN = null;
+async function token() { return TOKEN || (TOKEN = (await api('/api/token')).token); }
+function parseRefs(text) {
+  return text.split(/[\s,;]+/).filter(Boolean).map(t => {
+    const [branch, frame, camera] = t.split(':');
+    if (!/^\d+$/.test(branch || '') || !/^\d+$/.test(frame || '')) throw new Error(`帧引用 "${t}" 应为 分支:帧[:相机]`);
+    return camera ? { branch: +branch, frame: +frame, camera } : { branch: +branch, frame: +frame };
+  });
+}
+function refText(refs) { return (refs || []).map(r => [r.branch, r.frame, r.camera || r.view_id].filter(v => v !== undefined && v !== null && v !== '').join(':')).join(' '); }
+function select(name, values, selected, blank) {
+  const sel = h('select', { name }, blank ? h('option', { value: '' }, blank) : null, values.map(v => h('option', { value: v }, v)));
+  sel.value = selected || ''; return sel;
+}
+
+async function loadAudit(row) {
+  $('audit').hidden = true;
+  try {
+    ENUMS = ENUMS || await api('/api/audit/enums');
+    const data = await api('/api/audit/reviews?traj=' + encodeURIComponent(row.traj_id));
+    if ($('detail-title').textContent !== row.traj_id) return;
+    renderAudit(row, data.reviews); $('audit').hidden = false;
+  } catch (e) { /* audit unavailable */ }
+}
+
+function renderAudit(row, reviews, conflict) {
+  const body = $('audit-body'); body.replaceChildren();
+  const last = reviews[0] || null;
+  const err = h('div', { class: 'bad', role: 'alert' }, conflict || '');
+  const reviewer = h('input', { type: 'text', name: 'reviewer', value: localStorage.getItem('armigo.reviewer') || '', placeholder: '审核人' });
+  const stateSel = select('state', ENUMS.states, last ? last.state : 'confirmed');
+  const cause = select('root_cause', ENUMS.root_causes, last && last.root_cause, '（无）');
+  const mech = select('mechanism', ENUMS.mechanism || [], last && last.mechanism, '（无）');
+  const outcome = select('physical_outcome', ENUMS.physical_outcomes, last && last.physical_outcome, '（无）');
+  const note = h('textarea', { name: 'note', rows: '3' });
+  const refs = h('input', { type: 'text', name: 'refs', placeholder: '0:312:wrist 1:40', value: refText(last && last.refs) });
+  const submit = h('button', { type: 'submit' }, last ? '追加新结论' : '提交结论');
+  const form = h('form', { onsubmit: async ev => {
+    ev.preventDefault(); err.textContent = '';
+    let parsed;
+    try { parsed = parseRefs(refs.value); } catch (e) { err.textContent = e.message; return; }
+    localStorage.setItem('armigo.reviewer', reviewer.value.trim());
+    submit.disabled = true;
+    try {
+      const r = await fetch('/api/audit/reviews', { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Viewer-Token': await token() },
+        body: JSON.stringify({ traj_id: row.traj_id, expected_latest_id: last ? last.id : null, reviewer: reviewer.value, state: stateSel.value,
+          root_cause: cause.value || null, mechanism: mech.value || null, physical_outcome: outcome.value || null, note: note.value || null, refs: parsed }) });
+      const out = await r.json().catch(() => ({}));
+      if (r.status === 409) {
+        const cur = out.current;
+        renderAudit(row, cur ? [cur, ...reviews.filter(x => x.id !== cur.id)] : reviews, cur ? `冲突：${cur.reviewer} 刚提交了新结论（#${cur.id}），已刷新；确认后再提交。` : '冲突：该轨迹的审计记录已变化，请重新打开。');
+        return;
+      }
+      if (!r.ok) throw new Error(typeof out.detail === 'string' ? out.detail : r.statusText);
+      row.audit_state = out.state; row.root_cause = out.root_cause; row.mechanism = out.mechanism;
+      renderAudit(row, [out, ...reviews]); loadRows();
+    } catch (e) { err.textContent = '提交失败：' + e.message; submit.disabled = false; }
+  } },
+    h('label', {}, '审核人'), reviewer, h('label', {}, '状态'), stateSel, h('label', {}, '根因'), cause, h('label', {}, '机制'), mech, h('label', {}, '物理结果'), outcome,
+    h('label', {}, '帧引用'), refs, h('label', {}, '备注'), note, h('div', { class: 'wide' }, submit));
+  body.append(form, err);
+  if (!reviews.length) body.append(h('div', { class: 'muted' }, '尚无人工结论（unreviewed）'));
+  reviews.forEach((r, i) => body.append(h('div', { class: 'review' + (i === 0 ? ' latest' : '') },
+    h('div', {}, h('b', {}, `#${r.id} ${r.state}`), r.root_cause ? ` · ${r.root_cause}` : '', r.mechanism ? ` · ${r.mechanism}` : '', r.physical_outcome ? ` · ${r.physical_outcome}` : '',
+      h('span', { class: 'muted' }, ` · ${r.reviewer} · ${r.created_at}${r.code_version ? ' · ' + r.code_version : ''}${i === 0 ? ' · 当前' : ''}`)),
+    r.refs && r.refs.length ? h('div', { class: 'muted' }, '帧：' + refText(r.refs)) : null,
+    r.note ? h('div', { class: 'note' }, r.note) : null)));
+}
+
+document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => { state.tab = b.dataset.tab; state.filters = {}; state.sort = ''; state.offset = 0; refresh(); }));
+let timer; $('q').addEventListener('input', e => { clearTimeout(timer); timer = setTimeout(() => { state.q = e.target.value; state.offset = 0; refresh(); }, 250); });
+$('distinct').addEventListener('change', e => { state.distinct = e.target.checked; state.offset = 0; refresh(); });
+$('latest').addEventListener('change', e => { state.latest = e.target.checked; state.offset = 0; refresh(); });
+$('is_rerun').addEventListener('change', e => { state.is_rerun = e.target.value; state.offset = 0; refresh(); });
+$('has_motion').addEventListener('change', e => { state.has_motion = e.target.value; state.offset = 0; refresh(); });
+$('reset').addEventListener('click', () => { state.filters = {}; state.q = ''; state.has_motion = ''; state.latest = false; state.is_rerun = ''; $('latest').checked = false; $('is_rerun').value = ''; $('q').value = ''; $('has_motion').value = ''; state.offset = 0; refresh(); });
+$('prev').addEventListener('click', () => { state.offset = Math.max(0, state.offset - state.limit); loadRows(); });
+$('next').addEventListener('click', () => { state.offset += state.limit; loadRows(); });
+$('limit').addEventListener('change', e => { state.limit = +e.target.value; state.offset = 0; loadRows(); });
+$('detail-close').addEventListener('click', () => { $('detail').hidden = true; });
+document.addEventListener('keydown', e => { if (e.key === 'Escape') $('detail').hidden = true; });
+
+loadSummary().then(refresh).catch(e => { $('err').textContent = '读取失败：' + e.message; });
+</script>
+</body>
+</html>

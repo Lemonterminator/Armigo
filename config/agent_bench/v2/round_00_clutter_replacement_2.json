@@ -1,0 +1,4 @@
+[
+  [4100142, false, 3, {"scene": "v3", "cameras": "fixed", "split": "train"}],
+  [4100142, true, 3, {"scene": "v3", "cameras": "fixed", "split": "train"}]
+]

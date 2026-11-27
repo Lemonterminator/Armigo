@@ -198,6 +198,16 @@ def test_frozen_split_group_and_members_do_not_drift(catalog):
 		catalog.freeze_split([report(catalog)], "invalid")
 
 
+def test_datasets_lists_frozen_versions_with_split_counts(catalog):
+	assert catalog.datasets() == {"datasets": []}
+	a = recorded(catalog, "first")
+	b = recorded(catalog, "second", a)
+	frozen = catalog.freeze_split([a, b], "v1")
+	(listed,) = catalog.datasets()["datasets"]
+	assert listed["id"] == frozen["id"] and listed["name"] == "v1" and listed["seed"] == 0
+	assert sum(listed["splits"].values()) == 2 and set(listed["splits"]) == {"train", "validation", "test"}
+
+
 def test_no_paths_outside_project_or_logs(catalog, tmp_path):
 	with pytest.raises(ValueError):
 		catalog.project_path(tmp_path.parent / "private.json")

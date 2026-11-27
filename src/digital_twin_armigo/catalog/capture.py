@@ -158,7 +158,8 @@ class MujocoCapture(MotionCapture):
 		self.scene["cameras"] = [{"name": m.camera(i).name, "fovy": float(m.cam_fovy[i])} for i in self.cameras]
 		self.mj_qpos = []
 
-	def frame(self, cell):
+	def poses(self, cell):
+		"""Current world pose of every captured geom: ``[N, 7]`` xyz + xyzw."""
 		from digital_twin_armigo.mujoco_cell._mj import mujoco
 
 		poses = np.empty((len(self.geoms), 7))
@@ -167,7 +168,12 @@ class MujocoCapture(MotionCapture):
 			quat = np.empty(4)
 			mujoco.mju_mat2Quat(quat, cell.data.geom_xmat[g])
 			poses[i, 3:] = quat[[1, 2, 3, 0]]
-		self.append(poses, cell.data.time)
+		return poses
+
+	def frame(self, cell):
+		from digital_twin_armigo.mujoco_cell._mj import mujoco
+
+		self.append(self.poses(cell), cell.data.time)
 		cameras = []
 		for i in self.cameras:
 			q = np.empty(4)

@@ -6,6 +6,10 @@ Connects ``StudentTwin`` (via ``ChunkClientPolicy``) to either a running policy 
 over ALL attempts (including ``UNKNOWN`` / ``FAILED``), computes missed defects, paired
 teacher-student difference with 95% bootstrap CI across layouts, and checks the S10 pilot
 gate (``student_sort_rate >= 0.7 * teacher_sort_rate`` and ``total_collisions == 0``).
+
+Since 2026-11-23 the student runs with clamp-verified grasp termination and its closed-empty exit by default
+(``--clamp-wait``, ``--clamp-wait-empty 0.03``; docs/vla/CLAMP_WAIT_VALIDATION_2026-11-23.md). ``--no-clamp-wait``
+reproduces earlier evaluations.
 """
 
 from __future__ import annotations
@@ -28,15 +32,30 @@ ROOT = Path(__file__).resolve().parents[2]
 if str(ROOT / "src") not in sys.path:
 	sys.path.insert(0, str(ROOT / "src"))
 
+from digital_twin_armigo.agent.grasp_tail import GRASP_TAIL_MODES
 from digital_twin_armigo.agent.student_rollout import run_episode
 from digital_twin_armigo.agent.twin_mujoco import load_suite
 from digital_twin_armigo.agent.vla_grader import find_episodes, grade, load_reference
 from digital_twin_armigo.agent.vla_grader import summarize as summarize_grades
+from digital_twin_armigo.runtime.canonical import sha256_file
+from digital_twin_armigo.tracking.runs import tracked_run
+from digital_twin_armigo.vla import rgb_pin, run_manifest
 from digital_twin_armigo.vla.client_policy import ChunkClientPolicy, RemoteChunkPredictor
 from digital_twin_armigo.vla.server import ChunkPredictor
 
 LEROBOT_CUDA_PYTHON = Path("E:/il/lerobot-cuda/Scripts/python.exe")
 DEFAULT_SUITE = ROOT / "config/vla/val.json"
+# Experiment protocols a run manifest can bind (--protocol); a pinned arm must share its source's protocol.
+PROTOCOLS = {
+	"grasp-tail-r3": "docs/vla/GRASP_TAIL_AB_HANDOFF_2026-11-23.md r3",
+	"clamp-wait-v1": "docs/vla/CLAMP_WAIT_VALIDATION_2026-11-23.md v1",
+	"clamp-wait-v2": "docs/vla/CLAMP_WAIT_VALIDATION_2026-11-23.md v2",
+	"clamp-wait-v3": "docs/vla/CLAMP_WAIT_VALIDATION_2026-11-23.md v3",
+}
+# Student evaluation default since 2026-11-23: clamp-verified grasp termination with the closed-empty exit (protocol
+# v3 verdict make_default on the fresh suite val4, docs/vla/CLAMP_WAIT_VALIDATION_2026-11-23.md section 13).
+# --no-clamp-wait reproduces evaluations from before that date.
+CLAMP_WAIT_EMPTY_DEFAULT_RAD = 0.03
 DEFAULT_DETECTOR = ROOT / "results/agent-bench/sup-v7bot-local.json"
 PILOT_TEACHER_RATIO_GATE = 0.70
 
@@ -119,6 +138,23 @@ def bootstrap_paired_ci(
 	}
 
 
+def _episode_case(ep_dir: Path) -> list | None:
+	"""The full ``[seed, positive, face, ...]`` case recorded with an episode, or None."""
+	for rel in ("task.json", "run.json"):
+		p = ep_dir / rel
+		if p.exists():
+			data = json.loads(p.read_text(encoding="utf-8"))
+			if isinstance(data.get("case"), list) and data["case"]:
+				return list(data["case"])
+	ep_json = ep_dir / "episode.json"
+	if ep_json.exists():
+		manifest = json.loads(ep_json.read_text(encoding="utf-8"))
+		case = (manifest.get("provenance") or {}).get("case")
+		if isinstance(case, list) and case:
+			return list(case)
+	return None
+
+
 def _episode_case_seed(ep_dir: Path) -> int | None:
 	for rel, key in (("task.json", "case"), ("run.json", "case")):
 		p = ep_dir / rel
@@ -156,8 +192,14 @@ def load_teacher_baseline(
 					seed = int(cases[idx][0])
 		if seed is None:
 			continue
+		if seed in by_seed:
+			raise ValueError(
+				f"teacher seed {seed} appears twice ({by_seed[seed]['episode_dir']} and {ep_dir}); "
+				"pairing would be ambiguous"
+			)
 		by_seed[seed] = {
 			"seed": seed,
+			"case": _episode_case(ep_dir),
 			"verdict": result.get("verdict"),
 			"label": result.get("label"),
 			"label_correct": bool(result.get("label_correct", False)),
@@ -282,14 +324,31 @@ def summarize_closed_loop(
 	# Teacher paired comparison
 	paired_diff: dict[str, Any] | None = None
 	teacher_sort_rate: float | None = None
+	pairing: dict[str, Any] | None = None
 	if teacher_by_seed:
 		stu_vec: list[float] = []
 		tea_vec: list[float] = []
+		unpaired: list[int] = []
+		case_mismatch: list[int] = []
 		for r in student_records:
 			t_row = teacher_by_seed.get(int(r["seed"]))
-			if t_row is not None:
-				stu_vec.append(1.0 if r.get("verdict") == "SUCCESS" else 0.0)
-				tea_vec.append(1.0 if t_row.get("verdict") == "SUCCESS" else 0.0)
+			if t_row is None:
+				unpaired.append(int(r["seed"]))
+				continue
+			t_case = t_row.get("case")
+			if t_case is not None and list(t_case)[:3] != list(r["case"])[:3]:
+				case_mismatch.append(int(r["seed"]))
+				continue
+			stu_vec.append(1.0 if r.get("verdict") == "SUCCESS" else 0.0)
+			tea_vec.append(1.0 if t_row.get("verdict") == "SUCCESS" else 0.0)
+		# The gate compares rates over ONE set of layouts: every student layout must have exactly its teacher.
+		pairing = {
+			"students": n,
+			"paired": len(stu_vec),
+			"unpaired_seeds": unpaired,
+			"case_mismatch_seeds": case_mismatch,
+			"complete": bool(n > 0 and len(stu_vec) == n),
+		}
 		if stu_vec:
 			paired_diff = bootstrap_paired_ci(stu_vec, tea_vec, n_boot=n_boot, seed=boot_seed)
 			teacher_sort_rate = float(np.mean(tea_vec))
@@ -306,7 +365,12 @@ def summarize_closed_loop(
 	)
 
 	collision_gate_pass = (total_collisions == 0) and (collision_unavailable == 0) and (n > 0)
-	if teacher_sort_rate is not None:
+	if pairing is not None and not pairing["complete"]:
+		# Partial pairing gives a student rate and a teacher rate over different layouts: no gate.
+		sort_gate_threshold = None
+		sort_rate_gate_pass = None
+		pilot_gate_pass = None
+	elif teacher_sort_rate is not None:
 		sort_gate_threshold = PILOT_TEACHER_RATIO_GATE * teacher_sort_rate
 		sort_rate_gate_pass: bool | None = student_sort_rate >= sort_gate_threshold
 		pilot_gate_pass: bool | None = bool(sort_rate_gate_pass and collision_gate_pass)
@@ -348,6 +412,7 @@ def summarize_closed_loop(
 		"rate_diff": round(rate_diff, 4) if rate_diff is not None else None,
 		"sort_rate_ratio": round(sort_ratio, 4) if sort_ratio is not None else None,
 		"paired_teacher_student": paired_diff,
+		"teacher_pairing": pairing,
 		"pilot_gate": {
 			"ratio_threshold": PILOT_TEACHER_RATIO_GATE,
 			"sort_rate_threshold": round(sort_gate_threshold, 4) if sort_gate_threshold is not None else None,
@@ -476,13 +541,38 @@ def evaluate_closed_loop(
 	replan_interval: int | None = None,
 	prefetch_ahead: int | None = None,
 	end_threshold: float | None = None,
+	temporal_ensemble: float | None = None,
+	stop_policy: str = "latest",
 	teacher_runs: Path | None = None,
 	run_teacher: bool = True,
 	grader_ref: Path | None = None,
 	video: bool = False,
 	n_boot: int = 10_000,
+	grasp_tail_mode: str | None = None,
+	record_act_rgb: bool = False,
+	pin_rgb_from: Path | None = None,
+	clamp_wait: bool = True,
+	pin_handoff: str | None = None,
+	clamp_wait_obstruct: float | None = None,
+	clamp_wait_empty: float | None | str = "default",
 ) -> dict[str, Any]:
-	"""Run sequential ``StudentTwin`` episodes, grade with S6 rules, and compare with teacher."""
+	"""Run sequential ``StudentTwin`` episodes, grade with S6 rules, and compare with teacher.
+
+	``grasp_tail_mode``: first-grasp tail experiment arm (``agent/grasp_tail.py``); None runs the student without
+	the instrumentation (the replay gate's path). ``record_act_rgb`` (arm A) / ``pin_rgb_from`` (another arm: A's
+	output directory): the shared pre-intervention prefix of ``vla/rgb_pin.py``. ``clamp_wait``: clamp-verified grasp
+	termination (``StudentTwin``), on by default. ``clamp_wait_empty``: its closed-empty exit threshold; ``"default"``
+	is ``CLAMP_WAIT_EMPTY_DEFAULT_RAD`` with ``clamp_wait`` and None without it, None with ``clamp_wait`` is the v1
+	rule. ``pin_handoff``: the hand-off rule of a pinned arm (default: its grasp_tail mode, ``clamp-wait`` when
+	``clamp_wait``)."""
+	if clamp_wait_empty == "default":
+		clamp_wait_empty = CLAMP_WAIT_EMPTY_DEFAULT_RAD if clamp_wait else None
+	if record_act_rgb and pin_rgb_from is not None:
+		raise ValueError("record_act_rgb and pin_rgb_from are exclusive")
+	if (record_act_rgb or pin_rgb_from is not None) and grasp_tail_mode is None:
+		raise ValueError("RGB recording / pinning needs a grasp_tail_mode")
+	pin_role = "record" if record_act_rgb else ("pin" if pin_rgb_from is not None else None)
+	pin_mode = pin_handoff or ("clamp-wait" if clamp_wait else grasp_tail_mode)
 	out_dir = Path(out_dir)
 	out_dir.mkdir(parents=True, exist_ok=True)
 	health = predictor.health()
@@ -496,23 +586,73 @@ def evaluate_closed_loop(
 	for idx, case in enumerate(cases):
 		ep_dir = out_dir / "student" / f"case-{idx:04d}"
 		if (ep_dir / "episode.json").exists():
+			recorded = _episode_case(ep_dir)
+			if recorded is None or list(recorded)[:3] != list(case)[:3]:
+				raise ValueError(
+					f"{ep_dir} holds case {recorded}, not suite case {list(case)}: use a fresh --out per checkpoint/suite"
+				)
+			prov = json.loads((ep_dir / "episode.json").read_text(encoding="utf-8")).get("provenance") or {}
+			if prov.get("grasp_tail") != grasp_tail_mode:
+				raise ValueError(
+					f"{ep_dir} was run with grasp_tail={prov.get('grasp_tail')!r}, not {grasp_tail_mode!r}"
+				)
+			if bool(prov.get("clamp_wait")) != clamp_wait:
+				raise ValueError(f"{ep_dir} was run with clamp_wait={bool(prov.get('clamp_wait'))}, not {clamp_wait}")
+			if prov.get("clamp_wait_obstruct_rad") != clamp_wait_obstruct:
+				raise ValueError(
+					f"{ep_dir} was run with clamp_wait_obstruct={prov.get('clamp_wait_obstruct_rad')}, "
+					f"not {clamp_wait_obstruct}"
+				)
+			if prov.get("clamp_wait_empty_rad") != clamp_wait_empty:
+				raise ValueError(
+					f"{ep_dir} was run with clamp_wait_empty={prov.get('clamp_wait_empty_rad')}, not {clamp_wait_empty}"
+				)
+			pin_log = ep_dir / rgb_pin.LOG_FILE
+			old_role = json.loads(pin_log.read_text(encoding="utf-8"))["role"] if pin_log.exists() else None
+			if old_role != pin_role:
+				raise ValueError(f"{ep_dir} was run with RGB role {old_role!r}, not {pin_role!r}")
 			rec = _episode_record_from_dir(ep_dir, case)
 			g = grade(ep_dir, reference=reference)
 			student_records.append(rec)
 			student_grades.append(g)
 			continue
 
-		policy = ChunkClientPolicy(
-			predictor,
-			mode=resolved_mode,
-			replan_interval=replan_interval,
-			prefetch_ahead=prefetch_ahead,
-			end_threshold=end_threshold,
-		)
+		policy_kw = {
+			"mode": resolved_mode,
+			"replan_interval": replan_interval,
+			"prefetch_ahead": prefetch_ahead,
+			"end_threshold": end_threshold,
+			"temporal_ensemble": temporal_ensemble,
+			"stop_policy": stop_policy,
+		}
+		if pin_role == "record":
+			policy = rgb_pin.RgbPinClientPolicy(predictor, recorder=rgb_pin.RgbRecorder(), **policy_kw)
+		elif pin_role == "pin":
+			src_ep = Path(pin_rgb_from) / "student" / f"case-{idx:04d}"
+			src_case = _episode_case(src_ep) if (src_ep / "episode.json").exists() else None
+			if src_case is None or list(src_case)[:3] != list(case)[:3]:
+				raise ValueError(f"pin source {src_ep} holds case {src_case}, not {list(case)}")
+			pin = rgb_pin.RgbPin(src_ep, pin_mode)
+			policy = rgb_pin.RgbPinClientPolicy(predictor, pin=pin, **policy_kw)
+		else:
+			policy = ChunkClientPolicy(predictor, **policy_kw)
 		try:
-			run_episode(case, scorer, ep_dir, policy=policy, sensing="realistic", video=video)
+			run_episode(
+				case,
+				scorer,
+				ep_dir,
+				policy=policy,
+				sensing="realistic",
+				video=video,
+				grasp_tail=grasp_tail_mode,
+				clamp_wait=clamp_wait,
+				clamp_wait_obstruct_rad=clamp_wait_obstruct,
+				clamp_wait_empty_rad=clamp_wait_empty,
+			)
 		finally:
 			_write_task_json_if_missing(ep_dir, case)
+			if pin_role is not None:
+				policy.save(ep_dir)
 			policy.close()
 
 		rec = _episode_record_from_dir(ep_dir, case)
@@ -552,11 +692,36 @@ def evaluate_closed_loop(
 		teacher_summary=teacher_summary,
 		n_boot=n_boot,
 	)
+	# One row per layout: the case, the student's and the teacher's outcome (plan B paired table).
+	paired_rows = []
+	for r in student_records:
+		t_row = teacher_by_seed.get(int(r["seed"])) if teacher_by_seed else None
+		paired_rows.append(
+			{
+				"case": r["case"],
+				"student_verdict": r.get("verdict"),
+				"student_label": r.get("label"),
+				"teacher_verdict": None if t_row is None else t_row.get("verdict"),
+				"teacher_label": None if t_row is None else t_row.get("label"),
+				"student_dir": r.get("episode_dir"),
+				"teacher_dir": None if t_row is None else t_row.get("episode_dir"),
+			}
+		)
 	report = {
+		"grasp_tail_mode": grasp_tail_mode,
+		"rgb_pin": {
+			"role": pin_role,
+			"source": None if pin_rgb_from is None else str(pin_rgb_from),
+			"handoff": pin_mode if pin_role == "pin" else None,
+		},
+		"clamp_wait": clamp_wait,
+		"clamp_wait_obstruct": clamp_wait_obstruct,
+		"clamp_wait_empty": clamp_wait_empty,
 		"mode_requested": mode,
 		"mode_resolved": resolved_mode,
 		"server_health": health,
 		"summary": summary,
+		"paired_rows": paired_rows,
 		"episodes": student_records,
 		"grades": student_grades,
 	}
@@ -566,6 +731,14 @@ def evaluate_closed_loop(
 	)
 	(out_dir / "eval_summary.json").write_text(json.dumps(report, indent=2) + "\n", encoding="utf-8")
 	return report
+
+
+def _pin_source(out: Path | None) -> dict[str, Any] | None:
+	"""Arm A's run as an input of a pinned arm: its directory and manifest identity (stable across A's resumes)."""
+	if out is None:
+		return None
+	source = json.loads((Path(out) / run_manifest.MANIFEST_NAME).read_text(encoding="utf-8"))
+	return {"path": str(Path(out).resolve()), "sha256": source["identity"]}
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -580,6 +753,77 @@ def build_parser() -> argparse.ArgumentParser:
 	p.add_argument("--replan-interval", type=int, default=None)
 	p.add_argument("--prefetch-ahead", type=int, default=None)
 	p.add_argument("--end-threshold", type=float, default=None)
+	p.add_argument(
+		"--temporal-ensemble",
+		type=float,
+		default=None,
+		help="ACT temporal ensembling coefficient m (e.g. 0.01); pair with a small --replan-interval",
+	)
+	p.add_argument(
+		"--stop-policy",
+		choices=("latest", "keep", "earliest"),
+		default="latest",
+		help="How a replan combines its end-step with a planned stop (see ChunkClientPolicy)",
+	)
+	p.add_argument(
+		"--grasp-tail-mode",
+		choices=GRASP_TAIL_MODES,
+		default=None,
+		help="First-grasp tail experiment arm (docs/vla/GRASP_TAIL_AB_HANDOFF_2026-11-23.md): act logs only, "
+		"act-wait holds ACT's last command until the clamp is confirmed, expert-once runs one truncated expert tail. "
+		"Writes grasp_tail.json per episode and binds the output directory to run_manifest.json",
+	)
+	p.add_argument(
+		"--record-act-rgb",
+		action="store_true",
+		help="Arm A of the tail experiment: store the RGB of every ACT request (act_rgb.npz) for the other arms",
+	)
+	p.add_argument(
+		"--pin-rgb-from",
+		type=Path,
+		default=None,
+		help="Other arms: arm A's --out; pin A's request RGB up to this arm's hand-off point (vla/rgb_pin.py)",
+	)
+	p.add_argument(
+		"--clamp-wait",
+		action=argparse.BooleanOptionalAction,
+		default=True,
+		help="Clamp-verified grasp termination (default on): when ACT ends a grasp before the clamp is confirmed, hold "
+		"its last command until clamped, blocked, closed on nothing (--clamp-wait-empty) or timeout "
+		"(docs/vla/CLAMP_WAIT_VALIDATION_2026-11-23.md). --no-clamp-wait runs the policy's own grasp end, as every "
+		"evaluation before 2026-11-23 did",
+	)
+	p.add_argument(
+		"--clamp-wait-obstruct",
+		type=float,
+		default=None,
+		metavar="RAD",
+		help="With --clamp-wait: end the wait as obstructed after 3 held frames with an arm joint >= RAD from the "
+		"held command (protocol v2)",
+	)
+	p.add_argument(
+		"--clamp-wait-empty",
+		type=float,
+		default=None,
+		metavar="RAD",
+		help="With --clamp-wait: end the wait as empty after 3 held frames with the gripper within RAD of its held "
+		f"command, i.e. closed on nothing (protocol v3). Default {CLAMP_WAIT_EMPTY_DEFAULT_RAD}; 0 turns the exit off "
+		"(the v1 rule)",
+	)
+	p.add_argument(
+		"--protocol",
+		choices=tuple(PROTOCOLS),
+		default=None,
+		help="Bind the output directory to run_manifest.json under this protocol (default grasp-tail-r3 with "
+		"--grasp-tail-mode; without either no manifest is written)",
+	)
+	p.add_argument(
+		"--pin-handoff",
+		choices=("act", "act-wait", "expert-once", "clamp-wait"),
+		default=None,
+		help="Hand-off rule of a --pin-rgb-from arm (default: its --grasp-tail-mode, clamp-wait with --clamp-wait); "
+		"a repeat-A noise arm of the clamp-wait validation passes clamp-wait",
+	)
 	p.add_argument("--teacher-runs", type=Path, default=None, help="Optional dir of expert runs on the same suite")
 	p.add_argument("--no-teacher", action="store_true", help="Do not run teacher baseline if --teacher-runs is absent")
 	p.add_argument("--max-episodes", type=int, default=None)
@@ -591,7 +835,32 @@ def build_parser() -> argparse.ArgumentParser:
 	p.add_argument("--allow-download", action="store_true")
 	p.add_argument("--timeout-s", type=float, default=30.0)
 	p.add_argument("--n-boot", type=int, default=10_000)
+	p.add_argument("--mlflow", action="store_true", help="Record this evaluation in MLflow")
+	p.add_argument("--mlflow-experiment", default="vla-eval")
+	p.add_argument("--run-name", default=None, help="MLflow run name (default: output directory name)")
 	return p
+
+
+def resolve_clamp_wait_args(args: argparse.Namespace) -> argparse.Namespace:
+	"""Check and resolve the clamp-wait arguments in place: ``clamp_wait_empty`` becomes the exit threshold actually
+	run (``CLAMP_WAIT_EMPTY_DEFAULT_RAD`` unless given; 0 -> None, the v1 rule; None without clamp-wait), and a
+	grasp-tail run without ``--protocol`` binds ``grasp-tail-r3``."""
+	if args.clamp_wait_obstruct is not None and not args.clamp_wait:
+		raise ValueError("--clamp-wait-obstruct needs --clamp-wait (on by default)")
+	if args.clamp_wait_empty is not None and not args.clamp_wait:
+		raise ValueError("--clamp-wait-empty needs --clamp-wait (on by default)")
+	if args.clamp_wait_empty is not None and args.clamp_wait_empty < 0:
+		raise ValueError(f"--clamp-wait-empty must be >= 0, got {args.clamp_wait_empty}")
+	if args.clamp_wait:
+		if args.clamp_wait_empty is None:
+			args.clamp_wait_empty = CLAMP_WAIT_EMPTY_DEFAULT_RAD
+		elif args.clamp_wait_empty == 0:
+			args.clamp_wait_empty = None
+	if args.clamp_wait and args.grasp_tail_mode == "act-wait":
+		raise ValueError("--grasp-tail-mode act-wait needs --no-clamp-wait (clamp-wait already covers it)")
+	if args.grasp_tail_mode is not None and args.protocol is None:
+		args.protocol = "grasp-tail-r3"
+	return args
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -605,6 +874,33 @@ def main(argv: list[str] | None = None) -> int:
 		raise ValueError("suite contains no episodes to evaluate")
 
 	from digital_twin_armigo.inspection_scorer import default_sup_scorer
+
+	if (args.record_act_rgb or args.pin_rgb_from is not None) and args.grasp_tail_mode is None:
+		raise ValueError("--record-act-rgb / --pin-rgb-from need --grasp-tail-mode")
+	if args.record_act_rgb and args.pin_rgb_from is not None:
+		raise ValueError("--record-act-rgb and --pin-rgb-from are exclusive")
+	if args.pin_handoff is not None and args.pin_rgb_from is None:
+		raise ValueError("--pin-handoff needs --pin-rgb-from")
+	resolve_clamp_wait_args(args)
+	if args.protocol is not None:
+		resolved = {**vars(args), "temporal_ensemble": args.temporal_ensemble, "sensing": "realistic"}
+		manifest = run_manifest.build_manifest(
+			root=ROOT,
+			args={k: v for k, v in resolved.items() if k not in ("out", "mlflow", "run_name", "mlflow_experiment")},
+			inputs={
+				"ckpt": run_manifest.describe_dir(args.ckpt),
+				"suite": run_manifest.describe_file(args.suite),
+				"detector": run_manifest.describe_detector(args.detector),
+				"grader_ref": run_manifest.describe_file(args.grader_ref),
+				"pin_source": _pin_source(args.pin_rgb_from),
+			},
+			protocol=PROTOCOLS[args.protocol],
+			grasp_tail_mode=args.grasp_tail_mode,
+		)
+		if args.pin_rgb_from is not None:
+			source = json.loads((args.pin_rgb_from / run_manifest.MANIFEST_NAME).read_text(encoding="utf-8"))
+			rgb_pin.check_source_manifest(source, manifest)
+		run_manifest.bind_manifest(args.out, manifest)
 
 	scorer = default_sup_scorer(args.detector)
 	try:
@@ -627,23 +923,55 @@ def main(argv: list[str] | None = None) -> int:
 				replan_interval=args.replan_interval,
 				prefetch_ahead=args.prefetch_ahead,
 				end_threshold=args.end_threshold,
+				temporal_ensemble=args.temporal_ensemble,
+				stop_policy=args.stop_policy,
 				teacher_runs=args.teacher_runs,
 				run_teacher=not args.no_teacher,
 				grader_ref=args.grader_ref,
 				video=args.video,
 				n_boot=args.n_boot,
+				grasp_tail_mode=args.grasp_tail_mode,
+				record_act_rgb=args.record_act_rgb,
+				pin_rgb_from=args.pin_rgb_from,
+				clamp_wait=args.clamp_wait,
+				pin_handoff=args.pin_handoff,
+				clamp_wait_obstruct=args.clamp_wait_obstruct,
+				clamp_wait_empty=args.clamp_wait_empty,
 			)
 	finally:
 		if hasattr(scorer, "close"):
 			scorer.close()
 
 	s = report["summary"]
+	with tracked_run(
+		args.mlflow_experiment,
+		args.run_name or args.out.name,
+		enabled=args.mlflow,
+		params={
+			"ckpt": args.ckpt,
+			"server_url": args.server_url,
+			"suite": args.suite,
+			"mode": report["mode_resolved"],
+			"episodes": len(cases),
+			"replan_interval": args.replan_interval,
+			"end_threshold": args.end_threshold,
+			"n_boot": args.n_boot,
+			"detector": args.detector,
+			"clamp_wait": args.clamp_wait,
+			"clamp_wait_empty": args.clamp_wait_empty,
+		},
+		tags={"task": "vla_eval", "suite.sha256": sha256_file(args.suite)},
+	) as run:
+		run.log_report({k: v for k, v in s.items() if k != "s6_checks"})
+		for name in ("eval_summary.json", "grades.json"):
+			run.log_artifact(args.out / name)
 	pg = s["pilot_gate"]
 	print(
 		f"Closed-loop eval ({report['mode_resolved']}): {s['sort_successes']}/{s['episodes']} sorted "
 		f"({s['student_sort_rate']:.3f}), missed_defects={s['missed_defects']}/{s['defective_episodes']}, "
 		f"collisions={s['collisions']['total_collisions']} ({s['collisions']['collision_episodes']} eps), "
-		f"teacher={s['teacher_sort_rate']}, pilot_gate={pg['pilot_gate_pass']}"
+		f"teacher={s['teacher_sort_rate']}, pilot_gate={pg['pilot_gate_pass']}, "
+		f"clamp_wait={args.clamp_wait} (empty exit {args.clamp_wait_empty})"
 	)
 	if s["paired_teacher_student"] is not None:
 		p = s["paired_teacher_student"]

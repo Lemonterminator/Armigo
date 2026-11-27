@@ -1,0 +1,29 @@
+{
+  "input_hw": [
+    240,
+    320
+  ],
+  "mean": [
+    0.485,
+    0.456,
+    0.406
+  ],
+  "std": [
+    0.229,
+    0.224,
+    0.225
+  ],
+  "classes": [
+    "bg",
+    "top",
+    "bottom",
+    "side"
+  ],
+  "heat_channels": 2,
+  "data_manifest_sha": "",
+  "git_commit": "230ccde902ede4a7ea1cd1b3c68e0d3a51382f3b",
+  "val_metrics": {},
+  "base": 4,
+  "seed": 0,
+  "onnx_backend": "pure_python_onnx"
+}
